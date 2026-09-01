@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { createClient } from '@/lib/supabase/client'
 
 type Profile = {
   id: string
@@ -56,16 +55,11 @@ export default function AdminPage() {
   const [inviteError, setInviteError] = useState('')
 
   const loadAll = useCallback(async () => {
-    const supabase = createClient()
-    const [profilesRes, pendingRes, authRes] = await Promise.all([
-      supabase.from('profiles').select('*').order('role'),
-      fetch('/api/admin/pending-users').then(r => r.json()),
+    const [usersAuthRes, pendingRes] = await Promise.all([
       fetch('/api/admin/users-auth').then(r => r.json()),
+      fetch('/api/admin/pending-users').then(r => r.json()),
     ])
-    const authById: Record<string, string | null> = {}
-    for (const u of (authRes.users ?? [])) authById[u.id] = u.last_sign_in_at
-    const profiles = (profilesRes.data ?? []) as Profile[]
-    setProfiles(profiles.map(p => ({ ...p, last_sign_in_at: authById[p.id] ?? null })))
+    setProfiles((usersAuthRes.profiles ?? []) as Profile[])
     setPending(pendingRes.pending ?? [])
     setLoadingProfiles(false)
   }, [])
