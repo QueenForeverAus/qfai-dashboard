@@ -684,6 +684,122 @@ function VenueStaffRow({
   )
 }
 
+// ─── Inline show details editor ─────────────────────────────────────────────
+
+function ShowDetailsEditor({
+  show,
+  isOwner,
+  onUpdated,
+}: {
+  show: Show
+  isOwner: boolean
+  onUpdated: (updated: Show) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [venueName, setVenueName] = useState(show.venue_name)
+  const [venueCity, setVenueCity] = useState(show.venue_city)
+  const [state, setState_] = useState(show.state_territory ?? '')
+  const [showDate, setShowDate] = useState(show.show_date ?? '')
+  const [capacity, setCapacity] = useState(show.capacity?.toString() ?? '')
+  const [ticketPrice, setTicketPrice] = useState(show.ticket_price?.toString() ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    setSaving(true)
+    setError(null)
+    const res = await fetch(`/api/shows/${show.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        venue_name: venueName,
+        venue_city: venueCity,
+        state_territory: state || null,
+        show_date: showDate || null,
+        capacity: capacity ? parseInt(capacity) : null,
+        ticket_price: ticketPrice ? parseFloat(ticketPrice) : null,
+      }),
+    })
+    const data = await res.json()
+    setSaving(false)
+    if (!res.ok) { setError(data.error ?? 'Save failed'); return }
+    onUpdated(data as Show)
+    setEditing(false)
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex items-start gap-2 group">
+        <div>
+          <div className="text-white font-semibold text-sm">{show.venue_name}</div>
+          <div className="text-slate-500 text-xs mt-0.5">
+            {show.venue_city}{show.state_territory ? `, ${show.state_territory}` : ''} · {fmtDate(show.show_date)}
+            {show.capacity ? ` · Cap ${show.capacity.toLocaleString()}` : ''}
+            {show.ticket_price ? ` · $${show.ticket_price}/ticket` : ''}
+          </div>
+        </div>
+        {isOwner && (
+          <button
+            onClick={() => setEditing(true)}
+            className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-amber-400 text-xs transition-all ml-1 mt-0.5"
+            title="Edit show details"
+          >
+            ✎
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-slate-900/60 border border-amber-400/30 rounded-lg px-3 py-3 space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-slate-500 text-xs block mb-0.5">Venue name</label>
+          <input value={venueName} onChange={e => setVenueName(e.target.value)} autoFocus
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+        </div>
+        <div>
+          <label className="text-slate-500 text-xs block mb-0.5">City</label>
+          <input value={venueCity} onChange={e => setVenueCity(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+        </div>
+        <div>
+          <label className="text-slate-500 text-xs block mb-0.5">State</label>
+          <input value={state} onChange={e => setState_(e.target.value)} placeholder="VIC"
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+        </div>
+        <div>
+          <label className="text-slate-500 text-xs block mb-0.5">Show date</label>
+          <input type="date" value={showDate?.slice(0, 10) ?? ''} onChange={e => setShowDate(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+        </div>
+        <div>
+          <label className="text-slate-500 text-xs block mb-0.5">Capacity</label>
+          <input type="number" value={capacity} onChange={e => setCapacity(e.target.value)} placeholder="0"
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+        </div>
+        <div>
+          <label className="text-slate-500 text-xs block mb-0.5">Ticket price ($)</label>
+          <input type="number" value={ticketPrice} onChange={e => setTicketPrice(e.target.value)} placeholder="0.00" step="0.01"
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+        </div>
+      </div>
+      {error && <p className="text-red-400 text-xs">{error}</p>}
+      <div className="flex items-center gap-2 pt-1">
+        <button onClick={save} disabled={saving}
+          className="bg-amber-400 text-slate-900 text-xs font-semibold px-3 py-1 rounded hover:bg-amber-300 disabled:opacity-50 transition-colors">
+          {saving ? '…' : 'Save'}
+        </button>
+        <button onClick={() => { setEditing(false); setError(null) }}
+          className="text-slate-500 hover:text-slate-300 text-xs transition-colors">
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Groups run-level fields by category ────────────────────────────────────
 const RUN_CATEGORIES = [...new Set(RUN_FIELDS.map(f => f.category))]
 
@@ -712,10 +828,15 @@ export default function CostFieldsTab({
   const visibleRunCategories = isProduction
     ? ['Production']
     : RUN_CATEGORIES
+  const [showsState, setShowsState] = useState<Show[]>(shows)
   const [fields, setFields] = useState<CostFieldRow[]>(initialFields)
   const [sellThrough, setSellThrough] = useState<Record<string, number>>(() =>
-    Object.fromEntries(shows.map(s => [s.id, s.sell_through_pct ?? 75]))
+    Object.fromEntries(showsState.map(s => [s.id, s.sell_through_pct ?? 75]))
   )
+
+  function handleShowUpdated(updated: Show) {
+    setShowsState(prev => prev.map(s => s.id === updated.id ? updated : s))
+  }
 
   function handleSaved(updated: CostFieldRow) {
     setFields(prev => {
@@ -744,12 +865,12 @@ export default function CostFieldsTab({
     return Math.round(show.capacity * (pct / 100) * show.ticket_price)
   }
 
-  const totalRevenue = shows.reduce((sum, s) => sum + (projectedBoxOffice(s, sellThrough[s.id] ?? 75) ?? 0), 0)
+  const totalRevenue = showsState.reduce((sum, s) => sum + (projectedBoxOffice(s, sellThrough[s.id] ?? 75) ?? 0), 0)
   const harbourCommission = Math.round(totalRevenue * 0.1)
   const netRevenue = totalRevenue - harbourCommission
 
   // social_ads_var is AUTO-CALC: tickets × $1.10 — computed live from sliders, not from stored value
-  const dynamicSocialAds = shows.reduce((sum, s) => {
+  const dynamicSocialAds = showsState.reduce((sum, s) => {
     const tickets = s.capacity ? Math.round(s.capacity * (sellThrough[s.id] ?? 75) / 100) : 0
     return sum + Math.round(tickets * 1.10)
   }, 0)
@@ -760,7 +881,7 @@ export default function CostFieldsTab({
     return sum + (row?.value ?? 0)
   }, 0)
 
-  const showCostTotal = shows.reduce((sum, show) => {
+  const showCostTotal = showsState.reduce((sum, show) => {
     return sum + SHOW_FIELDS.filter(f => f.category !== 'Revenue').reduce((s2, f) => {
       const row = fieldMap.get(showFieldKey(show.id, f.key))
       return s2 + (row?.value ?? 0)
@@ -783,7 +904,7 @@ export default function CostFieldsTab({
       incompleteFields.push(f.label)
     }
   }
-  for (const show of shows) {
+  for (const show of showsState) {
     for (const sf of SHOW_FIELDS.filter(sf => sf.category !== 'Revenue')) {
       const row = fieldMap.get(showFieldKey(show.id, sf.key))
       if (!row) continue
@@ -800,7 +921,7 @@ export default function CostFieldsTab({
     const supabase = createClient()
     await supabase.from('shows').update({ sell_through_pct: pct }).eq('id', showId)
     // Keep stored social_ads_var in sync so Costs tab matches
-    const newSocialAds = shows.reduce((sum, s) => {
+    const newSocialAds = showsState.reduce((sum, s) => {
       const tickets = s.capacity ? Math.round(s.capacity * (newSellThrough[s.id] ?? 75) / 100) : 0
       return sum + Math.round(tickets * 1.10)
     }, 0)
@@ -864,7 +985,7 @@ export default function CostFieldsTab({
           <div>
             <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">Revenue</h3>
             <div className="space-y-3">
-              {shows.map(show => {
+              {showsState.map(show => {
                 const pct = sellThrough[show.id] ?? 75
                 const tickets = show.capacity ? Math.round(show.capacity * pct / 100) : null
                 const gbo = projectedBoxOffice(show, pct)
@@ -915,7 +1036,7 @@ export default function CostFieldsTab({
           <div>
             <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">Venue Costs — Per Show</h3>
             <div className="bg-slate-800 rounded-xl border border-slate-700 divide-y divide-slate-700/60">
-              {shows.map(show => {
+              {showsState.map(show => {
                 const hire = fieldMap.get(showFieldKey(show.id, 'venue_hire'))?.value ?? null
                 const staff = fieldMap.get(showFieldKey(show.id, 'venue_staff'))?.value ?? null
                 const prod = fieldMap.get(showFieldKey(show.id, 'production_costs'))?.value ?? null
@@ -1030,13 +1151,16 @@ export default function CostFieldsTab({
           <p className="text-slate-600 text-xs -mt-2">Use ▼ on any cost field to drill into the breakdown and add individual line items as they come in.</p>
 
           {/* Per-show sections */}
-          {shows.map((show, idx) => (
+          {showsState.map((show, idx) => (
             <div key={show.id} className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="w-6 h-6 rounded-full bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 text-xs font-bold shrink-0">{idx + 1}</div>
-                <div>
-                  <div className="text-white font-semibold text-sm">{show.venue_name}</div>
-                  <div className="text-slate-500 text-xs">{show.venue_city} · {fmtDate(show.show_date)}{show.capacity ? ` · Cap ${show.capacity.toLocaleString()}` : ''}</div>
+                <div className="w-6 h-6 rounded-full bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 text-xs font-bold shrink-0 self-start mt-0.5">{idx + 1}</div>
+                <div className="flex-1 min-w-0">
+                  <ShowDetailsEditor
+                    show={show}
+                    isOwner={!isProduction}
+                    onUpdated={handleShowUpdated}
+                  />
                 </div>
               </div>
 
@@ -1073,7 +1197,7 @@ export default function CostFieldsTab({
                 )
               })}
 
-              {idx < shows.length - 1 && <div className="border-b border-slate-800 mt-4" />}
+              {idx < showsState.length - 1 && <div className="border-b border-slate-800 mt-4" />}
             </div>
           ))}
 
