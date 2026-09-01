@@ -8,6 +8,7 @@ type Profile = {
   full_name: string
   email: string
   role: string
+  last_sign_in_at?: string | null
 }
 
 type PendingUser = {
@@ -16,6 +17,19 @@ type PendingUser = {
   full_name: string | null
   role: string | null
   invited_at: string
+}
+
+function fmtLastSeen(ts: string | null | undefined): string {
+  if (!ts) return 'Never'
+  const diff = Date.now() - new Date(ts).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 2) return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(ts).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
 }
 
 const roleStyles: Record<string, string> = {
@@ -43,11 +57,15 @@ export default function AdminPage() {
 
   const loadAll = useCallback(async () => {
     const supabase = createClient()
-    const [profilesRes, pendingRes] = await Promise.all([
+    const [profilesRes, pendingRes, authRes] = await Promise.all([
       supabase.from('profiles').select('*').order('role'),
       fetch('/api/admin/pending-users').then(r => r.json()),
+      fetch('/api/admin/users-auth').then(r => r.json()),
     ])
-    setProfiles((profilesRes.data ?? []) as Profile[])
+    const authById: Record<string, string | null> = {}
+    for (const u of (authRes.users ?? [])) authById[u.id] = u.last_sign_in_at
+    const profiles = (profilesRes.data ?? []) as Profile[]
+    setProfiles(profiles.map(p => ({ ...p, last_sign_in_at: authById[p.id] ?? null })))
     setPending(pendingRes.pending ?? [])
     setLoadingProfiles(false)
   }, [])
@@ -160,6 +178,7 @@ export default function AdminPage() {
                 <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Name</th>
                 <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Email</th>
                 <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Role</th>
+                <th className="text-left text-slate-400 text-xs font-medium px-4 py-3 hidden sm:table-cell">Last active</th>
                 <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Actions</th>
               </tr>
             </thead>
@@ -176,6 +195,9 @@ export default function AdminPage() {
                       <span className={`px-2 py-0.5 rounded border text-xs font-medium uppercase ${roleStyles[profile.role] ?? roleStyles.external}`}>
                         {profile.role}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 hidden sm:table-cell">
+                      <span className="text-slate-400 text-xs">{fmtLastSeen(profile.last_sign_in_at)}</span>
                     </td>
                     <td className="px-4 py-3">
                       <button
@@ -208,6 +230,9 @@ export default function AdminPage() {
                         pending
                       </span>
                     </div>
+                  </td>
+                  <td className="px-4 py-3 hidden sm:table-cell">
+                    <span className="text-slate-600 text-xs">—</span>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
