@@ -81,7 +81,8 @@ export function buildSynopsis(
       returnNote = ` Return to Melbourne ${fmtDay(lastDate, 1)}.`
     }
 
-    parts.push(`Band and crew fly (7 pax).${arrivalNote}${returnNote}`)
+    const flyPax = hasVan && hasBradDriver ? 6 : 7
+    parts.push(`Band and crew fly (${flyPax} pax).${arrivalNote}${returnNote}`)
   } else {
     const driverNote = hasBradDriver
       ? ' Brad drives the van from Melbourne.'
