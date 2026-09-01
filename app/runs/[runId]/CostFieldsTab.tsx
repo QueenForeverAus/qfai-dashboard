@@ -375,9 +375,19 @@ function FieldRow({
       <div className="flex items-center gap-3 px-3 py-2.5">
         <div className="flex-1 min-w-0">
           <div className="text-slate-300 text-sm">{fieldDef.label}</div>
-          {enteredTotal > 0 && (
+          {enteredTotal > 0 && existing?.value != null && Math.abs(enteredTotal - existing.value) > 0.005 && (
+            <div className="text-amber-500/80 text-xs mt-0.5">
+              {fmt(enteredTotal)} entered · {entries.length} {entries.length !== 1 ? 'entries' : 'entry'}
+            </div>
+          )}
+          {enteredTotal > 0 && existing?.value == null && (
             <div className="text-slate-500 text-xs mt-0.5">
               {fmt(enteredTotal)} entered · {entries.length} {entries.length !== 1 ? 'entries' : 'entry'}
+            </div>
+          )}
+          {enteredTotal > 0 && existing?.value != null && Math.abs(enteredTotal - existing.value) <= 0.005 && (
+            <div className="text-green-600/70 text-xs mt-0.5">
+              {entries.length} {entries.length !== 1 ? 'entries' : 'entry'} · matches total
             </div>
           )}
         </div>
@@ -419,7 +429,10 @@ function FieldRow({
             </>
           ) : (
             <>
-              <span className={`text-sm font-medium ${styles.text}`}>{fmt(existing?.value ?? null)}</span>
+              {/* Show entries total when no manual value has been set */}
+              <span className={`text-sm font-medium ${existing?.value == null && enteredTotal > 0 ? 'text-slate-400' : styles.text}`}>
+                {existing?.value != null ? fmt(existing.value) : enteredTotal > 0 ? fmt(enteredTotal) : '—'}
+              </span>
               <span className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}>{styles.label}</span>
               <button onClick={() => setIsEditing(true)} data-testid="cost-field-edit" className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
             </>
@@ -539,6 +552,9 @@ function VenueStaffRow({
         <div className="flex items-center gap-2">
           <span className={`text-sm font-medium ${styles.text}`}>{total > 0 ? fmt(total) : '—'}</span>
           <span className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}>{styles.label}</span>
+          {!open && (
+            <button onClick={() => setOpen(true)} className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
+          )}
           <button
             onClick={() => setOpen(o => !o)}
             className={`text-xs transition-colors ${open ? 'text-amber-400' : 'text-slate-600 hover:text-slate-300'}`}
@@ -998,7 +1014,7 @@ export default function CostFieldsTab({
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs mb-1">
             {([
               { key: 'known',     desc: 'Confirmed — cost is locked in' },
-              { key: 'estimated', desc: 'Rough figure known; update to KNOWN when confirmed' },
+              { key: 'estimated', desc: 'Rough figure known; update to CONFIRMED when ready' },
               { key: 'pending',   desc: 'Income-dependent: box office, Harbour commission, per-ticket fees' },
               { key: 'guess',     desc: 'External data still needed before run go/no-go decision' },
             ] as const).map(({ key, desc }) => {

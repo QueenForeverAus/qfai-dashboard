@@ -32,3 +32,7 @@ yarn-error.log*
 
 # credentials (never commit these)
 credentials/
+
+# Playwright test artifacts
+test-results/
+tests/*-auth-state.json
