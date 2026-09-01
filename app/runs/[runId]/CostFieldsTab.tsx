@@ -331,15 +331,20 @@ function FieldRow({
     const numVal = value === '' ? null : parseFloat(value)
 
     if (existing?.id) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('cost_fields')
         .update({ value: numVal, state, updated_at: new Date().toISOString() })
         .eq('id', existing.id)
         .select()
         .single()
-      if (data) onSaved(data as CostFieldRow)
+      if (error) {
+        console.error('Cost field update failed:', error)
+      } else {
+        // Use returned row if available; otherwise construct from what we sent
+        onSaved((data ?? { ...existing, value: numVal, state }) as CostFieldRow)
+      }
     } else {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('cost_fields')
         .insert({
           run_id: runId,
@@ -352,7 +357,11 @@ function FieldRow({
         })
         .select()
         .single()
-      if (data) onSaved(data as CostFieldRow)
+      if (error) {
+        console.error('Cost field insert failed:', error)
+      } else if (data) {
+        onSaved(data as CostFieldRow)
+      }
     }
 
     setSaving(false)
