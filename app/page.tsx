@@ -30,13 +30,13 @@ type Run = {
 
 export default async function MissionControl() {
   const supabase = createAdminClient()
-  const { data: runs } = await supabase
-    .from('runs')
-    .select('*')
-    .order('start_date', { ascending: true })
+  const [{ data: runs }, { count: totalShows }] = await Promise.all([
+    supabase.from('runs').select('*').order('start_date', { ascending: true }),
+    supabase.from('shows').select('*', { count: 'exact', head: true }),
+  ])
 
   const typedRuns = (runs ?? []) as Run[]
-  const today = '2026-08-30'
+  const today = new Date().toISOString().split('T')[0]
 
   const confirmed = typedRuns.filter(r => r.status === 'confirmed')
   const proposed = typedRuns.filter(r => r.status === 'proposed')
@@ -47,7 +47,7 @@ export default async function MissionControl() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-white text-2xl font-bold">Mission Control</h1>
-        <p className="text-slate-400 text-sm mt-1">Greatest Hits Tour — 20th Anniversary 2027</p>
+        <p className="text-slate-400 text-sm mt-1">Greatest Hits Tour: Don't Stop Us Now</p>
       </div>
 
       {/* KPIs */}
@@ -70,7 +70,7 @@ export default async function MissionControl() {
         <div className="bg-slate-800 rounded-xl border border-slate-700 px-5 py-4">
           <div className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Total Shows</div>
           <div className="text-3xl font-bold text-blue-400">
-            {typedRuns.reduce((sum, _) => sum, 0) > 0 ? '—' : '—'}
+            {totalShows ?? 0}
           </div>
           <div className="text-slate-500 text-xs mt-1">across all runs</div>
         </div>
