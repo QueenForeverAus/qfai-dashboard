@@ -95,7 +95,7 @@ export function buildSynopsis(
   // Local transport
   const transportLines: string[] = []
   if (hasKia) transportLines.push('Kia Carnival hired for local transport between venues')
-  if (hasVan && hasFlights) transportLines.push('gear van freighted from Melbourne depot')
+  if (hasVan && hasFlights) transportLines.push('hired van driven from Melbourne with band gear')
   if (transportLines.length) {
     const joined = transportLines[0].charAt(0).toUpperCase() + transportLines[0].slice(1) +
       (transportLines.length > 1 ? ' and ' + transportLines.slice(1).join(' and ') : '')
