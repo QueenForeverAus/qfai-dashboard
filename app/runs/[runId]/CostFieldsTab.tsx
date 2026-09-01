@@ -208,7 +208,8 @@ function EntryPanel({
 
   async function persist(updated: Entry[]) {
     const supabase = createClient()
-    await supabase.from('cost_fields').update({ entries: updated }).eq('id', fieldId)
+    const { error } = await supabase.from('cost_fields').update({ entries: updated }).eq('id', fieldId)
+    if (error) { console.error('Entry persist failed:', error); return }
     onEntriesUpdated(updated)
   }
 
@@ -376,7 +377,7 @@ function FieldRow({
           <div className="text-slate-300 text-sm">{fieldDef.label}</div>
           {enteredTotal > 0 && (
             <div className="text-slate-500 text-xs mt-0.5">
-              {fmt(enteredTotal)} entered · {entries.length} receipt{entries.length !== 1 ? 's' : ''}
+              {fmt(enteredTotal)} entered · {entries.length} {entries.length !== 1 ? 'entries' : 'entry'}
             </div>
           )}
         </div>
@@ -647,7 +648,7 @@ function VenueStaffRow({
                 onClick={() => setEntriesOpen(o => !o)}
                 className="text-slate-500 hover:text-slate-300 text-xs transition-colors"
               >
-                {entriesOpen ? '▲ Hide actuals' : `▼ Actuals / receipts${entries.length > 0 ? ` (${entries.length})` : ''}`}
+                {entriesOpen ? '▲ Hide actuals' : `▼ Actuals / entries${entries.length > 0 ? ` (${entries.length})` : ''}`}
               </button>
               {entriesOpen && (
                 <div className="mt-2">
@@ -1010,7 +1011,7 @@ export default function CostFieldsTab({
               )
             })}
           </div>
-          <p className="text-slate-600 text-xs -mt-2">Use ▼ on any cost field to drill into the breakdown and add individual receipts as they come in.</p>
+          <p className="text-slate-600 text-xs -mt-2">Use ▼ on any cost field to drill into the breakdown and add individual line items as they come in.</p>
 
           {/* Per-show sections */}
           {shows.map((show, idx) => (
