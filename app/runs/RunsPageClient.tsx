@@ -171,15 +171,15 @@ export default function RunsPageClient({
         <h1 className="text-white text-2xl font-bold mb-2">All Runs</h1>
         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6">
           <div>
-            <span className="text-slate-500 text-xs uppercase tracking-wide font-medium mr-2">Runs</span>
+            <span className="text-white font-bold mr-2">RUNS: {allRuns.length}</span>
             <span className="text-slate-400 text-sm">
-              {confirmedCount} confirmed · {proposedCount} proposed{placeholderCount > 0 ? ` · ${placeholderCount} placeholders` : ''} · {allRuns.length} total
+              ({confirmedCount} confirmed · {proposedCount} proposed{placeholderCount > 0 ? ` · ${placeholderCount} placeholders` : ''})
             </span>
           </div>
           <div>
-            <span className="text-slate-500 text-xs uppercase tracking-wide font-medium mr-2">Shows</span>
+            <span className="text-white font-bold mr-2">SHOWS: {showStats.total}</span>
             <span className="text-slate-400 text-sm">
-              {showStats.confirmed} confirmed · {showStats.proposed} proposed{showStats.placeholder > 0 ? ` · ${showStats.placeholder} placeholders` : ''} · {showStats.total} total
+              ({showStats.confirmed} confirmed · {showStats.proposed} proposed{showStats.placeholder > 0 ? ` · ${showStats.placeholder} placeholders` : ''})
             </span>
           </div>
         </div>
