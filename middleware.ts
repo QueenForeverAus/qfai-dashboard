@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC_PATHS = ['/login', '/update-password', '/mfa-enroll', '/mfa-verify']
+const PUBLIC_PATHS = ['/login', '/update-password']
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -43,30 +43,6 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url)
-  }
-
-  // Logged in → check MFA assurance level (skip on staging/test env or for audit bot)
-  const isAuditAccount = user?.email === process.env.AUDIT_BYPASS_EMAIL
-  if (user && !isPublic && !isApi && process.env.SKIP_MFA_ENFORCEMENT !== 'true' && !isAuditAccount) {
-    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-
-    if (aal) {
-      const hasFactors = aal.nextLevel === 'aal2' || aal.currentLevel === 'aal2'
-
-      if (aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
-        // Has MFA enrolled but hasn't verified this session
-        const url = request.nextUrl.clone()
-        url.pathname = '/mfa-verify'
-        return NextResponse.redirect(url)
-      }
-
-      if (!hasFactors && aal.currentLevel === 'aal1') {
-        // No MFA enrolled at all — force enrollment
-        const url = request.nextUrl.clone()
-        url.pathname = '/mfa-enroll'
-        return NextResponse.redirect(url)
-      }
-    }
   }
 
   return supabaseResponse
