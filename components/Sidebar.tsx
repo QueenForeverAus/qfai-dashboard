@@ -57,9 +57,13 @@ export default function Sidebar() {
     <>
       {/* ── Desktop sidebar ── */}
       <aside className="hidden md:flex w-56 bg-slate-900 border-r border-slate-700 flex-col h-full sticky top-0">
-        <div className="p-4 border-b border-slate-700">
-          <Image src="/qf-logo.png" alt="Queen Forever" width={160} height={48} className="object-contain" priority />
-          <div className="text-slate-400 text-xs mt-1">Tours Portal</div>
+        <div className="px-4 pt-5 pb-4 border-b border-slate-700">
+          <Image src="/qf-logo.png" alt="Queen Forever" width={176} height={54} className="object-contain w-full" priority />
+          <div className="mt-2.5 flex items-center gap-2">
+            <div className="flex-1 h-px bg-slate-700" />
+            <span className="text-slate-500 text-[10px] font-semibold tracking-widest uppercase">Tours Portal</span>
+            <div className="flex-1 h-px bg-slate-700" />
+          </div>
         </div>
 
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
