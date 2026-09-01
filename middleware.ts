@@ -45,8 +45,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Logged in → check MFA assurance level
-  if (user && !isPublic && !isApi) {
+  // Logged in → check MFA assurance level (skip on staging/test env)
+  if (user && !isPublic && !isApi && process.env.SKIP_MFA_ENFORCEMENT !== 'true') {
     const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
 
     if (aal) {

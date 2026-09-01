@@ -421,7 +421,7 @@ function FieldRow({
             <>
               <span className={`text-sm font-medium ${styles.text}`}>{fmt(existing?.value ?? null)}</span>
               <span className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}>{styles.label}</span>
-              <button onClick={() => setIsEditing(true)} className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
+              <button onClick={() => setIsEditing(true)} data-testid="cost-field-edit" className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
             </>
           )}
           {/* Receipts toggle — show for all fields that have an ID */}
