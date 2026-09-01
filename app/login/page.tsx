@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 
@@ -49,8 +50,9 @@ export default function LoginPage() {
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="text-amber-400 text-4xl mb-2">♛</div>
-          <h1 className="text-white text-2xl font-bold">Queen Forever Tours</h1>
+          <div className="flex justify-center mb-4">
+            <Image src="/qf-logo.png" alt="Queen Forever" width={200} height={62} className="object-contain" priority />
+          </div>
           <p className="text-slate-400 text-sm mt-1">Tour Management Portal</p>
         </div>
 
