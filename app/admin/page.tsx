@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import type { ImportPreview } from '@/app/api/admin/import-schedule/route'
 
 type Profile = {
   id: string
@@ -37,6 +38,212 @@ const roleStyles: Record<string, string> = {
   production: 'bg-blue-900/40 text-blue-400 border-blue-800',
   crew:       'bg-slate-700 text-slate-400 border-slate-600',
   external:   'bg-slate-700 text-slate-500 border-slate-600',
+}
+
+function ImportScheduleSection() {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [preview, setPreview] = useState<ImportPreview | null>(null)
+  const [loadingPreview, setLoadingPreview] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [applyResult, setApplyResult] = useState<{ shows_updated: number; runs_updated: number } | null>(null)
+  const [error, setError] = useState('')
+
+  async function handleFile(file: File) {
+    setError('')
+    setPreview(null)
+    setApplyResult(null)
+    setLoadingPreview(true)
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch('/api/admin/import-schedule', { method: 'POST', body: form })
+    setLoadingPreview(false)
+    if (!res.ok) {
+      const body = await res.json()
+      setError(body.error ?? 'Failed to parse file')
+      return
+    }
+    setPreview(await res.json())
+  }
+
+  async function applyChanges() {
+    if (!preview) return
+    setApplying(true)
+    const res = await fetch('/api/admin/import-schedule', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates: preview.updates, run_status_changes: preview.run_status_changes }),
+    })
+    setApplying(false)
+    if (!res.ok) { setError('Apply failed'); return }
+    const result = await res.json()
+    setApplyResult(result)
+    setPreview(null)
+  }
+
+  const hasChanges = preview && (preview.updates.length > 0 || preview.run_status_changes.length > 0)
+
+  return (
+    <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+        <div>
+          <h2 className="text-white font-semibold">Import Harbour Schedule</h2>
+          <p className="text-slate-400 text-xs mt-0.5">Upload a Harbour draft xlsx to sync venue names, capacities and run statuses</p>
+        </div>
+        <button
+          onClick={() => fileRef.current?.click()}
+          className="text-sm bg-slate-700 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-slate-600 border border-slate-600 transition-colors"
+        >
+          Choose file
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".xlsx,.xls"
+          className="hidden"
+          onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]) }}
+        />
+      </div>
+
+      <div className="p-4">
+        {error && (
+          <div className="text-red-400 text-sm bg-red-900/20 border border-red-800 rounded-lg px-4 py-3 mb-4">{error}</div>
+        )}
+
+        {loadingPreview && (
+          <div className="text-slate-400 text-sm text-center py-6">Parsing spreadsheet…</div>
+        )}
+
+        {applyResult && (
+          <div className="text-green-400 text-sm bg-green-900/20 border border-green-800 rounded-lg px-4 py-3">
+            ✓ Applied: {applyResult.shows_updated} show{applyResult.shows_updated !== 1 ? 's' : ''} updated
+            {applyResult.runs_updated > 0 && `, ${applyResult.runs_updated} run status${applyResult.runs_updated !== 1 ? 'es' : ''} updated`}
+          </div>
+        )}
+
+        {preview && (
+          <div className="space-y-5">
+            <div className="flex items-center justify-between">
+              <p className="text-slate-400 text-xs">
+                <span className="text-white font-medium">{preview.source_file}</span>
+                {' — '}{preview.sheet_shows} shows in file, {preview.db_shows} in DB
+              </p>
+              {!hasChanges && (
+                <span className="text-green-400 text-xs font-medium">No changes needed</span>
+              )}
+            </div>
+
+            {preview.updates.length > 0 && (
+              <div>
+                <h3 className="text-slate-300 text-xs font-semibold uppercase tracking-wide mb-2">
+                  Show updates ({preview.updates.length})
+                </h3>
+                <div className="rounded-lg overflow-hidden border border-slate-700">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-slate-700/50">
+                        <th className="px-3 py-2 text-left text-slate-400 font-medium">Run</th>
+                        <th className="px-3 py-2 text-left text-slate-400 font-medium">Date · Venue</th>
+                        <th className="px-3 py-2 text-left text-slate-400 font-medium">Field</th>
+                        <th className="px-3 py-2 text-left text-slate-400 font-medium">From</th>
+                        <th className="px-3 py-2 text-left text-slate-400 font-medium">To</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.updates.flatMap(u =>
+                        Object.entries(u.changes).map(([field, val], i) => (
+                          <tr key={`${u.show_id}-${field}`} className="border-t border-slate-700/50">
+                            {i === 0 && (
+                              <td className="px-3 py-2 text-slate-300 font-mono font-bold" rowSpan={Object.keys(u.changes).length}>{u.run_code}</td>
+                            )}
+                            {i === 0 && (
+                              <td className="px-3 py-2 text-slate-400" rowSpan={Object.keys(u.changes).length}>
+                                {u.show_date}<br /><span className="text-slate-500">{u.venue_city}</span>
+                              </td>
+                            )}
+                            <td className="px-3 py-2 text-slate-500 font-mono">{field}</td>
+                            <td className="px-3 py-2 text-red-400/80">{String(val.from ?? '—')}</td>
+                            <td className="px-3 py-2 text-green-400">{String(val.to ?? '—')}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {preview.run_status_changes.length > 0 && (
+              <div>
+                <h3 className="text-slate-300 text-xs font-semibold uppercase tracking-wide mb-2">
+                  Run status changes ({preview.run_status_changes.length})
+                </h3>
+                <div className="space-y-1.5">
+                  {preview.run_status_changes.map(r => (
+                    <div key={r.run_id} className="flex items-center gap-3 text-xs px-3 py-2 bg-slate-700/30 rounded-lg">
+                      <span className="font-mono font-bold text-slate-300">{r.run_code}</span>
+                      <span className="text-red-400/80">{r.old_status}</span>
+                      <span className="text-slate-500">→</span>
+                      <span className="text-green-400">{r.new_status}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {preview.new_in_sheet.length > 0 && (
+              <div>
+                <h3 className="text-slate-300 text-xs font-semibold uppercase tracking-wide mb-1">
+                  New in spreadsheet — not in DB ({preview.new_in_sheet.length}) <span className="text-amber-400">⚠ manual review needed</span>
+                </h3>
+                <div className="text-xs text-slate-400 space-y-0.5 pl-2">
+                  {preview.new_in_sheet.map(s => (
+                    <div key={s.show_date}>{s.show_date} · {s.venue_city} — {s.venue_name} (cap {s.capacity ?? '?'}, {s.harbour_status})</div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {preview.removed_from_sheet.length > 0 && (
+              <div>
+                <h3 className="text-slate-300 text-xs font-semibold uppercase tracking-wide mb-1">
+                  In DB but not in spreadsheet ({preview.removed_from_sheet.length}) <span className="text-slate-500">— not touched</span>
+                </h3>
+                <div className="text-xs text-slate-500 space-y-0.5 pl-2">
+                  {preview.removed_from_sheet.map(s => (
+                    <div key={s.id}>[{s.run_code}] {s.show_date} · {s.venue_city} — {s.venue_name}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {hasChanges && (
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => { setPreview(null); if (fileRef.current) fileRef.current.value = '' }}
+                  className="px-4 py-2 text-sm text-slate-400 border border-slate-600 rounded-lg hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={applyChanges}
+                  disabled={applying}
+                  className="px-5 py-2 text-sm font-semibold bg-amber-400 text-slate-900 rounded-lg hover:bg-amber-300 disabled:opacity-40 transition-colors"
+                >
+                  {applying ? 'Applying…' : `Apply ${preview.updates.length + preview.run_status_changes.length} change${preview.updates.length + preview.run_status_changes.length !== 1 ? 's' : ''}`}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!preview && !loadingPreview && !error && !applyResult && (
+          <div className="text-slate-500 text-sm text-center py-4">
+            Upload a Harbour "Queen Schedule 20XX - Draft XX.xlsx" file to preview changes
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export default function AdminPage() {
@@ -323,6 +530,8 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      <ImportScheduleSection />
 
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
         <h2 className="text-white font-semibold mb-3">Permission levels</h2>
