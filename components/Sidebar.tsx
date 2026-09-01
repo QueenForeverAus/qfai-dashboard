@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -57,13 +58,8 @@ export default function Sidebar() {
       {/* ── Desktop sidebar ── */}
       <aside className="hidden md:flex w-56 bg-slate-900 border-r border-slate-700 flex-col h-full sticky top-0">
         <div className="p-4 border-b border-slate-700">
-          <div className="flex items-center gap-2">
-            <span className="text-amber-400 text-xl">♛</span>
-            <div>
-              <div className="text-white text-sm font-bold leading-tight">Queen Forever</div>
-              <div className="text-slate-400 text-xs">Tours Portal</div>
-            </div>
-          </div>
+          <Image src="/qf-logo.png" alt="Queen Forever" width={160} height={48} className="object-contain" priority />
+          <div className="text-slate-400 text-xs mt-1">Tours Portal</div>
         </div>
 
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
@@ -106,11 +102,7 @@ export default function Sidebar() {
         >
           <HamburgerIcon open={mobileOpen} />
         </button>
-        <div className="flex items-center gap-2">
-          <span className="text-amber-400 text-lg">♛</span>
-          <span className="text-white text-sm font-bold">Queen Forever</span>
-          <span className="text-slate-500 text-xs">Tours Portal</span>
-        </div>
+        <Image src="/qf-logo.png" alt="Queen Forever" width={120} height={36} className="object-contain" priority />
       </div>
 
       {/* ── Mobile full-screen menu overlay ── */}
@@ -125,9 +117,8 @@ export default function Sidebar() {
             >
               <HamburgerIcon open={true} />
             </button>
-            <div className="ml-3 flex items-center gap-2">
-              <span className="text-amber-400 text-lg">♛</span>
-              <span className="text-white text-sm font-bold">Queen Forever</span>
+            <div className="ml-3">
+              <Image src="/qf-logo.png" alt="Queen Forever" width={120} height={36} className="object-contain" priority />
             </div>
           </div>
 
