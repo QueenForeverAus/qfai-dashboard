@@ -906,14 +906,14 @@ export default function CostFieldsTab({
   const reserve = Math.round(Math.max(0, netProfit) * 0.2)
   const preDistMargin = netProfit - reserve
 
-  // Completeness gate — any cost field with no real figure blocks the P&L
+  // Completeness gate — block P&L only when a field has no value at all
   const COMPLETENESS_EXCLUDED = new Set(['social_ads_var', 'gross_box_office'])
   const incompleteFields: string[] = []
   for (const f of RUN_FIELDS) {
     if (COMPLETENESS_EXCLUDED.has(f.key)) continue
     const row = fieldMap.get(runFieldKey(f.key))
     if (!row) continue
-    if (row.value === null || row.state === 'guess' || row.state === 'pending') {
+    if (row.value === null) {
       incompleteFields.push(f.label)
     }
   }
@@ -921,12 +921,26 @@ export default function CostFieldsTab({
     for (const sf of SHOW_FIELDS.filter(sf => sf.category !== 'Revenue')) {
       const row = fieldMap.get(showFieldKey(show.id, sf.key))
       if (!row) continue
-      if (row.value === null || row.state === 'guess' || row.state === 'pending') {
+      if (row.value === null) {
         incompleteFields.push(`${show.venue_city} – ${sf.label}`)
       }
     }
   }
   const isDataComplete = incompleteFields.length === 0
+  const hasGuessFields = !isDataComplete ? false : (() => {
+    for (const f of RUN_FIELDS) {
+      if (COMPLETENESS_EXCLUDED.has(f.key)) continue
+      const row = fieldMap.get(runFieldKey(f.key))
+      if (row && (row.state === 'guess' || row.state === 'pending')) return true
+    }
+    for (const show of showsState) {
+      for (const sf of SHOW_FIELDS.filter(sf => sf.category !== 'Revenue')) {
+        const row = fieldMap.get(showFieldKey(show.id, sf.key))
+        if (row && (row.state === 'guess' || row.state === 'pending')) return true
+      }
+    }
+    return false
+  })()
 
   async function updateSellThrough(showId: string, pct: number) {
     const newSellThrough = { ...sellThrough, [showId]: pct }
@@ -956,10 +970,10 @@ export default function CostFieldsTab({
       )}
 
       {(hasTabAccess || hasAdvancement) && (
-      <div className="flex gap-1 mb-6 border-b border-slate-700 items-end">
+      <div className="flex gap-1 mb-6 border-b border-slate-700 items-end overflow-x-auto">
         {(['overview', 'costs', 'audit'] as const).filter(tab => canAccessTab(effectiveRole, tab)).map((tab) => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors -mb-px ${
+            className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
               activeTab === tab ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
             }`}>
             {tab === 'costs' ? 'Run Costing' : tab === 'audit' ? 'Audit Trail' : 'P&L Calculator'}
@@ -967,13 +981,13 @@ export default function CostFieldsTab({
         ))}
         {hasAdvancement && (
           <button onClick={() => setActiveTab('advancement')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
               activeTab === 'advancement' ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
             }`}>
             Advancement
           </button>
         )}
-        <span className="ml-auto text-slate-800 text-xs pb-2 select-none">v3</span>
+        <span className="ml-auto text-slate-800 text-xs pb-2 select-none flex-shrink-0">v3</span>
       </div>
       )}
 
@@ -1007,6 +1021,14 @@ export default function CostFieldsTab({
             </div>
           )}
 
+          {/* Estimates caution — shown when P&L is visible but some fields are rough guesses */}
+          {isDataComplete && hasGuessFields && (
+            <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 flex items-start gap-2">
+              <span className="text-amber-500 text-sm shrink-0 mt-0.5">~</span>
+              <p className="text-amber-400/80 text-xs">Some figures are estimates or unconfirmed — treat this P&L as indicative only.</p>
+            </div>
+          )}
+
           {/* Revenue — per show */}
           <div>
             <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">Revenue</h3>
@@ -1016,16 +1038,16 @@ export default function CostFieldsTab({
                 const tickets = show.capacity ? Math.round(show.capacity * pct / 100) : null
                 const gbo = projectedBoxOffice(show, pct)
                 return (
-                  <div key={show.id} className="bg-slate-800 rounded-xl border border-slate-700 p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <div className="text-white text-sm font-semibold">{show.venue_name}</div>
-                        <div className="text-slate-500 text-xs mt-0.5">
+                  <div key={show.id} className="bg-slate-800 rounded-xl border border-slate-700 p-3 sm:p-4">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-white text-sm font-semibold truncate">{show.venue_name}</div>
+                        <div className="text-slate-500 text-xs mt-0.5 truncate">
                           {show.venue_city}{show.state_territory ? `, ${show.state_territory}` : ''} · {fmtDate(show.show_date)}
                           {show.capacity ? ` · Cap ${show.capacity.toLocaleString()}` : ''}
                         </div>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right flex-shrink-0">
                         <div className="text-amber-400 font-bold">{pct}%</div>
                         <div className="text-slate-500 text-xs">{tickets != null ? `${tickets.toLocaleString()} tix` : '—'}</div>
                       </div>
@@ -1033,10 +1055,11 @@ export default function CostFieldsTab({
                     <input type="range" min={0} max={100} value={pct}
                       onChange={e => updateSellThrough(show.id, parseInt(e.target.value))}
                       className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-700 accent-amber-400 mb-3"
+                      style={{ maxWidth: '100%' }}
                     />
-                    <div className="flex justify-between text-sm">
+                    <div className="flex justify-between text-sm gap-2">
                       <span className="text-slate-400">Gross Box Office</span>
-                      <span className="text-white font-semibold">{fmt(gbo)}</span>
+                      <span className="text-white font-semibold flex-shrink-0">{fmt(gbo)}</span>
                     </div>
                   </div>
                 )

@@ -144,7 +144,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
   const completionPct = Math.round((knownCount / totalExpectedFields) * 100)
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <div className="mb-1">
         <Link href="/runs" className="text-slate-500 text-sm hover:text-slate-300 transition-colors">← Runs</Link>
       </div>
