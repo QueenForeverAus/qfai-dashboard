@@ -85,8 +85,8 @@ test('cost field entry saves and persists after refresh', async ({ page }) => {
 
     // Entry should still be there — this is the core regression test
     await expect(page.getByText('Playwright test entry').first()).toBeVisible({ timeout: 5000 })
-    // Subtitle shows "1 entry" or "N entries" — just check the word "entr"
-    await expect(page.getByText(/\d+\s+entr(y|ies)/)).toBeVisible()
+    // Subtitle shows "1 entry" or "N entries" — just check the word "entr" (first match on page)
+    await expect(page.getByText(/\d+\s+entr(y|ies)/).first()).toBeVisible()
     await expect(page.getByText(/\d+ receipts?/)).not.toBeVisible()
   }
 })
