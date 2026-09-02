@@ -84,15 +84,20 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    const today = new Date().toISOString().slice(0, 10)
     const { data: runs } = await supabase.from('runs').select('id, code')
     for (const run of runs ?? []) {
       const defaults = RUN_DEFAULTS[run.code] ?? null
 
+      // Only fetch upcoming shows — don't cascade to shows that have already happened
       const { data: shows } = await supabase
         .from('shows')
         .select('id, show_order, venue_city, show_date')
         .eq('run_id', run.id)
+        .gte('show_date', today)
         .order('show_order')
+
+      if (!shows?.length) continue
 
       const { data: fields } = await supabase
         .from('cost_fields')
@@ -101,16 +106,19 @@ export async function PATCH(req: NextRequest) {
         .in('field_key', affectedFieldKeys)
         .in('state', ['estimated', 'guess'])
 
-      if (!fields?.length || !shows) continue
+      if (!fields?.length) continue
 
       const numShows = shows.length
       for (const field of fields) {
         const newValue = computeNewValue(field.field_key, run.code, numShows, factorMap)
-        const entries = generateEntries(field.field_key, field.state, defaults, shows, factorMap)
-        await supabase
-          .from('cost_fields')
-          .update({ ...(newValue !== null ? { value: newValue } : {}), entries })
-          .eq('id', field.id)
+        const newEntries = generateEntries(field.field_key, field.state, defaults, shows, factorMap)
+        const patch: Record<string, unknown> = {}
+        if (newValue !== null) patch.value = newValue
+        // Explicitly stringify entries so the JSONB column always receives a valid payload
+        if (newEntries?.length) patch.entries = JSON.parse(JSON.stringify(newEntries))
+        if (Object.keys(patch).length) {
+          await supabase.from('cost_fields').update(patch).eq('id', field.id)
+        }
       }
     }
   }
