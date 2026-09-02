@@ -13,7 +13,8 @@ export async function GET(req: NextRequest) {
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const destination = `${supabaseUrl}/auth/v1/verify?token=${token}&type=${type}&redirect_to=https://tours.queenforever.com.au${next}`
+  const origin = process.env.NEXT_PUBLIC_SITE_URL ?? new URL(req.url).origin
+  const destination = `${supabaseUrl}/auth/v1/verify?token=${token}&type=${type}&redirect_to=${origin}${next}`
 
   return NextResponse.redirect(destination)
 }
