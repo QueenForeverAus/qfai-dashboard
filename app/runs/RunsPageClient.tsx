@@ -93,6 +93,19 @@ function StatusChangeButtons({ runId, currentStatus, onStatusChange }: {
     )
   }
 
+  if (currentStatus === 'confirmed') {
+    return (
+      <button
+        onClick={(e) => { e.preventDefault(); change('proposed') }}
+        disabled={pending}
+        className="px-2 py-0.5 rounded text-xs font-semibold bg-slate-700 text-slate-400 border border-slate-600 hover:bg-slate-600 disabled:opacity-40 transition-colors"
+        title="Move back to proposed"
+      >
+        Unconfirm
+      </button>
+    )
+  }
+
   if (currentStatus === 'declined') {
     return (
       <button
