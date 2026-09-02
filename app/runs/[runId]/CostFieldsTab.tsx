@@ -131,57 +131,65 @@ function EntryRow({
 
   if (editing) {
     return (
-      <div className="grid grid-cols-[1fr_1fr_72px_auto_auto_18px] gap-1.5 items-center py-1 border-t border-slate-700/30 first:border-0">
+      <div className="py-1.5 border-t border-slate-700/30 first:border-0 space-y-1.5">
         <input autoFocus value={desc} onChange={e => setDesc(e.target.value)}
           placeholder="Description"
-          className="bg-slate-900 border border-amber-400/50 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-amber-400" />
+          className="w-full bg-slate-900 border border-amber-400/50 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
         <input value={notes} onChange={e => setNotes(e.target.value)}
           placeholder="Notes / Ref"
-          className="bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-amber-400" />
-        <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
-          className="bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-amber-400" />
-        <label className="flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap cursor-pointer select-none">
-          <input type="checkbox" checked={gst} onChange={e => setGst(e.target.checked)} className="accent-amber-400" /> GST
-        </label>
-        <button onClick={save}
-          className="bg-amber-400 text-slate-900 text-xs font-semibold px-2 py-0.5 rounded hover:bg-amber-300 transition-colors whitespace-nowrap">
-          Save
-        </button>
-        <button onClick={() => setEditing(false)} className="text-slate-600 hover:text-slate-300 text-xs transition-colors text-center">✕</button>
+          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+        <div className="flex items-center gap-1.5">
+          <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
+            className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+          <label className="flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap cursor-pointer select-none">
+            <input type="checkbox" checked={gst} onChange={e => setGst(e.target.checked)} className="accent-amber-400" /> GST
+          </label>
+          <button onClick={save}
+            className="ml-auto bg-amber-400 text-slate-900 text-xs font-semibold px-2.5 py-1 rounded hover:bg-amber-300 transition-colors whitespace-nowrap">
+            Save
+          </button>
+          <button onClick={() => setEditing(false)} className="text-slate-600 hover:text-slate-300 text-xs transition-colors px-1">✕</button>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="grid grid-cols-[20px_1fr_1fr_72px_30px_28px_18px] gap-1.5 items-center py-0.5 border-t border-slate-700/30 first:border-0 group">
-      <button
-        onClick={toggleConfirmed}
-        title={entry.confirmed ? 'Mark as estimate' : 'Mark as confirmed'}
-        className={`text-xs font-bold w-5 h-5 flex items-center justify-center rounded transition-colors ${
-          entry.confirmed ? 'text-green-400 bg-green-900/40' : 'text-slate-600 bg-slate-800 hover:text-slate-400'
-        }`}>
-        {entry.confirmed ? '✓' : '·'}
-      </button>
-      <span className={`text-xs truncate ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
-        {entry.description || '—'}
-      </span>
-      <span className="text-slate-600 text-xs truncate">{entry.notes}</span>
-      <span className={`text-right text-xs font-medium tabular-nums ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
-        {fmt(entry.amount)}
-      </span>
-      <span
-        title={entry.gst_included ? 'GST included in amount' : 'GST excluded — ex-GST figure'}
-        className={`text-center text-xs ${entry.gst_included ? 'text-slate-600' : 'text-orange-500/80'}`}>
-        {entry.gst_included ? 'inc' : 'ex'}
-      </span>
-      <button onClick={() => setEditing(true)}
-        className="text-slate-700 hover:text-amber-400 text-xs transition-colors opacity-0 group-hover:opacity-100 text-center">
-        ✎
-      </button>
-      <button onClick={onRemove}
-        className="text-slate-700 hover:text-red-400 text-xs transition-colors opacity-0 group-hover:opacity-100 text-center">
-        ✕
-      </button>
+    <div className="py-1.5 border-t border-slate-700/30 first:border-0 group">
+      {/* Main row: confirmed toggle + description + amount + gst + actions */}
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={toggleConfirmed}
+          title={entry.confirmed ? 'Mark as estimate' : 'Mark as confirmed'}
+          className={`flex-shrink-0 text-xs font-bold w-5 h-5 flex items-center justify-center rounded transition-colors ${
+            entry.confirmed ? 'text-green-400 bg-green-900/40' : 'text-slate-600 bg-slate-800 hover:text-slate-400'
+          }`}>
+          {entry.confirmed ? '✓' : '·'}
+        </button>
+        <span className={`flex-1 text-xs truncate ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
+          {entry.description || '—'}
+        </span>
+        <span className={`flex-shrink-0 text-xs font-medium tabular-nums ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
+          {fmt(entry.amount)}
+        </span>
+        <span
+          title={entry.gst_included ? 'GST included in amount' : 'GST excluded — ex-GST figure'}
+          className={`flex-shrink-0 text-xs w-6 text-center ${entry.gst_included ? 'text-slate-600' : 'text-orange-500/80'}`}>
+          {entry.gst_included ? 'inc' : 'ex'}
+        </span>
+        <button onClick={() => setEditing(true)}
+          className="flex-shrink-0 text-slate-700 hover:text-amber-400 text-xs transition-colors sm:opacity-0 sm:group-hover:opacity-100">
+          ✎
+        </button>
+        <button onClick={onRemove}
+          className="flex-shrink-0 text-slate-700 hover:text-red-400 text-xs transition-colors sm:opacity-0 sm:group-hover:opacity-100">
+          ✕
+        </button>
+      </div>
+      {/* Notes line (if any) */}
+      {entry.notes ? (
+        <div className="pl-[26px] text-xs text-slate-600 truncate mt-0.5">{entry.notes}</div>
+      ) : null}
     </div>
   )
 }
@@ -247,13 +255,13 @@ function EntryPanel({
     <div className="border-t border-slate-700/40 bg-slate-900/20 rounded-b-lg px-3 pt-2 pb-3">
       {entries.length > 0 && (
         <>
-          <div className="grid grid-cols-[20px_1fr_1fr_72px_30px_28px_18px] gap-1.5 text-xs text-slate-600 px-0 mb-0.5">
-            <span />
-            <span>Description</span>
-            <span>Notes / Ref</span>
-            <span className="text-right">Amount</span>
-            <span className="text-center">GST</span>
-            <span /><span />
+          <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-600 mb-0.5">
+            <span className="w-5" />
+            <span className="flex-1">Description</span>
+            <span className="flex-1">Notes / Ref</span>
+            <span className="w-20 text-right">Amount</span>
+            <span className="w-6 text-center">GST</span>
+            <span className="w-4" /><span className="w-4" />
           </div>
           <div className="mb-2">
             {entries.map((e, i) => (
@@ -280,21 +288,23 @@ function EntryPanel({
         </>
       )}
 
-      {/* Add new entry row */}
-      <div className="grid grid-cols-[1fr_1fr_72px_auto_auto] gap-1.5 items-center">
+      {/* Add new entry */}
+      <div className="space-y-1.5">
         <input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description"
-          className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
         <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes / Ref #"
-          className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
-        <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="$0"
-          className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
-        <label className="flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap cursor-pointer select-none">
-          <input type="checkbox" checked={gst} onChange={e => setGst(e.target.checked)} className="accent-amber-400" /> GST
-        </label>
-        <button onClick={addEntry} disabled={!amount || saving}
-          className="bg-amber-400/90 text-slate-900 text-xs font-semibold px-2.5 py-1 rounded hover:bg-amber-300 disabled:opacity-40 transition-colors whitespace-nowrap">
-          {saving ? '…' : '+ Add'}
-        </button>
+          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+        <div className="flex items-center gap-1.5">
+          <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="$0"
+            className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+          <label className="flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap cursor-pointer select-none">
+            <input type="checkbox" checked={gst} onChange={e => setGst(e.target.checked)} className="accent-amber-400" /> GST
+          </label>
+          <button onClick={addEntry} disabled={!amount || saving}
+            className="ml-auto bg-amber-400/90 text-slate-900 text-xs font-semibold px-2.5 py-1 rounded hover:bg-amber-300 disabled:opacity-40 transition-colors whitespace-nowrap">
+            {saving ? '…' : '+ Add'}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -1148,7 +1158,7 @@ export default function CostFieldsTab({
       {hasTabAccess && activeTab === 'costs' && (
         <div className="space-y-6">
           {/* Legend */}
-          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs mb-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs mb-1">
             {([
               { key: 'known',     desc: 'Confirmed — cost is locked in' },
               { key: 'estimated', desc: 'Rough figure known; update to CONFIRMED when ready' },
