@@ -136,79 +136,129 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
     )
   }
 
+  const borderClass = completed ? 'border-slate-600 opacity-80' : declined ? 'border-red-900/40' : 'border-slate-700'
+
   return (
-    <div className={`bg-slate-800 rounded-xl border overflow-hidden ${completed ? 'border-slate-600 opacity-80' : declined ? 'border-red-900/40' : 'border-slate-700'}`}>
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-slate-700">
-              <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Code</th>
-              <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Run</th>
-              <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Status</th>
-              <th className="text-left text-slate-400 text-xs font-medium px-4 py-3 hidden sm:table-cell">Region</th>
-              <th className="text-left text-slate-400 text-xs font-medium px-4 py-3 hidden md:table-cell">Dates</th>
-              <th className="text-left text-slate-400 text-xs font-medium px-4 py-3 hidden sm:table-cell">Shows</th>
-              <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">{completed ? 'Settle' : 'Done'}</th>
-              <th className="text-left text-slate-400 text-xs font-medium px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {runs.map((run, i) => {
-              const pct = completionByRun[run.id] ?? 0
-              const isPlaceholder = run.status === 'placeholder'
-              const isDeclined = run.status === 'declined'
-              return (
-                <tr
-                  key={run.id}
-                  className={`border-b border-slate-700/50 transition-colors ${isPlaceholder || isDeclined ? 'opacity-60' : 'hover:bg-slate-700/30'} ${i === runs.length - 1 ? 'border-0' : ''}`}
-                >
-                  <td className="px-4 py-3">
-                    <span className={`font-bold text-sm ${isDeclined ? 'text-slate-500 line-through' : isPlaceholder ? 'text-slate-500' : completed ? 'text-slate-400' : 'text-amber-400'}`}>{run.code}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {isPlaceholder || isDeclined ? (
-                      <span className={`text-slate-500 text-sm italic ${isDeclined ? 'line-through' : ''}`}>{run.name}</span>
-                    ) : (
-                      <Link href={`/runs/${run.code.toLowerCase()}`} className="text-white text-sm hover:text-amber-400 transition-colors">
-                        {run.name}
-                      </Link>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded border text-xs font-medium whitespace-nowrap ${completed ? 'bg-slate-700 text-slate-400 border-slate-600' : (STATUS_STYLES[run.status] ?? STATUS_STYLES.confirmed)}`}>
-                      {completed ? 'COMPLETED' : (STATUS_LABELS[run.status] ?? run.status.replace('_', ' ').toUpperCase())}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 hidden sm:table-cell">
-                    <span className={`text-xs ${isDeclined ? 'text-slate-600 line-through' : 'text-slate-400'}`}>{REGION_LABELS[run.region] ?? run.region}</span>
-                  </td>
-                  <td className="px-4 py-3 hidden md:table-cell">
-                    <span className={`text-sm whitespace-nowrap ${isDeclined ? 'text-slate-600 line-through' : 'text-slate-300'}`}>
-                      {run.start_date === run.end_date ? fmt(run.start_date) : `${fmt(run.start_date)} – ${fmt(run.end_date)}`}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 hidden sm:table-cell">
-                    <span className="text-slate-400 text-sm">{run.shows?.length ?? 0}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {!isDeclined && (
-                      <div className="flex items-center gap-2">
-                        <div className="w-12 sm:w-16 h-1.5 bg-slate-700 rounded-full">
-                          <div className={`h-full rounded-full ${completed ? 'bg-slate-500' : 'bg-amber-400'}`} style={{ width: `${pct}%` }} />
-                        </div>
-                        <span className="text-slate-500 text-xs">{pct}%</span>
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusChangeButtons runId={run.id} currentStatus={run.status} onStatusChange={onStatusChange} />
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+    <div className={`bg-slate-800 rounded-xl border overflow-hidden ${borderClass}`}>
+
+      {/* Mobile: card list */}
+      <div className="md:hidden divide-y divide-slate-700/50">
+        {runs.map(run => {
+          const pct = completionByRun[run.id] ?? 0
+          const isPlaceholder = run.status === 'placeholder'
+          const isDeclined = run.status === 'declined'
+          const dateStr = run.start_date === run.end_date
+            ? fmt(run.start_date)
+            : `${fmt(run.start_date)} – ${fmt(run.end_date)}`
+
+          const nameEl = isPlaceholder || isDeclined
+            ? <span className={`text-sm font-medium ${isDeclined ? 'text-slate-500 line-through italic' : 'text-slate-500 italic'}`}>{run.name}</span>
+            : <Link href={`/runs/${run.code.toLowerCase()}`} className="text-white text-sm font-medium hover:text-amber-400 transition-colors">{run.name}</Link>
+
+          return (
+            <div key={run.id} className={`px-4 py-3 ${isPlaceholder || isDeclined ? 'opacity-60' : ''}`}>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`font-bold text-sm flex-shrink-0 ${isDeclined ? 'text-slate-500 line-through' : isPlaceholder ? 'text-slate-500' : completed ? 'text-slate-400' : 'text-amber-400'}`}>
+                    {run.code}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded border text-xs font-medium ${completed ? 'bg-slate-700 text-slate-400 border-slate-600' : (STATUS_STYLES[run.status] ?? STATUS_STYLES.confirmed)}`}>
+                    {completed ? 'COMPLETED' : (STATUS_LABELS[run.status] ?? run.status.replace('_', ' ').toUpperCase())}
+                  </span>
+                </div>
+                <div className="flex-shrink-0">
+                  <StatusChangeButtons runId={run.id} currentStatus={run.status} onStatusChange={onStatusChange} />
+                </div>
+              </div>
+              <div className="mb-1">{nameEl}</div>
+              <div className="flex items-center justify-between gap-2">
+                <span className={`text-xs ${isDeclined ? 'text-slate-600' : 'text-slate-500'}`}>
+                  {dateStr}{run.region ? ` · ${REGION_LABELS[run.region] ?? run.region}` : ''}
+                </span>
+                {!isDeclined && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-12 h-1.5 bg-slate-700 rounded-full">
+                      <div className={`h-full rounded-full ${completed ? 'bg-slate-500' : 'bg-amber-400'}`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-slate-600 text-xs">{pct}%</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
       </div>
+
+      {/* Desktop: full table */}
+      <table className="hidden md:table w-full">
+        <thead>
+          <tr className="border-b border-slate-700">
+            <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Code</th>
+            <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Run</th>
+            <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Status</th>
+            <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Region</th>
+            <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Dates</th>
+            <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Shows</th>
+            <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">{completed ? 'Settle' : 'Done'}</th>
+            <th className="text-left text-slate-400 text-xs font-medium px-4 py-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {runs.map((run, i) => {
+            const pct = completionByRun[run.id] ?? 0
+            const isPlaceholder = run.status === 'placeholder'
+            const isDeclined = run.status === 'declined'
+            return (
+              <tr
+                key={run.id}
+                className={`border-b border-slate-700/50 transition-colors ${isPlaceholder || isDeclined ? 'opacity-60' : 'hover:bg-slate-700/30'} ${i === runs.length - 1 ? 'border-0' : ''}`}
+              >
+                <td className="px-4 py-3">
+                  <span className={`font-bold text-sm ${isDeclined ? 'text-slate-500 line-through' : isPlaceholder ? 'text-slate-500' : completed ? 'text-slate-400' : 'text-amber-400'}`}>{run.code}</span>
+                </td>
+                <td className="px-4 py-3">
+                  {isPlaceholder || isDeclined ? (
+                    <span className={`text-slate-500 text-sm italic ${isDeclined ? 'line-through' : ''}`}>{run.name}</span>
+                  ) : (
+                    <Link href={`/runs/${run.code.toLowerCase()}`} className="text-white text-sm hover:text-amber-400 transition-colors">
+                      {run.name}
+                    </Link>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`px-2 py-0.5 rounded border text-xs font-medium whitespace-nowrap ${completed ? 'bg-slate-700 text-slate-400 border-slate-600' : (STATUS_STYLES[run.status] ?? STATUS_STYLES.confirmed)}`}>
+                    {completed ? 'COMPLETED' : (STATUS_LABELS[run.status] ?? run.status.replace('_', ' ').toUpperCase())}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`text-xs ${isDeclined ? 'text-slate-600 line-through' : 'text-slate-400'}`}>{REGION_LABELS[run.region] ?? run.region}</span>
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`text-sm whitespace-nowrap ${isDeclined ? 'text-slate-600 line-through' : 'text-slate-300'}`}>
+                    {run.start_date === run.end_date ? fmt(run.start_date) : `${fmt(run.start_date)} – ${fmt(run.end_date)}`}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <span className="text-slate-400 text-sm">{run.shows?.length ?? 0}</span>
+                </td>
+                <td className="px-4 py-3">
+                  {!isDeclined && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-16 h-1.5 bg-slate-700 rounded-full">
+                        <div className={`h-full rounded-full ${completed ? 'bg-slate-500' : 'bg-amber-400'}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-slate-500 text-xs">{pct}%</span>
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <StatusChangeButtons runId={run.id} currentStatus={run.status} onStatusChange={onStatusChange} />
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
