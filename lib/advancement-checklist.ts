@@ -29,7 +29,7 @@ export const ADVANCEMENT_CHECKLIST: AdvancementChecklistItem[] = [
   { category: 'Venue / Tech Requirements', item_key: 'risers_amp',             label: 'Amp riser confirmed ≥600mm',                                           assigned_to: 'production_manager', sort_order: 180 },
   { category: 'Venue / Tech Requirements', item_key: 'guitar_risers',          label: 'Guitar risers pre-assembled confirmed',                                 assigned_to: 'production_manager', sort_order: 185 },
   { category: 'Venue / Tech Requirements', item_key: 'vision_input',           label: 'Vision input at USL of drum riser confirmed (HDMI or SDI)',             assigned_to: 'production_manager', sort_order: 190 },
-  { category: 'Venue / Tech Requirements', item_key: 'merch_seller',           label: 'Merch seller arranged by venue (1 table + 1 pinboard + cash float)',    assigned_to: 'tour_manager',       sort_order: 200 },
+  { category: 'Venue / Tech Requirements', item_key: 'merch_seller',           label: 'Merch seller arranged (1 table + 1 pinboard + cash float)',            assigned_to: 'production_manager', sort_order: 200 },
 
   // Travel — all TM
   { category: 'Travel', item_key: 'travel_type',             label: 'Group travel type determined (van / fly / mixed)',                       assigned_to: 'tour_manager', sort_order: 210 },
