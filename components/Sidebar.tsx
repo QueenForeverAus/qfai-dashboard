@@ -11,7 +11,6 @@ import { useProfile, canAccessPage } from '@/lib/profile-context'
 const navItems = [
   { href: '/',           label: 'Mission Control', icon: '⚡' },
   { href: '/runs',       label: 'Runs/Shows',      icon: '🎸' },
-  { href: '/emails',     label: 'Drafts',          icon: '✉️' },
   { href: '/settlement', label: 'Settlement',       icon: '💰' },
   { href: '/factors',    label: 'Factors',          icon: '⚙' },
   { href: '/feedback',   label: 'Feedback',         icon: '💬' },
