@@ -34,5 +34,16 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Queue a calendar update task when confirming a run
+  if (status === 'confirmed' && data) {
+    await supabase.from('calendar_tasks').insert({
+      run_id: data.id,
+      run_code: data.code,
+      action: 'confirm',
+      status: 'pending',
+    })
+  }
+
   return NextResponse.json(data)
 }
