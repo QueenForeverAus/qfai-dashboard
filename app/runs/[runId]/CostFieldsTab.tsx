@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile, canAccessTab } from '@/lib/profile-context'
+import AdvancementTab from './AdvancementTab'
 
 type FieldState = 'known' | 'estimated' | 'guess' | 'pending' | 'auto_calc'
 
@@ -816,9 +817,11 @@ export default function CostFieldsTab({
   initialFields: CostFieldRow[]
   auditRows: AuditEntry[]
 }) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'costs' | 'audit'>('costs')
   const { effectiveRole } = useProfile()
   const hasTabAccess = canAccessTab(effectiveRole, 'costs')
+  const hasAdvancement = canAccessTab(effectiveRole, 'advancement')
+  const defaultTab = hasTabAccess ? 'costs' : hasAdvancement ? 'advancement' : 'costs'
+  const [activeTab, setActiveTab] = useState<'overview' | 'costs' | 'audit' | 'advancement'>(defaultTab as 'overview' | 'costs' | 'audit' | 'advancement')
   const isProduction = effectiveRole === 'production'
   // Which per-show fields production can see (no revenue, no venue hire)
   const visibleShowFields = isProduction
@@ -934,7 +937,7 @@ export default function CostFieldsTab({
 
   return (
     <>
-      {!hasTabAccess && (
+      {!hasTabAccess && !hasAdvancement && (
         <div className="rounded-xl p-6 mb-6 text-center" style={{ background: 'var(--surface, #1e293b)', border: '1px solid #334155' }}>
           <div className="text-2xl mb-2">🔒</div>
           <div className="text-slate-300 font-medium mb-1">Financial data restricted</div>
@@ -942,7 +945,7 @@ export default function CostFieldsTab({
         </div>
       )}
 
-      {hasTabAccess && (
+      {(hasTabAccess || hasAdvancement) && (
       <div className="flex gap-1 mb-6 border-b border-slate-700 items-end">
         {(['overview', 'costs', 'audit'] as const).filter(tab => canAccessTab(effectiveRole, tab)).map((tab) => (
           <button key={tab} onClick={() => setActiveTab(tab)}
@@ -952,8 +955,21 @@ export default function CostFieldsTab({
             {tab === 'costs' ? 'Run Costing' : tab === 'audit' ? 'Audit Trail' : 'P&L Calculator'}
           </button>
         ))}
+        {hasAdvancement && (
+          <button onClick={() => setActiveTab('advancement')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeTab === 'advancement' ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
+            }`}>
+            Advancement
+          </button>
+        )}
         <span className="ml-auto text-slate-800 text-xs pb-2 select-none">v3</span>
       </div>
+      )}
+
+      {/* ADVANCEMENT TAB */}
+      {hasAdvancement && activeTab === 'advancement' && (
+        <AdvancementTab runId={runId} />
       )}
 
       {/* P&L CALCULATOR TAB */}

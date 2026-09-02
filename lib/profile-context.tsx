@@ -55,10 +55,10 @@ export function useProfile() {
 
 // What each role can access
 export const ROLE_ACCESS: Record<string, { pages: string[]; tabs: string[] }> = {
-  admin:      { pages: ['/', '/runs', '/emails', '/settlement', '/feedback', '/admin', '/factors', '/settings'], tabs: ['costs', 'overview', 'audit'] },
-  owner:      { pages: ['/', '/runs', '/emails', '/settlement', '/feedback', '/factors', '/settings'],           tabs: ['costs', 'overview', 'audit'] },
-  production: { pages: ['/runs', '/feedback', '/settings'],                                         tabs: ['costs'] },
-  crew:       { pages: ['/runs', '/feedback', '/settings'],                                         tabs: [] },
+  admin:      { pages: ['/', '/runs', '/emails', '/settlement', '/feedback', '/admin', '/factors', '/settings'], tabs: ['costs', 'overview', 'audit', 'advancement'] },
+  owner:      { pages: ['/', '/runs', '/emails', '/settlement', '/feedback', '/factors', '/settings'],           tabs: ['costs', 'overview', 'audit', 'advancement'] },
+  production: { pages: ['/runs', '/feedback', '/settings'],                                         tabs: ['costs', 'advancement'] },
+  crew:       { pages: ['/runs', '/feedback', '/settings'],                                         tabs: ['advancement'] },
   external:   { pages: ['/feedback', '/settings'],                                                  tabs: [] },
 }
 
