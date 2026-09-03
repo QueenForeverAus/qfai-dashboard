@@ -1063,6 +1063,7 @@ export default function CostFieldsTab({
       {hasAdvancement && activeTab === 'advancement' && (
         <AdvancementTab
           runId={runId}
+          region={region}
           shows={showsState.map(s => ({
             id: s.id,
             venue_name: s.venue_name,
