@@ -196,13 +196,10 @@ function ShowOutlookCard({
 
 export default function TicketOutlookBlock({ shows, runSummary, isOwnerOrAdmin }: Props) {
   return (
-    <div className="mb-6">
-      <div className="flex items-baseline justify-between gap-3 mb-2 px-1">
-        <h2 className="text-slate-400 text-xs font-semibold uppercase tracking-wider">
-          Ticket sales outlook
-        </h2>
-        <span className="text-slate-600 text-[11px]">Per show · research draft</span>
-      </div>
+    <div>
+      <p className="text-slate-500 text-xs mb-3">
+        Per-show research drafts — Clear / Watch / Impediment. Confirm when you’re happy with the brief.
+      </p>
       {runSummary ? (
         <div className="mb-3 bg-slate-800/30 border border-slate-700/80 rounded-xl px-4 py-3">
           <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Run-level</div>
