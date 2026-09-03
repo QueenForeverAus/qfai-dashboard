@@ -982,24 +982,27 @@ export default function CostFieldsTab({
       )}
 
       {(hasTabAccess || hasAdvancement) && (
-      <div className="flex gap-1 mb-6 border-b border-slate-700 items-end overflow-x-auto">
-        {(['overview', 'costs', 'audit'] as const).filter(tab => canAccessTab(effectiveRole, tab)).map((tab) => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
-              activeTab === tab ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
-            }`}>
-            {tab === 'costs' ? 'Run Costing' : tab === 'audit' ? 'Audit Trail' : 'P&L Calculator'}
-          </button>
-        ))}
-        {hasAdvancement && (
-          <button onClick={() => setActiveTab('advancement')}
-            className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
-              activeTab === 'advancement' ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
-            }`}>
-            Advancement
-          </button>
-        )}
-        <span className="ml-auto text-slate-800 text-xs pb-2 select-none flex-shrink-0">v3</span>
+      <div className="relative mb-6">
+        <div className="flex gap-1 border-b border-slate-700 items-end overflow-x-auto scrollbar-thin pb-px pr-6">
+          {(['overview', 'costs', 'audit'] as const).filter(tab => canAccessTab(effectiveRole, tab)).map((tab) => (
+            <button key={tab} onClick={() => setActiveTab(tab)}
+              className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
+                activeTab === tab ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
+              }`}>
+              {tab === 'costs' ? 'Run Costing' : tab === 'audit' ? 'Audit Trail' : 'P&L Calculator'}
+            </button>
+          ))}
+          {hasAdvancement && (
+            <button onClick={() => setActiveTab('advancement')}
+              className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
+                activeTab === 'advancement' ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
+              }`}>
+              Advancement
+            </button>
+          )}
+          <span className="ml-auto text-slate-800 text-xs pb-2 select-none flex-shrink-0">v3</span>
+        </div>
+        <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-slate-900 to-transparent sm:hidden" aria-hidden />
       </div>
       )}
 

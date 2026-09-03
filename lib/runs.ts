@@ -70,8 +70,8 @@ export const RUNS: Run[] = [
   {
     id: 'R01', name: 'Broken Hill · Renmark · Adelaide', region: 'Group 2',
     shows: [
-      { venue: 'Broken Hill Civic Centre', date: 'Wed 11 Feb', status: 'CONFIRMED', capacity: 300, nettPrice: 75, bookingFee: 5, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 800, venueHirePct: 0, onCosts: 1200 },
-      { venue: 'Chaffey Theatre Renmark', date: 'Thu 12 Feb', status: 'CONFIRMED', capacity: 476, nettPrice: 75, bookingFee: 5, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 1500, venueHirePct: 0, onCosts: 2000 },
+      { venue: 'Broken Hill Civic Centre', date: 'Thu 11 Feb', status: 'CONFIRMED', capacity: 300, nettPrice: 75, bookingFee: 5, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 800, venueHirePct: 0, onCosts: 1200 },
+      { venue: 'Chaffey Theatre Renmark', date: 'Fri 12 Feb', status: 'CONFIRMED', capacity: 476, nettPrice: 75, bookingFee: 5, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 1500, venueHirePct: 0, onCosts: 2000 },
       { venue: 'Thebarton Theatre Adelaide', date: 'Sat 13 Feb', status: 'CONFIRMED', capacity: 2500, nettPrice: 75, bookingFee: 7.50, ccPct: 0.015, apraPct: 0.02, venueHireFlat: 18000, venueHirePct: 0, onCosts: 15200 },
     ],
     fixedCosts: { fb_ads: 12000, flights: 3000, accom: 4200, food: 675, van: 1250, fuel_van: 800, car_hire: 600, driver: 400, sound: 1800, lights: 1800, pm: 750, lighting_hire: 330, bass: 1800, keys: 1800 },
@@ -81,8 +81,8 @@ export const RUNS: Run[] = [
   {
     id: 'R02', name: 'Taree · Wyong', region: 'Group 2',
     shows: [
-      { venue: 'Manning Entertainment Centre Taree', date: 'Thu 26 Feb', status: 'CONFIRMED', capacity: 528, nettPrice: 75, bookingFee: 5.50, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 2200, venueHirePct: 0, onCosts: 3500 },
-      { venue: 'The Wyong Theatre', date: 'Fri 27 Feb', status: 'CONFIRMED', capacity: 470, nettPrice: 75, bookingFee: 5, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 2000, venueHirePct: 0, onCosts: 2800 },
+      { venue: 'Manning Entertainment Centre Taree', date: 'Fri 26 Feb', status: 'CONFIRMED', capacity: 528, nettPrice: 75, bookingFee: 5.50, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 2200, venueHirePct: 0, onCosts: 3500 },
+      { venue: 'The Wyong Theatre', date: 'Sat 27 Feb', status: 'CONFIRMED', capacity: 470, nettPrice: 75, bookingFee: 5, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 2000, venueHirePct: 0, onCosts: 2800 },
     ],
     fixedCosts: { fb_ads: 7000, flights: 2000, accom: 2800, food: 450, van: 1250, fuel_van: 400, car_hire: 400, driver: 400, sound: 1200, lights: 1200, pm: 500, lighting_hire: 330, bass: 1200, keys: 1200 },
     harbourPct: 0.10,
@@ -90,8 +90,8 @@ export const RUNS: Run[] = [
   {
     id: 'R03', name: 'Springwood · Thirroul', region: 'Group 2',
     shows: [
-      { venue: 'Springwood Cultural Centre', date: 'Thu 12 Mar', status: 'CONFIRMED', capacity: 430, nettPrice: 75, bookingFee: 5, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 1800, venueHirePct: 0, onCosts: 2500 },
-      { venue: 'Anita\'s Theatre Thirroul', date: 'Fri 13 Mar', status: 'CONFIRMED', capacity: 650, nettPrice: 75, bookingFee: 6, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 2500, venueHirePct: 0, onCosts: 3200 },
+      { venue: 'Springwood Cultural Centre', date: 'Fri 12 Mar', status: 'CONFIRMED', capacity: 430, nettPrice: 75, bookingFee: 5, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 1800, venueHirePct: 0, onCosts: 2500 },
+      { venue: 'Anita\'s Theatre Thirroul', date: 'Sat 13 Mar', status: 'CONFIRMED', capacity: 650, nettPrice: 75, bookingFee: 6, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 2500, venueHirePct: 0, onCosts: 3200 },
     ],
     fixedCosts: { fb_ads: 7000, flights: 2000, accom: 2800, food: 450, van: 1250, fuel_van: 380, car_hire: 400, driver: 400, sound: 1200, lights: 1200, pm: 500, lighting_hire: 330, bass: 1200, keys: 1200 },
     harbourPct: 0.10,
@@ -99,8 +99,8 @@ export const RUNS: Run[] = [
   {
     id: 'R04', name: 'Penrith · Bathurst', region: 'Group 2',
     shows: [
-      { venue: 'Penrith Civic Theatre', date: 'Thu 19 Mar', status: 'CONFIRMED', capacity: 484, nettPrice: 75, bookingFee: 5.50, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 2000, venueHirePct: 0, onCosts: 3000 },
-      { venue: 'Bathurst Memorial Entertainment Centre', date: 'Fri 20 Mar', status: 'CONFIRMED', capacity: 600, nettPrice: 75, bookingFee: 5.50, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 2200, venueHirePct: 0, onCosts: 3500 },
+      { venue: 'Penrith Civic Theatre', date: 'Fri 19 Mar', status: 'CONFIRMED', capacity: 484, nettPrice: 75, bookingFee: 5.50, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 2000, venueHirePct: 0, onCosts: 3000 },
+      { venue: 'Bathurst Memorial Entertainment Centre', date: 'Sat 20 Mar', status: 'CONFIRMED', capacity: 600, nettPrice: 75, bookingFee: 5.50, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 2200, venueHirePct: 0, onCosts: 3500 },
     ],
     fixedCosts: { fb_ads: 7000, flights: 2000, accom: 2800, food: 450, van: 1250, fuel_van: 420, car_hire: 400, driver: 400, sound: 1200, lights: 1200, pm: 500, lighting_hire: 330, bass: 1200, keys: 1200 },
     harbourPct: 0.10,
@@ -108,9 +108,9 @@ export const RUNS: Run[] = [
   {
     id: 'R05', name: 'Bunbury · Mandurah · Perth', region: 'Group 3',
     shows: [
-      { venue: 'Bunbury Regional Entertainment Centre', date: 'Tue 1 Apr', status: 'CONFIRMED', capacity: 1200, nettPrice: 75, bookingFee: 7, ccPct: 0.015, apraPct: 0.02, venueHireFlat: 6000, venueHirePct: 0, onCosts: 8000 },
-      { venue: 'Mandurah Performing Arts Centre', date: 'Wed 2 Apr', status: 'CONFIRMED', capacity: 843, nettPrice: 75, bookingFee: 6, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 4500, venueHirePct: 0, onCosts: 6000 },
-      { venue: 'Riverside Theatre Perth', date: 'Thu 3 Apr', status: 'CONFIRMED', capacity: 1200, nettPrice: 75, bookingFee: 7, ccPct: 0.015, apraPct: 0.02, venueHireFlat: 7000, venueHirePct: 0, onCosts: 9000 },
+      { venue: 'Bunbury Regional Entertainment Centre', date: 'Thu 1 Apr', status: 'CONFIRMED', capacity: 1200, nettPrice: 75, bookingFee: 7, ccPct: 0.015, apraPct: 0.02, venueHireFlat: 6000, venueHirePct: 0, onCosts: 8000 },
+      { venue: 'Mandurah Performing Arts Centre', date: 'Fri 2 Apr', status: 'CONFIRMED', capacity: 843, nettPrice: 75, bookingFee: 6, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 4500, venueHirePct: 0, onCosts: 6000 },
+      { venue: 'Riverside Theatre Perth', date: 'Sat 3 Apr', status: 'CONFIRMED', capacity: 1200, nettPrice: 75, bookingFee: 7, ccPct: 0.015, apraPct: 0.02, venueHireFlat: 7000, venueHirePct: 0, onCosts: 9000 },
     ],
     fixedCosts: { fb_ads: 15000, flights: 5000, accom: 5600, food: 675, van: 0, backline: 4000, car_hire: 900, sound: 1800, lights: 1800, pm: 750, bass: 1800, keys: 1800 },
     harbourPct: 0.10,
@@ -119,7 +119,7 @@ export const RUNS: Run[] = [
   {
     id: 'R06', name: 'Ararat', region: 'Group 1',
     shows: [
-      { venue: 'Ararat Town Hall', date: 'Thu 10 Apr', status: 'CONFIRMED', capacity: 420, nettPrice: 75, bookingFee: 4.50, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 1400, venueHirePct: 0, onCosts: 2000 },
+      { venue: 'Ararat Town Hall', date: 'Sat 10 Apr', status: 'CONFIRMED', capacity: 420, nettPrice: 75, bookingFee: 4.50, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 1400, venueHirePct: 0, onCosts: 2000 },
     ],
     fixedCosts: { fb_ads: 2500, accom: 1400, food: 225, fuel_brad: 80, fuel_cars: 120, sound: 600, lights: 600, pm: 250, lighting_hire: 330, bass: 600, keys: 600 },
     harbourPct: 0.10,
@@ -127,8 +127,8 @@ export const RUNS: Run[] = [
   {
     id: 'R07', name: 'Dubbo · Narrabri', region: 'Group 2',
     shows: [
-      { venue: 'Western Plains Cultural Centre Dubbo', date: 'Thu 16 Apr', status: 'CONFIRMED', capacity: 500, nettPrice: 75, bookingFee: 5.50, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 2000, venueHirePct: 0, onCosts: 3000 },
-      { venue: 'Narrabri Shire Council Civic Hall', date: 'Fri 17 Apr', status: 'CONFIRMED', capacity: 350, nettPrice: 75, bookingFee: 5, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 1200, venueHirePct: 0, onCosts: 1800 },
+      { venue: 'Western Plains Cultural Centre Dubbo', date: 'Fri 16 Apr', status: 'CONFIRMED', capacity: 500, nettPrice: 75, bookingFee: 5.50, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 2000, venueHirePct: 0, onCosts: 3000 },
+      { venue: 'Narrabri Shire Council Civic Hall', date: 'Sat 17 Apr', status: 'CONFIRMED', capacity: 350, nettPrice: 75, bookingFee: 5, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 1200, venueHirePct: 0, onCosts: 1800 },
     ],
     fixedCosts: { fb_ads: 6000, flights: 2000, accom: 2800, food: 450, van: 1250, fuel_van: 600, car_hire: 400, driver: 400, sound: 1200, lights: 1200, pm: 500, lighting_hire: 330, bass: 1200, keys: 1200 },
     harbourPct: 0.10,
@@ -136,7 +136,7 @@ export const RUNS: Run[] = [
   {
     id: 'R08', name: 'Albury', region: 'Group 1',
     shows: [
-      { venue: 'Albury Entertainment Centre', date: 'Thu 24 Apr', status: 'CONFIRMED', capacity: 800, nettPrice: 75, bookingFee: 6, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 3500, venueHirePct: 0, onCosts: 4500 },
+      { venue: 'Albury Entertainment Centre', date: 'Sat 24 Apr', status: 'CONFIRMED', capacity: 800, nettPrice: 75, bookingFee: 6, ccPct: 0.01, apraPct: 0.02, venueHireFlat: 3500, venueHirePct: 0, onCosts: 4500 },
     ],
     fixedCosts: { fb_ads: 3500, accom: 1400, food: 225, fuel_brad: 130, fuel_cars: 200, sound: 600, lights: 600, pm: 250, lighting_hire: 330, bass: 600, keys: 600 },
     harbourPct: 0.10,
@@ -144,7 +144,7 @@ export const RUNS: Run[] = [
   {
     id: 'R09', name: 'Sydney State Theatre', region: 'Group 2',
     shows: [
-      { venue: 'State Theatre Sydney', date: 'Thu 20 Nov', status: 'CONFIRMED', capacity: 2052, nettPrice: 85, bookingFee: 10, ccPct: 0.015, apraPct: 0.02, venueHireFlat: 25000, venueHirePct: 0, onCosts: 28000 },
+      { venue: 'State Theatre Sydney', date: 'Sat 20 Nov', status: 'CONFIRMED', capacity: 2052, nettPrice: 85, bookingFee: 10, ccPct: 0.015, apraPct: 0.02, venueHireFlat: 25000, venueHirePct: 0, onCosts: 28000 },
     ],
     fixedCosts: { fb_ads: 8000, flights: 2000, accom: 1400, food: 225, sound: 600, lights: 600, pm: 250, bass: 600, keys: 600 },
     harbourPct: 0.10,
