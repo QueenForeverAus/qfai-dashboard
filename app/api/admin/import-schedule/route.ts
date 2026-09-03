@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
+import { explainRunRegion, type ShowLocationInput } from '@/lib/region-classify'
 
 type SheetShow = {
   show_date: string
@@ -42,6 +43,14 @@ type RunStatusChange = {
   new_status: string
 }
 
+export type RegionSuggestion = {
+  run_code: string
+  run_id: string
+  old_region: string
+  new_region: string
+  reason: string
+}
+
 export type ImportPreview = {
   source_file: string
   sheet_shows: number
@@ -50,6 +59,8 @@ export type ImportPreview = {
   run_status_changes: RunStatusChange[]
   new_in_sheet: SheetShow[]
   removed_from_sheet: DBShow[]
+  /** Runs whose classified region would change after applying location patches */
+  region_suggestions: RegionSuggestion[]
 }
 
 // ── Title case helpers ────────────────────────────────────────────────
@@ -323,6 +334,39 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Region suggestions from post-patch show locations (state_territory / city)
+  const { data: runsWithRegion } = await supabase.from('runs').select('id, code, region')
+  const regionByCode = new Map((runsWithRegion ?? []).map(r => [r.code, r]))
+  const showsByRun = new Map<string, ShowLocationInput[]>()
+  for (const db of dbRows) {
+    const list = showsByRun.get(db.run_code) ?? []
+    // Apply pending location patches for this show if any
+    const upd = updates.find(u => u.show_id === db.id)
+    const state = upd?.changes.state_territory
+      ? String(upd.changes.state_territory.to)
+      : db.state_territory
+    const city = upd?.changes.venue_city
+      ? String(upd.changes.venue_city.to)
+      : db.venue_city
+    list.push({ state_territory: state, venue_city: city })
+    showsByRun.set(db.run_code, list)
+  }
+  const regionSuggestions: RegionSuggestion[] = []
+  for (const [code, locs] of showsByRun) {
+    const run = regionByCode.get(code)
+    if (!run) continue
+    const { region: next, reason } = explainRunRegion(locs)
+    if (next !== run.region) {
+      regionSuggestions.push({
+        run_code: code,
+        run_id: run.id,
+        old_region: run.region,
+        new_region: next,
+        reason,
+      })
+    }
+  }
+
   const preview: ImportPreview = {
     source_file: file.name,
     sheet_shows: sheetShows.length,
@@ -331,6 +375,7 @@ export async function POST(req: NextRequest) {
     run_status_changes: runStatusChanges,
     new_in_sheet: newInSheet,
     removed_from_sheet: removedFromSheet,
+    region_suggestions: regionSuggestions,
   }
 
   return NextResponse.json(preview)
@@ -361,5 +406,38 @@ export async function PUT(req: NextRequest) {
     if (!error) runsUpdated++
   }
 
-  return NextResponse.json({ shows_updated: showsUpdated, runs_updated: runsUpdated })
+  // Reclassify region for every run touched by show patches (and status-change runs)
+  const affectedCodes = new Set<string>()
+  for (const u of body.updates ?? []) affectedCodes.add(u.run_code)
+  for (const r of body.run_status_changes ?? []) affectedCodes.add(r.run_code)
+
+  const regionResults: { code: string; old: string; new: string; reason: string }[] = []
+  for (const code of affectedCodes) {
+    const { data: runRow } = await supabase.from('runs').select('id, code, region').eq('code', code).single()
+    if (!runRow) continue
+    const { data: runShows } = await supabase
+      .from('shows')
+      .select('state_territory, venue_city')
+      .eq('run_id', runRow.id)
+    const locs: ShowLocationInput[] = (runShows ?? []).map(s => ({
+      state_territory: s.state_territory,
+      venue_city: s.venue_city,
+    }))
+    const { region: next, reason } = explainRunRegion(locs)
+    if (next !== runRow.region) {
+      const { error } = await supabase.from('runs').update({ region: next }).eq('id', runRow.id)
+      if (!error) {
+        runsUpdated++
+        regionResults.push({ code, old: runRow.region, new: next, reason })
+      }
+    } else {
+      regionResults.push({ code, old: runRow.region, new: next, reason })
+    }
+  }
+
+  return NextResponse.json({
+    shows_updated: showsUpdated,
+    runs_updated: runsUpdated,
+    region_updates: regionResults,
+  })
 }
