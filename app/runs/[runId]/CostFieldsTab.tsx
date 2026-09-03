@@ -1057,6 +1057,7 @@ export default function CostFieldsTab({
                         <div className="text-slate-500 text-xs mt-0.5 truncate">
                           {show.venue_city}{show.state_territory ? `, ${show.state_territory}` : ''} · {formatDateShortAU(show.show_date)}
                           {show.capacity ? ` · Cap ${show.capacity.toLocaleString()}` : ''}
+                          {show.ticket_price != null ? ` · $${Number(show.ticket_price).toFixed(2)} nett/ticket` : ' · Ticket price —'}
                         </div>
                       </div>
                       <div className="text-right flex-shrink-0">
@@ -1069,8 +1070,19 @@ export default function CostFieldsTab({
                       className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-700 accent-amber-400 mb-3"
                       style={{ maxWidth: '100%' }}
                     />
+                    <div className="flex justify-between text-sm gap-2 mb-1.5">
+                      <span className="text-slate-400">Ticket price <span className="text-slate-500">(Harbour nett)</span></span>
+                      <span className="text-white font-medium flex-shrink-0">
+                        {show.ticket_price != null ? `$${Number(show.ticket_price).toFixed(2)}` : <span className="text-red-400/70">—</span>}
+                      </span>
+                    </div>
                     <div className="flex justify-between text-sm gap-2">
-                      <span className="text-slate-400">Gross Box Office</span>
+                      <span className="text-slate-400">
+                        Gross Box Office
+                        {show.capacity && show.ticket_price != null ? (
+                          <span className="text-slate-600 font-normal"> · {show.capacity.toLocaleString()} × {pct}% × ${Number(show.ticket_price).toFixed(2)}</span>
+                        ) : null}
+                      </span>
                       <span className="text-white font-semibold flex-shrink-0">{fmt(gbo)}</span>
                     </div>
                   </div>
