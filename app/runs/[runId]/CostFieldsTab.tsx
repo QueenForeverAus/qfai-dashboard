@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile, canAccessTab } from '@/lib/profile-context'
 import AdvancementTab from './AdvancementTab'
+import TicketOutlookBlock from './TicketOutlookBlock'
 import { formatDateShortAU } from '@/lib/dates'
 
 type FieldState = 'known' | 'estimated' | 'guess' | 'pending' | 'auto_calc'
@@ -35,6 +36,11 @@ type Show = {
   ticket_price: number | null
   sell_through_pct: number | null
   show_order: number
+  ticket_outlook?: string | null
+  ticket_outlook_level?: 'clear' | 'watch' | 'impediment' | null
+  ticket_outlook_status?: 'empty' | 'draft' | 'confirmed'
+  ticket_outlook_as_of?: string | null
+  ticket_outlook_sources?: unknown
 }
 
 type CostFieldRow = {
@@ -831,18 +837,25 @@ export default function CostFieldsTab({
   shows,
   initialFields,
   auditRows,
+  isOwnerOrAdmin = false,
+  ticketOutlookSummary = null,
 }: {
   runId: string
   runCode: string
   shows: Show[]
   initialFields: CostFieldRow[]
   auditRows: AuditEntry[]
+  isOwnerOrAdmin?: boolean
+  ticketOutlookSummary?: string | null
 }) {
   const { effectiveRole } = useProfile()
   const hasTabAccess = canAccessTab(effectiveRole, 'costs')
   const hasAdvancement = canAccessTab(effectiveRole, 'advancement')
-  const defaultTab = hasTabAccess ? 'costs' : hasAdvancement ? 'advancement' : 'costs'
-  const [activeTab, setActiveTab] = useState<'overview' | 'costs' | 'audit' | 'advancement'>(defaultTab as 'overview' | 'costs' | 'audit' | 'advancement')
+  const hasOutlook = canAccessTab(effectiveRole, 'outlook')
+  const defaultTab = hasTabAccess ? 'costs' : hasOutlook ? 'outlook' : hasAdvancement ? 'advancement' : 'costs'
+  const [activeTab, setActiveTab] = useState<'overview' | 'costs' | 'outlook' | 'audit' | 'advancement'>(
+    defaultTab as 'overview' | 'costs' | 'outlook' | 'audit' | 'advancement',
+  )
   const isProduction = effectiveRole === 'production'
   // Which per-show fields production can see (no revenue, no venue hire)
   const visibleShowFields = isProduction
@@ -981,15 +994,15 @@ export default function CostFieldsTab({
         </div>
       )}
 
-      {(hasTabAccess || hasAdvancement) && (
+      {(hasTabAccess || hasOutlook || hasAdvancement) && (
       <div className="relative mb-6">
         <div className="flex gap-1 border-b border-slate-700 items-end overflow-x-auto scrollbar-thin pb-px pr-6">
-          {(['overview', 'costs', 'audit'] as const).filter(tab => canAccessTab(effectiveRole, tab)).map((tab) => (
+          {(['overview', 'costs', 'outlook', 'audit'] as const).filter(tab => canAccessTab(effectiveRole, tab)).map((tab) => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
                 activeTab === tab ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
               }`}>
-              {tab === 'costs' ? 'Run Costing' : tab === 'audit' ? 'Audit Trail' : 'P&L Calculator'}
+              {tab === 'costs' ? 'Run Costing' : tab === 'audit' ? 'Audit Trail' : tab === 'outlook' ? 'Ticket Outlook' : 'P&L Calculator'}
             </button>
           ))}
           {hasAdvancement && (
@@ -1004,6 +1017,26 @@ export default function CostFieldsTab({
         </div>
         <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-slate-900 to-transparent sm:hidden" aria-hidden />
       </div>
+      )}
+
+      {/* TICKET SALES OUTLOOK TAB */}
+      {hasOutlook && activeTab === 'outlook' && (
+        <TicketOutlookBlock
+          shows={showsState.map(s => ({
+            id: s.id,
+            venue_name: s.venue_name,
+            venue_city: s.venue_city,
+            state_territory: s.state_territory,
+            show_date: s.show_date,
+            ticket_outlook: s.ticket_outlook ?? null,
+            ticket_outlook_level: s.ticket_outlook_level ?? null,
+            ticket_outlook_status: s.ticket_outlook_status ?? 'empty',
+            ticket_outlook_as_of: s.ticket_outlook_as_of ?? null,
+            ticket_outlook_sources: s.ticket_outlook_sources ?? [],
+          }))}
+          runSummary={ticketOutlookSummary}
+          isOwnerOrAdmin={isOwnerOrAdmin}
+        />
       )}
 
       {/* ADVANCEMENT TAB */}
