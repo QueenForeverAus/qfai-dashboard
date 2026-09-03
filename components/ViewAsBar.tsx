@@ -3,12 +3,14 @@
 import { useProfile } from '@/lib/profile-context'
 
 const ROLES = [
+  { key: 'admin',      label: 'Admin',      color: '#a78bfa' },
   { key: 'production', label: 'Production', color: '#60a5fa' },
   { key: 'crew',       label: 'Crew',       color: '#94a3b8' },
   { key: 'external',   label: 'External',   color: '#f87171' },
 ]
 
 const ROLE_LABEL: Record<string, string> = {
+  admin:      'Admin',
   production: 'Production',
   crew:       'Crew',
   external:   'External',
@@ -17,7 +19,8 @@ const ROLE_LABEL: Record<string, string> = {
 export default function ViewAsBar() {
   const { profile, viewAs, setViewAs } = useProfile()
 
-  if (profile?.role !== 'admin') return null
+  // Owners (Gareth) and admins can preview other roles
+  if (profile?.role !== 'admin' && profile?.role !== 'owner') return null
 
   return (
     <div
@@ -28,7 +31,7 @@ export default function ViewAsBar() {
       }}
     >
       <span style={{ color: viewAs ? '#a78bfa' : '#475569' }} className="font-semibold shrink-0 whitespace-nowrap">
-        {viewAs ? `👁 Previewing as ${ROLE_LABEL[viewAs]}` : '🛡 Admin view'}
+        {viewAs ? `👁 Previewing as ${ROLE_LABEL[viewAs] ?? viewAs}` : '🛡 Owner / Admin view'}
       </span>
 
       <span style={{ color: '#334155' }} className="shrink-0 hidden xs:inline sm:inline">·</span>
