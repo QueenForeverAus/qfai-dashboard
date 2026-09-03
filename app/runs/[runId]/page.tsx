@@ -186,6 +186,11 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
       <CostFieldsTab
         runId={run.id}
         runCode={run.code}
+        runName={run.name}
+        region={run.region}
+        startDate={run.start_date}
+        endDate={run.end_date}
+        synopsis={run.synopsis ?? null}
         shows={typedShows}
         initialFields={typedFields}
         isOwnerOrAdmin={isOwnerOrAdmin}

@@ -27,7 +27,7 @@ export async function PATCH(
   const body = await req.json()
 
   // Only allow safe fields to be updated
-  const allowed = ['venue_name', 'venue_city', 'state_territory', 'show_date', 'capacity', 'ticket_price', 'ticket_outlook', 'ticket_outlook_level', 'ticket_outlook_status', 'ticket_outlook_as_of', 'ticket_outlook_sources']
+  const allowed = ['venue_name', 'venue_city', 'state_territory', 'show_date', 'capacity', 'ticket_price', 'ticket_outlook', 'ticket_outlook_level', 'ticket_outlook_status', 'ticket_outlook_as_of', 'ticket_outlook_sources', 'michael_notes']
   const updates: Record<string, unknown> = {}
   for (const key of allowed) {
     if (key in body) updates[key] = body[key] === '' ? null : body[key]

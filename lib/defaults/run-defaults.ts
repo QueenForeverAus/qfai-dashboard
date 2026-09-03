@@ -678,10 +678,10 @@ export const RUN_DEFAULTS: Record<string, RunDefault> = {
     flights: { value: 2000, state: 'estimated', source: 'TAS bracket ~$2,000 open-jaw (MEL→Hobart / Launceston→MEL). Gareth to book. Recommended open-jaw to avoid backtracking band to Hobart after Launceston show.' },
     accommodation: { value: 3100, state: 'estimated', source: 'Band: $1,400/night × 2 (Fri Hobart + Sat Launceston) = $2,800. Plus Brad\'s 2 pre-show solo nights (~$150/night) = $300. ⚠ Wrest Point has on-site rooms at $185–$300/room — cheaper than standard $1,400/room if booked direct; not assumed here.' },
     accommodationNights: 2,
-    groundTransport: { value: 2900, state: 'estimated', source: 'Van hire (TAS rate ~$800/weekend) + Spirit of Tasmania ferry (return crossing for van ~$1,500) + van fuel (DEV→HBA→LSN→DEV ~580km + Geelong terminal legs ~150km) $153 + Kia Carnival 2 × $200 $400 + local car fuel (HBA Airport↔Wrest Point↔LSN↔LSN Airport ~255km) $48.' },
+    groundTransport: { value: 2900, state: 'estimated', source: 'Van hire (TAS rate ~$800/weekend) + Spirit of Tasmania ferry (return van + cabin ~$1,500; cabin required, never recliner) + van fuel (DEV→HBA→LSN→DEV ~580km + Geelong terminal legs ~150km) $153 + Kia Carnival 2 × $200 $400 + local car fuel (HBA Airport↔Wrest Point↔LSN↔LSN Airport ~255km) $48.' },
     groundTransportItems: [
       { description: 'Van hire — Tasmania rate', notes: '~$800/weekend; Gareth to confirm current rate', amount: 800 },
-      { description: 'Spirit of Tasmania ferry — van (return)', notes: '~$1,500/run; Gareth to confirm current rate', amount: 1500 },
+      { description: 'Spirit of Tasmania ferry — van + cabin (return)', notes: '~$1,500/run includes cabin (never recliner); Gareth to confirm current rate', amount: 1500 },
       { description: 'Van fuel (Tasmania driving + Geelong terminal legs)', notes: 'DEV→HBA→LSN→DEV ~580km + terminal legs ~150km', amount: 153 },
       { description: 'Kia Carnival hire (locally in Tasmania)', notes: '2 gigs × $200', amount: 400 },
       { description: 'Local car fuel', notes: 'HBA Airport↔Wrest Point↔LSN↔airport ~255km', amount: 48 },
