@@ -111,7 +111,7 @@ export async function PATCH(
   // Publish / unpublish pack (per-run)
   if (body.action === 'publish' || body.action === 'unpublish') {
     if (!canPublish(profile.role)) {
-      return NextResponse.json({ error: 'Only Gareth or Michael can publish the Show Pack' }, { status: 403 })
+      return NextResponse.json({ error: 'Only Gareth or Michael can publish the Worksheet' }, { status: 403 })
     }
 
     if (body.action === 'publish') {
@@ -130,7 +130,7 @@ export async function PATCH(
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
       return NextResponse.json({
         run: data,
-        message: 'Show Pack published (band email + PDF stubbed — not sent).',
+        message: 'Worksheet published (band email + PDF stubbed — not sent).',
       })
     }
 
@@ -145,7 +145,7 @@ export async function PATCH(
       .select('id, show_pack_status, show_pack_published_at, show_pack_published_by')
       .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ run: data, message: 'Show Pack returned to draft.' })
+    return NextResponse.json({ run: data, message: 'Worksheet returned to draft.' })
   }
 
   return NextResponse.json({ error: 'No valid action' }, { status: 400 })

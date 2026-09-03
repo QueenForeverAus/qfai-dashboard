@@ -1030,7 +1030,7 @@ export default function CostFieldsTab({
               className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
                 activeTab === 'show_pack' ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
               }`}>
-              Show Pack
+              Worksheet
             </button>
           )}
           <span className="ml-auto text-slate-800 text-xs pb-2 select-none flex-shrink-0">v3</span>
@@ -1074,7 +1074,7 @@ export default function CostFieldsTab({
         />
       )}
 
-      {/* SHOW PACK TAB */}
+      {/* WORKSHEET TAB */}
       {hasShowPack && activeTab === 'show_pack' && (
         <ShowPackTab
           runId={runId}

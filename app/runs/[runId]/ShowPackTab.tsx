@@ -118,7 +118,7 @@ export default function ShowPackTab({
           ...data.run,
           published_by_name: profile?.full_name ?? prev.published_by_name,
         } : prev)
-        showToast('Show Pack published ✓ (band email stubbed — not sent)')
+        showToast('Worksheet published ✓ (band email stubbed — not sent)')
       } else {
         showToast(data.error ?? 'Publish failed')
       }
@@ -162,7 +162,7 @@ export default function ShowPackTab({
   }
 
   if (loading && !run) {
-    return <div className="text-slate-500 text-sm py-8 text-center">Loading Show Pack…</div>
+    return <div className="text-slate-500 text-sm py-8 text-center">Loading Worksheet…</div>
   }
 
   const status = run?.show_pack_status ?? 'draft'
@@ -179,7 +179,7 @@ export default function ShowPackTab({
 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div>
-          <h2 className="text-white font-semibold text-lg">Virtual Show Pack</h2>
+          <h2 className="text-white font-semibold text-lg">Worksheet</h2>
           <p className="text-slate-500 text-xs mt-0.5">
             Staff draft view · Issued ~T-10 after Michael approve · Band portal later
           </p>
@@ -257,7 +257,7 @@ export default function ShowPackTab({
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-400/80 mb-1">
-                    {multiShow ? `Show ${idx + 1}` : 'Show pack'}
+                    {multiShow ? `Show ${idx + 1}` : 'Worksheet'}
                   </div>
                   <div className="text-white font-bold text-lg">{show.venue_name}</div>
                 </div>
