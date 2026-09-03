@@ -40,14 +40,15 @@ export type Run = {
   shows: { id: string }[]
 }
 
-type Tab = 'all' | 'proposed' | 'confirmed' | 'completed' | 'declined'
+type Tab = 'all' | 'proposed' | 'confirmed' | 'placeholders' | 'completed' | 'declined'
 
 const TABS: { key: Tab; label: string }[] = [
-  { key: 'all',       label: 'ALL' },
-  { key: 'proposed',  label: 'PROPOSED' },
-  { key: 'confirmed', label: 'CONFIRMED' },
-  { key: 'completed', label: 'COMPLETED' },
-  { key: 'declined',  label: 'DECLINED' },
+  { key: 'all',          label: 'ALL' },
+  { key: 'proposed',     label: 'PROPOSED' },
+  { key: 'confirmed',    label: 'CONFIRMED' },
+  { key: 'placeholders', label: 'PLACEHOLDERS' },
+  { key: 'completed',    label: 'COMPLETED' },
+  { key: 'declined',     label: 'DECLINED' },
 ]
 
 function StatusChangeButtons({ runId, currentStatus, onStatusChange }: {
@@ -185,8 +186,9 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
         })}
       </div>
 
-      {/* Desktop: full table */}
-      <table className="hidden md:table w-full">
+      {/* Desktop: full table — scroll if actions would clip */}
+      <div className="hidden md:block overflow-x-auto">
+      <table className="w-full min-w-[920px]">
         <thead>
           <tr className="border-b border-slate-700">
             <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Code</th>
@@ -247,7 +249,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 whitespace-nowrap">
                   <StatusChangeButtons runId={run.id} currentStatus={run.status} onStatusChange={onStatusChange} />
                 </td>
               </tr>
@@ -255,6 +257,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
           })}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }
@@ -263,17 +266,14 @@ export default function RunsPageClient({
   allRuns: initialRuns,
   today,
   completionByRun,
-  confirmedCount,
-  proposedCount,
-  placeholderCount,
   showStats,
 }: {
   allRuns: Run[]
   today: string
   completionByRun: Record<string, number>
-  confirmedCount: number
-  proposedCount: number
-  placeholderCount: number
+  confirmedCount?: number
+  proposedCount?: number
+  placeholderCount?: number
   showStats: { confirmed: number; proposed: number; placeholder: number; total: number }
 }) {
   const [activeTab, setActiveTab] = useState<Tab>('all')
@@ -285,19 +285,29 @@ export default function RunsPageClient({
     router.refresh()
   }
 
-  const declinedRuns   = runs.filter(r => r.status === 'declined')
-  const activeRuns     = runs.filter(r => r.status !== 'declined')
-  const completedRuns  = activeRuns.filter(r => r.end_date && r.end_date < today)
-  const upcomingRuns   = activeRuns.filter(r => !r.end_date || r.end_date >= today)
-  const confirmedRuns  = upcomingRuns.filter(r => r.status === 'confirmed')
-  const proposedRuns   = upcomingRuns.filter(r => r.status !== 'confirmed')
+  const declinedRuns      = runs.filter(r => r.status === 'declined')
+  const activeRuns        = runs.filter(r => r.status !== 'declined')
+  const completedRuns     = activeRuns.filter(r => r.end_date && r.end_date < today)
+  const upcomingRuns      = activeRuns.filter(r => !r.end_date || r.end_date >= today)
+  const confirmedRuns     = upcomingRuns.filter(r => r.status === 'confirmed')
+  const proposedRuns      = upcomingRuns.filter(r => r.status === 'proposed')
+  const placeholderRuns   = upcomingRuns.filter(r => r.status === 'placeholder')
+  const otherUpcomingRuns = upcomingRuns.filter(
+    r => !['confirmed', 'proposed', 'placeholder'].includes(r.status),
+  )
+
+  const liveConfirmed   = confirmedRuns.length
+  const liveProposed    = proposedRuns.length
+  const livePlaceholder = placeholderRuns.length
+  const liveOther       = otherUpcomingRuns.length
 
   const tabCounts: Record<Tab, number> = {
-    all:       activeRuns.length,
-    proposed:  proposedRuns.length,
-    confirmed: confirmedRuns.length,
-    completed: completedRuns.length,
-    declined:  declinedRuns.length,
+    all:          upcomingRuns.length,
+    proposed:     liveProposed,
+    confirmed:    liveConfirmed,
+    placeholders: livePlaceholder,
+    completed:    completedRuns.length,
+    declined:     declinedRuns.length,
   }
 
   return (
@@ -307,9 +317,9 @@ export default function RunsPageClient({
         <h1 className="text-white text-2xl font-bold tracking-wide mb-2">SHOWS / RUNS</h1>
         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6">
           <div>
-            <span className="text-white font-bold mr-2">RUNS: {activeRuns.length}</span>
+            <span className="text-white font-bold mr-2">RUNS: {upcomingRuns.length}</span>
             <span className="text-slate-400 text-sm">
-              ({confirmedCount} confirmed · {proposedCount} proposed{placeholderCount > 0 ? ` · ${placeholderCount} placeholders` : ''})
+              ({liveConfirmed} confirmed · {liveProposed} proposed{livePlaceholder > 0 ? ` · ${livePlaceholder} placeholders` : ''}{liveOther > 0 ? ` · ${liveOther} other` : ''}{completedRuns.length > 0 ? ` · ${completedRuns.length} completed` : ''})
             </span>
           </div>
           <div>
@@ -367,6 +377,10 @@ export default function RunsPageClient({
 
       {activeTab === 'confirmed' && (
         <RunTable runs={confirmedRuns} completionByRun={completionByRun} onStatusChange={handleStatusChange} />
+      )}
+
+      {activeTab === 'placeholders' && (
+        <RunTable runs={placeholderRuns} completionByRun={completionByRun} onStatusChange={handleStatusChange} />
       )}
 
       {activeTab === 'completed' && (
