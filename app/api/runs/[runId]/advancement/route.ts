@@ -53,12 +53,14 @@ function inheritStatus(
   if (!sources || sources.length === 0) {
     return { status: 'pending', notes: null, paid: false }
   }
-  const rows = sources
-    .map(k => existing.find(e => e.item_key === k && (e.show_id ?? null) === showId))
-    .filter(Boolean) as ExistingRow[]
-  if (rows.length === 0) return { status: 'pending', notes: null, paid: false }
-  if (rows.every(r => r.status === 'done')) return { status: 'done', notes: null, paid: false }
-  if (rows.every(r => r.status === 'n_a')) return { status: 'n_a', notes: null, paid: false }
+  const rows = sources.map(k =>
+    existing.find(e => e.item_key === k && (e.show_id ?? null) === showId),
+  )
+  // Require every listed legacy key to exist before inheriting
+  if (rows.some(r => !r)) return { status: 'pending', notes: null, paid: false }
+  const found = rows as ExistingRow[]
+  if (found.every(r => r.status === 'done')) return { status: 'done', notes: null, paid: false }
+  if (found.every(r => r.status === 'n_a')) return { status: 'n_a', notes: null, paid: false }
   return { status: 'pending', notes: null, paid: false }
 }
 
