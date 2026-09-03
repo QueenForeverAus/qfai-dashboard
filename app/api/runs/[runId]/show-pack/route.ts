@@ -1,6 +1,12 @@
 import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import {
+  SHOW_SELECT_COLS,
+  canEditWorksheet,
+  pickRunWorksheetUpdates,
+  pickShowWorksheetUpdates,
+} from '@/lib/worksheet-fields'
 
 async function resolveRunId(supabase: ReturnType<typeof createAdminClient>, runIdOrCode: string): Promise<string | null> {
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(runIdOrCode)) return runIdOrCode
@@ -14,12 +20,7 @@ async function getProfile(supabase: ReturnType<typeof createAdminClient>, userId
 }
 
 function canPublish(role: string | undefined) {
-  // Gareth = owner/admin (tour_manager); Michael = production (production_manager)
-  return role === 'owner' || role === 'admin' || role === 'production'
-}
-
-function canEditNotes(role: string | undefined) {
-  return role === 'owner' || role === 'admin' || role === 'production'
+  return canEditWorksheet(role)
 }
 
 export async function GET(
@@ -38,12 +39,12 @@ export async function GET(
   const [{ data: run, error: runErr }, { data: shows, error: showErr }] = await Promise.all([
     supabase
       .from('runs')
-      .select('id, code, name, region, start_date, end_date, synopsis, show_pack_status, show_pack_published_at, show_pack_published_by')
+      .select('id, code, name, region, start_date, end_date, synopsis, show_pack_status, show_pack_published_at, show_pack_published_by, flights_notes, vehicles_notes, hotels_overview_notes')
       .eq('id', runId)
       .single(),
     supabase
       .from('shows')
-      .select('id, venue_name, venue_city, state_territory, show_date, capacity, show_order, michael_notes')
+      .select(SHOW_SELECT_COLS)
       .eq('run_id', runId)
       .order('show_order'),
   ])
@@ -89,23 +90,51 @@ export async function PATCH(
 
   const body = await req.json()
 
-  // Update Michael notes on a show
-  if (body.michael_notes !== undefined && body.show_id) {
-    if (!canEditNotes(profile.role)) {
+  // Field-level show patch: { show_id, fields: { ... } } or legacy { show_id, michael_notes }
+  if (body.show_id) {
+    if (!canEditWorksheet(profile.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
-    if (typeof body.michael_notes !== 'string') {
-      return NextResponse.json({ error: 'michael_notes must be a string' }, { status: 400 })
+
+    const fields: Record<string, unknown> = body.fields && typeof body.fields === 'object'
+      ? body.fields
+      : Object.fromEntries(
+          Object.entries(body).filter(([k]) => k !== 'show_id' && k !== 'fields' && k !== 'action'),
+        )
+
+    const updates = pickShowWorksheetUpdates(fields)
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: 'No valid show fields to update' }, { status: 400 })
     }
+
     const { data, error } = await supabase
       .from('shows')
-      .update({ michael_notes: body.michael_notes.trim() || null })
+      .update(updates)
       .eq('id', body.show_id)
       .eq('run_id', runId)
-      .select('id, michael_notes')
+      .select(SHOW_SELECT_COLS)
       .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ show: data })
+  }
+
+  // Run-level worksheet notes: { fields: { flights_notes, ... } }
+  if (body.fields && typeof body.fields === 'object' && !body.show_id && !body.action) {
+    if (!canEditWorksheet(profile.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    const updates = pickRunWorksheetUpdates(body.fields)
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: 'No valid run fields to update' }, { status: 400 })
+    }
+    const { data, error } = await supabase
+      .from('runs')
+      .update(updates)
+      .eq('id', runId)
+      .select('id, flights_notes, vehicles_notes, hotels_overview_notes')
+      .single()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ run: data })
   }
 
   // Publish / unpublish pack (per-run)
@@ -116,7 +145,6 @@ export async function PATCH(
 
     if (body.action === 'publish') {
       // STUB: future — email band + PDF export. Do NOT auto-email yet.
-      // await sendShowPackEmail(...)
       const { data, error } = await supabase
         .from('runs')
         .update({

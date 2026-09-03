@@ -194,11 +194,20 @@ create policy "Authenticated users can submit requests" on feature_requests
 -- Unique: (run_id, item_key) where show_id is null
 --         (run_id, item_key, show_id) where show_id is not null
 
--- Virtual Show Pack (additive; see supabase/migrations/20260903_show_pack_and_advancing.sql)
+-- Virtual Show Pack / Worksheet (additive migrations)
+-- see supabase/migrations/20260903_show_pack_and_advancing.sql
+-- see supabase/migrations/20260904_worksheet_advance_fields.sql
 -- shows.michael_notes text
+-- shows.venue_address, venue_phone, venue_contact
+-- shows.sets_label default '2 x 60'
+-- shows.production_company, production_contact
+-- shows.backline_company, backline_contact (G3)
+-- shows.sched_access/soundcheck/dinner/doors/show/finish (defaults)
+-- shows.travel_access_notes, hotel_notes, hospitality_merch_notes
 -- runs.show_pack_status text draft|published
 -- runs.show_pack_published_at timestamptz
 -- runs.show_pack_published_by uuid -> profiles
+-- runs.flights_notes, vehicles_notes, hotels_overview_notes
 
 -- Advancing Shows owners: gareth|michael|harbour|anita|brad|finance|nigel
 -- (legacy tour_manager/production_manager mapped in app to gareth/michael)

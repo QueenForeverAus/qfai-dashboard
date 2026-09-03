@@ -14,6 +14,11 @@ import {
   type AssignedTo,
   type RunRegion,
 } from '@/lib/advancement-checklist'
+import {
+  SCHEDULE_DEFAULTS,
+  SETS_DEFAULT,
+  displayOrDefault,
+} from '@/lib/worksheet-fields'
 
 type ItemStatus = 'pending' | 'done' | 'n_a'
 
@@ -39,6 +44,24 @@ type ShowInfo = {
   venue_city: string
   show_date: string | null
   show_order: number
+}
+
+type AdvanceShowFields = {
+  id: string
+  venue_contact: string | null
+  production_company: string | null
+  production_contact: string | null
+  backline_company: string | null
+  backline_contact: string | null
+  sched_access: string | null
+  sched_soundcheck: string | null
+  sched_dinner: string | null
+  sched_doors: string | null
+  sched_show: string | null
+  sched_finish: string | null
+  travel_access_notes: string | null
+  hotel_notes: string | null
+  sets_label: string | null
 }
 
 const STATUS_CYCLE: ItemStatus[] = ['pending', 'done', 'n_a']
@@ -271,6 +294,136 @@ function ItemRow({
   )
 }
 
+function AdvanceField({
+  label,
+  value,
+  canEdit,
+  onSave,
+  multiline,
+  placeholder,
+}: {
+  label: string
+  value: string
+  canEdit: boolean
+  onSave: (v: string) => void
+  multiline?: boolean
+  placeholder?: string
+}) {
+  const [draft, setDraft] = useState(value)
+  const [dirty, setDirty] = useState(false)
+  useEffect(() => { if (!dirty) setDraft(value) }, [value, dirty])
+  function commit() {
+    if (!canEdit) return
+    setDirty(false)
+    if (draft !== value) onSave(draft)
+  }
+  const cls = 'w-full text-xs bg-slate-900/80 border border-slate-700 rounded px-2 py-1 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-amber-400'
+  return (
+    <div className={`flex gap-2 text-xs py-0.5 ${multiline ? 'items-start' : 'items-center'}`}>
+      <span className="text-slate-500 w-28 flex-shrink-0 pt-1">{label}</span>
+      {multiline ? (
+        <textarea value={draft} disabled={!canEdit} rows={2} placeholder={placeholder ?? 'TBC'}
+          onChange={e => { setDraft(e.target.value); setDirty(true) }} onBlur={commit} className={cls} />
+      ) : (
+        <input type="text" value={draft} disabled={!canEdit} placeholder={placeholder ?? 'TBC'}
+          onChange={e => { setDraft(e.target.value); setDirty(true) }} onBlur={commit}
+          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} className={cls} />
+      )}
+    </div>
+  )
+}
+
+function AdvanceDetailsCard({
+  showId,
+  fields,
+  isGroup3,
+  canEdit,
+  onUpdated,
+}: {
+  showId: string
+  fields: AdvanceShowFields | undefined
+  isGroup3: boolean
+  canEdit: boolean
+  onUpdated: (show: AdvanceShowFields) => void
+}) {
+  const [isPending, startTransition] = useTransition()
+  const f = fields ?? {
+    id: showId,
+    venue_contact: null,
+    production_company: null,
+    production_contact: null,
+    backline_company: null,
+    backline_contact: null,
+    sched_access: null,
+    sched_soundcheck: null,
+    sched_dinner: null,
+    sched_doors: null,
+    sched_show: null,
+    sched_finish: null,
+    travel_access_notes: null,
+    hotel_notes: null,
+    sets_label: null,
+  }
+
+  function save(partial: Record<string, string>) {
+    startTransition(async () => {
+      const res = await fetch(`/api/shows/${showId}/advance-fields`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: partial }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.show) onUpdated(data.show)
+      }
+    })
+  }
+
+  return (
+    <div className={`mt-3 pt-3 border-t border-slate-700/80 ${isPending ? 'opacity-70' : ''}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-400/80 mb-2">
+        Advance details → Worksheet
+      </div>
+      <AdvanceField label="Venue contact" value={f.venue_contact ?? ''} canEdit={canEdit}
+        onSave={v => save({ venue_contact: v })} />
+      <AdvanceField label="Prod. company" value={f.production_company ?? ''} canEdit={canEdit}
+        onSave={v => save({ production_company: v })} />
+      <AdvanceField label="Prod. contact" value={f.production_contact ?? ''} canEdit={canEdit}
+        onSave={v => save({ production_contact: v })} />
+      {isGroup3 && (
+        <>
+          <AdvanceField label="Backline co." value={f.backline_company ?? ''} canEdit={canEdit}
+            onSave={v => save({ backline_company: v })} />
+          <AdvanceField label="Backline contact" value={f.backline_contact ?? ''} canEdit={canEdit}
+            onSave={v => save({ backline_contact: v })} />
+        </>
+      )}
+      <div className="text-slate-500 text-[10px] uppercase tracking-wide mt-2 mb-1">Day schedule</div>
+      {(
+        [
+          ['Access', 'sched_access', SCHEDULE_DEFAULTS.sched_access],
+          ['Soundcheck', 'sched_soundcheck', SCHEDULE_DEFAULTS.sched_soundcheck],
+          ['Dinner', 'sched_dinner', SCHEDULE_DEFAULTS.sched_dinner],
+          ['Doors', 'sched_doors', SCHEDULE_DEFAULTS.sched_doors],
+          ['Show Time', 'sched_show', SCHEDULE_DEFAULTS.sched_show],
+          ['Finish', 'sched_finish', SCHEDULE_DEFAULTS.sched_finish],
+        ] as const
+      ).map(([label, key, def]) => (
+        <AdvanceField key={key} label={label} value={displayOrDefault(f[key], def)}
+          placeholder={def} canEdit={canEdit}
+          onSave={v => save({ [key]: v || def })} />
+      ))}
+      <AdvanceField label="Sets" value={displayOrDefault(f.sets_label, SETS_DEFAULT)}
+        placeholder={SETS_DEFAULT} canEdit={canEdit}
+        onSave={v => save({ sets_label: v || SETS_DEFAULT })} />
+      <AdvanceField label="Travel / access" value={f.travel_access_notes ?? ''} canEdit={canEdit}
+        multiline placeholder="Travel / access / parking" onSave={v => save({ travel_access_notes: v })} />
+      <AdvanceField label="Hotel notes" value={f.hotel_notes ?? ''} canEdit={canEdit}
+        multiline placeholder="Hotel free-text" onSave={v => save({ hotel_notes: v })} />
+    </div>
+  )
+}
+
 function ItemList({
   items,
   canEditItem,
@@ -306,18 +459,33 @@ export default function AdvancementTab({
 }) {
   const { effectiveRole } = useProfile()
   const [items, setItems] = useState<AdvancementItem[]>([])
+  const [advanceFields, setAdvanceFields] = useState<Record<string, AdvanceShowFields>>({})
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | AssignedTo>('all')
 
   const isOwnerOrAdmin = ['owner', 'admin'].includes(effectiveRole)
   const isProductionManager = effectiveRole === 'production'
+  const canEditAdvance = isOwnerOrAdmin || isProductionManager
   const regionKey = (region in REGION_LABELS ? region : 'group2') as RunRegion
   const regionLabel = REGION_LABELS[regionKey]
+  const isGroup3 = regionKey === 'group3'
 
   useEffect(() => {
-    fetch(`/api/runs/${runId}/advancement`)
-      .then(r => r.json())
-      .then(data => { setItems(Array.isArray(data) ? data : []); setLoading(false) })
+    Promise.all([
+      fetch(`/api/runs/${runId}/advancement`).then(r => r.json()),
+      fetch(`/api/runs/${runId}/show-pack`).then(r => r.json()),
+    ])
+      .then(([advData, packData]) => {
+        setItems(Array.isArray(advData) ? advData : [])
+        if (Array.isArray(packData?.shows)) {
+          const map: Record<string, AdvanceShowFields> = {}
+          for (const s of packData.shows) {
+            map[s.id] = s
+          }
+          setAdvanceFields(map)
+        }
+        setLoading(false)
+      })
       .catch(() => setLoading(false))
   }, [runId])
 
@@ -364,7 +532,11 @@ export default function AdvancementTab({
       if (showItems.length > 0) byShow.push({ show, items: showItems })
     }
     return { phase, runItems, byShow, all: phaseItems }
-  }).filter(p => p.all.length > 0)
+  }).filter(p =>
+    p.all.length > 0
+    // Always show Michael venue/tech phase so Advance details card is reachable
+    || (p.phase === '7. Michael — Venue / tech' && sortedShows.length > 0)
+  )
 
   return (
     <div>
@@ -444,10 +616,47 @@ export default function AdvancementTab({
                         </div>
                       </div>
                       <ItemList items={showItems} canEditItem={canEditItem} onUpdate={updateItem} />
+                      {phase === '7. Michael — Venue / tech' && (
+                        <AdvanceDetailsCard
+                          showId={show.id}
+                          fields={advanceFields[show.id]}
+                          isGroup3={isGroup3}
+                          canEdit={canEditAdvance}
+                          onUpdated={updated => setAdvanceFields(prev => ({ ...prev, [show.id]: { ...prev[show.id], ...updated, id: show.id } }))}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
               )}
+              {/* Advance details for shows missing from byShow (filter / empty checklist) */}
+              {phase === '7. Michael — Venue / tech' && (() => {
+                const covered = new Set(byShow.map(b => b.show.id))
+                const missing = sortedShows.filter(s => !covered.has(s.id))
+                if (missing.length === 0) return null
+                return (
+                  <div className={`space-y-3 ${byShow.length > 0 ? 'mt-3' : ''}`}>
+                    {missing.map(show => (
+                      <div key={`advance-${show.id}`} className="bg-slate-800/40 border border-slate-700 rounded-xl p-3">
+                        <div className="mb-2">
+                          <div className="text-white text-sm font-semibold">{show.venue_name}</div>
+                          <div className="text-slate-500 text-xs mt-0.5">
+                            {show.venue_city}
+                            {show.show_date ? ` · ${formatDateShortAU(show.show_date)}` : ''}
+                          </div>
+                        </div>
+                        <AdvanceDetailsCard
+                          showId={show.id}
+                          fields={advanceFields[show.id]}
+                          isGroup3={isGroup3}
+                          canEdit={canEditAdvance}
+                          onUpdated={updated => setAdvanceFields(prev => ({ ...prev, [show.id]: { ...prev[show.id], ...updated, id: show.id } }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
             </div>
           )
         })}

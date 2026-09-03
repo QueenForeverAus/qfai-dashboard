@@ -1,8 +1,13 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { useProfile } from '@/lib/profile-context'
 import { formatDateAU, formatDateTimeAU } from '@/lib/dates'
+import {
+  SCHEDULE_DEFAULTS,
+  SETS_DEFAULT,
+  displayOrDefault,
+} from '@/lib/worksheet-fields'
 
 type PackShow = {
   id: string
@@ -13,6 +18,23 @@ type PackShow = {
   capacity: number | null
   show_order: number
   michael_notes: string | null
+  venue_address: string | null
+  venue_phone: string | null
+  venue_contact: string | null
+  sets_label: string | null
+  production_company: string | null
+  production_contact: string | null
+  backline_company: string | null
+  backline_contact: string | null
+  sched_access: string | null
+  sched_soundcheck: string | null
+  sched_dinner: string | null
+  sched_doors: string | null
+  sched_show: string | null
+  sched_finish: string | null
+  travel_access_notes: string | null
+  hotel_notes: string | null
+  hospitality_merch_notes: string | null
 }
 
 type PackRun = {
@@ -27,6 +49,9 @@ type PackRun = {
   show_pack_published_at: string | null
   show_pack_published_by: string | null
   published_by_name: string | null
+  flights_notes: string | null
+  vehicles_notes: string | null
+  hotels_overview_notes: string | null
 }
 
 const REGION_LABELS: Record<string, string> = {
@@ -35,6 +60,26 @@ const REGION_LABELS: Record<string, string> = {
   group3: 'Group 3 · Fly + Local Backline',
 }
 
+const emptyShowFields = {
+  michael_notes: null,
+  venue_address: null,
+  venue_phone: null,
+  venue_contact: null,
+  sets_label: null,
+  production_company: null,
+  production_contact: null,
+  backline_company: null,
+  backline_contact: null,
+  sched_access: null,
+  sched_soundcheck: null,
+  sched_dinner: null,
+  sched_doors: null,
+  sched_show: null,
+  sched_finish: null,
+  travel_access_notes: null,
+  hotel_notes: null,
+  hospitality_merch_notes: null,
+} satisfies Partial<PackShow>
 
 function Field({ label, value }: { label: string; value: string }) {
   const isTbc = value === 'TBC'
@@ -42,6 +87,66 @@ function Field({ label, value }: { label: string; value: string }) {
     <div className="flex gap-2 text-sm py-0.5">
       <span className="text-slate-500 w-28 flex-shrink-0">{label}</span>
       <span className={isTbc ? 'text-slate-600 italic' : 'text-slate-200'}>{value}</span>
+    </div>
+  )
+}
+
+function EditableInput({
+  label,
+  value,
+  placeholder,
+  canEdit,
+  onSave,
+  multiline,
+}: {
+  label: string
+  value: string
+  placeholder?: string
+  canEdit: boolean
+  onSave: (next: string) => void
+  multiline?: boolean
+}) {
+  const [draft, setDraft] = useState(value)
+  const [dirty, setDirty] = useState(false)
+
+  useEffect(() => {
+    if (!dirty) setDraft(value)
+  }, [value, dirty])
+
+  function commit() {
+    if (!canEdit) return
+    setDirty(false)
+    if (draft !== value) onSave(draft)
+  }
+
+  const inputClass =
+    'w-full text-sm bg-slate-900/80 border border-slate-700 rounded px-2 py-1 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-amber-400 disabled:opacity-70'
+
+  return (
+    <div className={`flex gap-2 text-sm py-0.5 ${multiline ? 'items-start' : 'items-center'}`}>
+      <span className="text-slate-500 w-28 flex-shrink-0 pt-1">{label}</span>
+      {multiline ? (
+        <textarea
+          value={draft}
+          disabled={!canEdit}
+          rows={3}
+          placeholder={placeholder ?? 'TBC'}
+          onChange={e => { setDraft(e.target.value); setDirty(true) }}
+          onBlur={commit}
+          className={inputClass}
+        />
+      ) : (
+        <input
+          type="text"
+          value={draft}
+          disabled={!canEdit}
+          placeholder={placeholder ?? 'TBC'}
+          onChange={e => { setDraft(e.target.value); setDirty(true) }}
+          onBlur={commit}
+          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+          className={inputClass}
+        />
+      )}
     </div>
   )
 }
@@ -76,32 +181,93 @@ export default function ShowPackTab({
   const { effectiveRole, profile } = useProfile()
   const [run, setRun] = useState<PackRun | null>(null)
   const [shows, setShows] = useState<PackShow[]>(() =>
-    initialShows.map(s => ({ ...s, michael_notes: null })),
+    initialShows.map(s => ({ ...s, ...emptyShowFields })),
   )
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<string | null>(null)
-  const [editingNotesId, setEditingNotesId] = useState<string | null>(null)
-  const [notesDraft, setNotesDraft] = useState('')
   const [isPending, startTransition] = useTransition()
+  const lookupDone = useRef<Set<string>>(new Set())
 
   const canPublish = ['owner', 'admin', 'production'].includes(effectiveRole)
-  const canEditNotes = canPublish
+  const canEdit = canPublish
+  const isGroup3 = region === 'group3'
+
+  function showToast(msg: string) {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3500)
+  }
+
+  const saveShowFields = useCallback((showId: string, fields: Record<string, string>) => {
+    startTransition(async () => {
+      const res = await fetch(`/api/runs/${runId}/show-pack`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ show_id: showId, fields }),
+      })
+      const data = await res.json()
+      if (res.ok && data.show) {
+        setShows(prev => prev.map(s => s.id === showId ? { ...s, ...data.show } : s))
+      } else {
+        showToast(data.error ?? 'Save failed')
+      }
+    })
+  }, [runId])
+
+  const saveRunFields = useCallback((fields: Record<string, string>) => {
+    startTransition(async () => {
+      const res = await fetch(`/api/runs/${runId}/show-pack`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields }),
+      })
+      const data = await res.json()
+      if (res.ok && data.run) {
+        setRun(prev => prev ? { ...prev, ...data.run } : prev)
+      } else {
+        showToast(data.error ?? 'Save failed')
+      }
+    })
+  }, [runId])
+
+  async function lookupVenue(showId: string, silent = false) {
+    if (lookupDone.current.has(showId)) return
+    lookupDone.current.add(showId)
+    try {
+      const res = await fetch(`/api/shows/${showId}/lookup-venue`, { method: 'POST' })
+      const data = await res.json()
+      if (res.ok && data.show) {
+        setShows(prev => prev.map(s => s.id === showId ? { ...s, ...data.show } : s))
+        if (data.looked_up) showToast(data.message ?? 'Looked up address')
+        else if (!silent) showToast(data.message ?? 'Could not find — fill manually')
+      } else if (!silent) {
+        showToast(data.error ?? 'Lookup failed')
+      }
+    } catch {
+      if (!silent) showToast('Lookup failed')
+    }
+  }
 
   useEffect(() => {
     fetch(`/api/runs/${runId}/show-pack`)
       .then(r => r.json())
       .then(data => {
         if (data?.run) setRun(data.run)
-        if (Array.isArray(data?.shows)) setShows(data.shows)
+        if (Array.isArray(data?.shows)) {
+          setShows(data.shows)
+          // Auto-lookup once per show when address + phone empty
+          for (const s of data.shows as PackShow[]) {
+            const noAddr = !(s.venue_address && s.venue_address.trim())
+            const noPhone = !(s.venue_phone && s.venue_phone.trim())
+            if (noAddr && noPhone && canEdit) {
+              lookupVenue(s.id, true)
+            }
+          }
+        }
         setLoading(false)
       })
       .catch(() => setLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId])
-
-  function showToast(msg: string) {
-    setToast(msg)
-    setTimeout(() => setToast(null), 3500)
-  }
 
   function publish() {
     if (!canPublish) return
@@ -139,24 +305,6 @@ export default function ShowPackTab({
         showToast('Returned to draft')
       } else {
         showToast(data.error ?? 'Failed')
-      }
-    })
-  }
-
-  function saveNotes(showId: string) {
-    startTransition(async () => {
-      const res = await fetch(`/api/runs/${runId}/show-pack`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ show_id: showId, michael_notes: notesDraft }),
-      })
-      const data = await res.json()
-      if (res.ok && data.show) {
-        setShows(prev => prev.map(s => s.id === showId ? { ...s, michael_notes: data.show.michael_notes } : s))
-        setEditingNotesId(null)
-        showToast('Michael notes saved')
-      } else {
-        showToast(data.error ?? 'Save failed')
       }
     })
   }
@@ -222,7 +370,6 @@ export default function ShowPackTab({
       )}
 
       <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-1">
-        {/* Run overview — multi-show */}
         {multiShow && (
           <section className="bg-slate-800/40 border border-slate-700 rounded-xl p-5">
             <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-400/80 mb-3">
@@ -237,9 +384,24 @@ export default function ShowPackTab({
             } />
             <Field label="Travel type" value={REGION_LABELS[region] ?? region ?? 'TBC'} />
             <Field label="Shows" value={String(sortedShows.length)} />
-            <Field label="Flights / PAX" value="TBC" />
-            <Field label="Cars / vans" value="TBC" />
-            <Field label="Hotel nights" value="TBC" />
+            <EditableInput
+              label="Flights / PAX"
+              value={run?.flights_notes ?? ''}
+              canEdit={canEdit}
+              onSave={v => saveRunFields({ flights_notes: v })}
+            />
+            <EditableInput
+              label="Cars / vans"
+              value={run?.vehicles_notes ?? ''}
+              canEdit={canEdit}
+              onSave={v => saveRunFields({ vehicles_notes: v })}
+            />
+            <EditableInput
+              label="Hotel nights"
+              value={run?.hotels_overview_notes ?? ''}
+              canEdit={canEdit}
+              onSave={v => saveRunFields({ hotels_overview_notes: v })}
+            />
             {(synopsis || run?.synopsis) && (
               <div className="mt-3 pt-3 border-t border-slate-700">
                 <div className="text-slate-500 text-xs mb-1">Synopsis</div>
@@ -249,7 +411,6 @@ export default function ShowPackTab({
           </section>
         )}
 
-        {/* Per-show pages */}
         {sortedShows.map((show, idx) => {
           const cityLine = [show.venue_city, show.state_territory].filter(Boolean).join(', ')
           return (
@@ -271,94 +432,145 @@ export default function ShowPackTab({
                 <Field label="Date" value={show.show_date ? formatDateAU(show.show_date) : 'TBC'} />
                 <Field label="Event" value={show.venue_name} />
                 <Field label="City" value={cityLine || 'TBC'} />
-                <Field label="Sets" value="TBC" />
+                <EditableInput
+                  label="Sets"
+                  value={displayOrDefault(show.sets_label, SETS_DEFAULT)}
+                  placeholder={SETS_DEFAULT}
+                  canEdit={canEdit}
+                  onSave={v => saveShowFields(show.id, { sets_label: v || SETS_DEFAULT })}
+                />
                 <Field label="Attire" value="TBC" />
                 <Field label="Capacity" value={show.capacity != null ? String(show.capacity) : 'TBC'} />
               </div>
 
               <div className="border-t border-slate-700 pt-3 mb-3">
-                <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Venue</div>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Venue</div>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        lookupDone.current.delete(show.id)
+                        lookupVenue(show.id, false)
+                      }}
+                      className="text-xs text-slate-500 hover:text-amber-400 transition-colors"
+                    >
+                      Lookup address
+                    </button>
+                  )}
+                </div>
                 <Field label="Name" value={show.venue_name} />
-                <Field label="Address" value="TBC" />
-                <Field label="Phone" value="TBC" />
-                <Field label="Contact" value="TBC" />
+                <EditableInput
+                  label="Address"
+                  value={show.venue_address ?? ''}
+                  canEdit={canEdit}
+                  onSave={v => saveShowFields(show.id, { venue_address: v })}
+                />
+                <EditableInput
+                  label="Phone"
+                  value={show.venue_phone ?? ''}
+                  canEdit={canEdit}
+                  onSave={v => saveShowFields(show.id, { venue_phone: v })}
+                />
+                <EditableInput
+                  label="Contact"
+                  value={show.venue_contact ?? ''}
+                  canEdit={canEdit}
+                  onSave={v => saveShowFields(show.id, { venue_contact: v })}
+                />
               </div>
 
               <div className="border-t border-slate-700 pt-3 mb-3">
                 <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Production</div>
-                <Field label="Company" value="TBC" />
-                <Field label="Contact" value="TBC" />
+                <EditableInput
+                  label="Company"
+                  value={show.production_company ?? ''}
+                  canEdit={canEdit}
+                  onSave={v => saveShowFields(show.id, { production_company: v })}
+                />
+                <EditableInput
+                  label="Contact"
+                  value={show.production_contact ?? ''}
+                  canEdit={canEdit}
+                  onSave={v => saveShowFields(show.id, { production_contact: v })}
+                />
               </div>
+
+              {isGroup3 && (
+                <div className="border-t border-slate-700 pt-3 mb-3">
+                  <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Backline (G3)</div>
+                  <EditableInput
+                    label="Company"
+                    value={show.backline_company ?? ''}
+                    canEdit={canEdit}
+                    onSave={v => saveShowFields(show.id, { backline_company: v })}
+                  />
+                  <EditableInput
+                    label="Contact"
+                    value={show.backline_contact ?? ''}
+                    canEdit={canEdit}
+                    onSave={v => saveShowFields(show.id, { backline_contact: v })}
+                  />
+                </div>
+              )}
 
               <div className="border-t border-slate-700 pt-3 mb-3">
                 <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Day schedule</div>
-                <Field label="Access" value="TBC" />
-                <Field label="Soundcheck" value="TBC" />
-                <Field label="Dinner" value="TBC" />
-                <Field label="Doors" value="TBC" />
-                <Field label="Set" value="TBC" />
-                <Field label="Finish / M&G" value="TBC" />
+                {(
+                  [
+                    ['Access', 'sched_access', SCHEDULE_DEFAULTS.sched_access],
+                    ['Soundcheck', 'sched_soundcheck', SCHEDULE_DEFAULTS.sched_soundcheck],
+                    ['Dinner', 'sched_dinner', SCHEDULE_DEFAULTS.sched_dinner],
+                    ['Doors', 'sched_doors', SCHEDULE_DEFAULTS.sched_doors],
+                    ['Show Time', 'sched_show', SCHEDULE_DEFAULTS.sched_show],
+                    ['Finish / M&G', 'sched_finish', SCHEDULE_DEFAULTS.sched_finish],
+                  ] as const
+                ).map(([label, key, def]) => (
+                  <EditableInput
+                    key={key}
+                    label={label}
+                    value={displayOrDefault(show[key], def)}
+                    placeholder={def}
+                    canEdit={canEdit}
+                    onSave={v => saveShowFields(show.id, { [key]: v || def })}
+                  />
+                ))}
               </div>
 
               <div className="border-t border-slate-700 pt-3 mb-3">
                 <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Travel / access / parking</div>
-                <p className="text-slate-600 text-sm italic">TBC — never invent phones or flights</p>
+                <EditableInput
+                  label="Notes"
+                  value={show.travel_access_notes ?? show.michael_notes ?? ''}
+                  canEdit={canEdit}
+                  multiline
+                  placeholder="Access, parking, travel notes…"
+                  onSave={v => saveShowFields(show.id, { travel_access_notes: v })}
+                />
               </div>
 
               <div className="border-t border-slate-700 pt-3 mb-3">
                 <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Hotel</div>
-                <p className="text-slate-600 text-sm italic">TBC</p>
-              </div>
-
-              <div className="border-t border-slate-700 pt-3 mb-3">
-                <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Hospitality / merch</div>
-                <p className="text-slate-600 text-sm italic">TBC</p>
+                <EditableInput
+                  label="Notes"
+                  value={show.hotel_notes ?? ''}
+                  canEdit={canEdit}
+                  multiline
+                  placeholder="Hotel free-text (wire up later)"
+                  onSave={v => saveShowFields(show.id, { hotel_notes: v })}
+                />
               </div>
 
               <div className="border-t border-slate-700 pt-3">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                    Notes (Michael)
-                  </div>
-                  {canEditNotes && editingNotesId !== show.id && (
-                    <button
-                      onClick={() => { setEditingNotesId(show.id); setNotesDraft(show.michael_notes ?? '') }}
-                      className="text-xs text-slate-500 hover:text-amber-400 transition-colors"
-                    >
-                      {show.michael_notes ? 'Edit' : '+ Add notes'}
-                    </button>
-                  )}
-                </div>
-                {editingNotesId === show.id ? (
-                  <div className="space-y-2">
-                    <textarea
-                      value={notesDraft}
-                      onChange={e => setNotesDraft(e.target.value)}
-                      rows={4}
-                      placeholder="Access, parking, special notes…"
-                      className="w-full text-sm bg-slate-900 border border-amber-400/50 rounded px-3 py-2 text-white focus:outline-none focus:border-amber-400"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => saveNotes(show.id)}
-                        disabled={isPending}
-                        className="text-xs bg-amber-400 text-slate-900 font-semibold px-3 py-1 rounded hover:bg-amber-300 disabled:opacity-50"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => setEditingNotesId(null)}
-                        className="text-xs text-slate-500 hover:text-slate-300 px-2"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : show.michael_notes ? (
-                  <p className="text-slate-300 text-sm whitespace-pre-wrap">{show.michael_notes}</p>
-                ) : (
-                  <p className="text-slate-600 text-sm italic">No notes yet</p>
-                )}
+                <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Hospitality / merch</div>
+                <EditableInput
+                  label="Notes"
+                  value={show.hospitality_merch_notes ?? ''}
+                  canEdit={canEdit}
+                  multiline
+                  placeholder="Hospitality / merch free-text"
+                  onSave={v => saveShowFields(show.id, { hospitality_merch_notes: v })}
+                />
               </div>
             </section>
           )
