@@ -94,6 +94,20 @@ const RUN_FIELDS = [
   { key: 'social_ads_var',   label: 'Social Media Marketing Co. — $1/ticket', category: 'Marketing', defaultState: 'auto_calc' as FieldState },
 ]
 
+
+function entriesSum(entries: Entry[] | null | undefined): number {
+  if (!entries?.length) return 0
+  return entries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+}
+
+/** Prefer explicit value; fall back to line-item entries total. */
+function effectiveFieldValue(row: CostFieldRow | undefined): number | null {
+  if (!row) return null
+  if (row.value !== null && row.value !== undefined) return row.value
+  const fromEntries = entriesSum(row.entries)
+  return fromEntries > 0 ? fromEntries : null
+}
+
 function fmt(n: number | null) {
   if (n === null) return '—'
   return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 }).format(n)
@@ -888,13 +902,13 @@ export default function CostFieldsTab({
   const runCostTotal = RUN_FIELDS.reduce((sum, f) => {
     if (f.key === 'social_ads_var') return sum + dynamicSocialAds
     const row = fieldMap.get(runFieldKey(f.key))
-    return sum + (row?.value ?? 0)
+    return sum + (effectiveFieldValue(row) ?? 0)
   }, 0)
 
   const showCostTotal = showsState.reduce((sum, show) => {
     return sum + SHOW_FIELDS.filter(f => f.category !== 'Revenue').reduce((s2, f) => {
       const row = fieldMap.get(showFieldKey(show.id, f.key))
-      return s2 + (row?.value ?? 0)
+      return s2 + (effectiveFieldValue(row) ?? 0)
     }, 0)
   }, 0)
 
@@ -903,14 +917,15 @@ export default function CostFieldsTab({
   const reserve = Math.round(Math.max(0, netProfit) * 0.2)
   const preDistMargin = netProfit - reserve
 
-  // Completeness gate — block P&L only when a field has no value at all
+  // Completeness gate — unlock P&L when fields are estimate/guess/confirmed (known).
+  // Only FIGURES NEEDED (pending) blocks. Dollar amount may live in value OR entries.
   const COMPLETENESS_EXCLUDED = new Set(['social_ads_var', 'gross_box_office'])
   const incompleteFields: string[] = []
   for (const f of RUN_FIELDS) {
     if (COMPLETENESS_EXCLUDED.has(f.key)) continue
     const row = fieldMap.get(runFieldKey(f.key))
     if (!row) continue
-    if (row.value === null) {
+    if (row.state === 'pending') {
       incompleteFields.push(f.label)
     }
   }
@@ -918,7 +933,7 @@ export default function CostFieldsTab({
     for (const sf of SHOW_FIELDS.filter(sf => sf.category !== 'Revenue')) {
       const row = fieldMap.get(showFieldKey(show.id, sf.key))
       if (!row) continue
-      if (row.value === null) {
+      if (row.state === 'pending') {
         incompleteFields.push(`${show.venue_city} – ${sf.label}`)
       }
     }
@@ -928,12 +943,12 @@ export default function CostFieldsTab({
     for (const f of RUN_FIELDS) {
       if (COMPLETENESS_EXCLUDED.has(f.key)) continue
       const row = fieldMap.get(runFieldKey(f.key))
-      if (row && (row.state === 'guess' || row.state === 'pending')) return true
+      if (row && (row.state === 'guess' || row.state === 'estimated')) return true
     }
     for (const show of showsState) {
       for (const sf of SHOW_FIELDS.filter(sf => sf.category !== 'Revenue')) {
         const row = fieldMap.get(showFieldKey(show.id, sf.key))
-        if (row && (row.state === 'guess' || row.state === 'pending')) return true
+        if (row && (row.state === 'guess' || row.state === 'estimated')) return true
       }
     }
     return false
@@ -1004,7 +1019,7 @@ export default function CostFieldsTab({
                 <span className="text-red-400 text-base shrink-0 mt-0.5">⚠</span>
                 <div>
                   <p className="text-red-300 font-semibold text-sm">Data incomplete — P&L not shown</p>
-                  <p className="text-red-400/80 text-xs mt-1 mb-2">The following fields in Run Costing need real figures before a go/no-go decision can be made:</p>
+                  <p className="text-red-400/80 text-xs mt-1 mb-2">The following fields are still marked Figures Needed — set them to Estimate, Guess, or Confirmed to unlock P&L:</p>
                   <ul className="space-y-0.5">
                     {incompleteFields.map(f => (
                       <li key={f} className="text-red-400/70 text-xs flex items-center gap-1.5">
@@ -1083,9 +1098,9 @@ export default function CostFieldsTab({
             <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">Venue Costs — Per Show</h3>
             <div className="bg-slate-800 rounded-xl border border-slate-700 divide-y divide-slate-700/60">
               {showsState.map(show => {
-                const hire = fieldMap.get(showFieldKey(show.id, 'venue_hire'))?.value ?? null
-                const staff = fieldMap.get(showFieldKey(show.id, 'venue_staff'))?.value ?? null
-                const prod = fieldMap.get(showFieldKey(show.id, 'production_costs'))?.value ?? null
+                const hire = effectiveFieldValue(fieldMap.get(showFieldKey(show.id, 'venue_hire')))
+                const staff = effectiveFieldValue(fieldMap.get(showFieldKey(show.id, 'venue_staff')))
+                const prod = effectiveFieldValue(fieldMap.get(showFieldKey(show.id, 'production_costs')))
                 const showTotal = (hire ?? 0) + (staff ?? 0) + (prod ?? 0)
                 return (
                   <div key={show.id} className="p-3">
@@ -1120,7 +1135,7 @@ export default function CostFieldsTab({
             <div className="bg-slate-800 rounded-xl border border-slate-700 p-3 space-y-2 text-sm">
               {RUN_CATEGORIES.map(cat => {
                 const catTotal = RUN_FIELDS.filter(f => f.category === cat).reduce((sum, f) => {
-                  return sum + (fieldMap.get(runFieldKey(f.key))?.value ?? 0)
+                  return sum + (effectiveFieldValue(fieldMap.get(runFieldKey(f.key))) ?? 0)
                 }, 0)
                 return (
                   <div key={cat} className="flex justify-between">
