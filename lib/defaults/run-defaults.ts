@@ -1,5 +1,6 @@
-// Hardcoded defaults for all 9 confirmed runs derived from Gig Costings 2026-2027.xlsx
-// and QF Historical Venue Cost Raw Data.
+// Hardcoded defaults for confirmed runs. Ticket prices MUST come from the latest Harbour
+// schedule (e.g. Draft 22) — nett adult price — not a flat regional assumption.
+// Other cost seeds still derived from Gig Costings / historical venue data.
 
 export type StaffLineItem = {
   role: string
@@ -90,7 +91,7 @@ export const RUN_DEFAULTS: Record<string, RunDefault> = {
       },
       {
         showOrder: 3, venueName: 'Thebarton Theatre', venueCity: 'Adelaide', state: 'SA', showDate: '2027-02-13',
-        capacity: 1892, ticketPrice: 75,
+        capacity: 1892, ticketPrice: 100.02,
         venueHire: { value: 11000, state: 'known', source: '$11,000 flat ($3,300 deposit + $7,700 settlement). Source: Draft 22 Schedule. ✅ Matches 2026 historical actual.' },
         venueStaff: { value: 23355, state: 'estimated', source: '⚠ RATE CARD ESTIMATE at 75% ST (~1,419 tix). Source: Harbour rate card (Inhouse S&L $8,250 flat; FOH/Support/Ticket/Fire $66/hr; Security $70.40/hr; Security Supervisor $72.60/hr; Staff Manager $71.50/hr; Cleaning $880; Electricity $880). Historical 2026 actual was $17,812 at only 35% house (663 tix) — more FOH, security & ushers at higher sell-through. AV Production (from 2026: $5,500) not in rate card — may be separately quoted; confirm with Michael.' },
         venueStaffItems: [
@@ -483,7 +484,7 @@ export const RUN_DEFAULTS: Record<string, RunDefault> = {
     shows: [
       {
         showOrder: 1, venueName: 'State Theatre', venueCity: 'Sydney', state: 'NSW', showDate: '2027-11-20',
-        capacity: 2034, ticketPrice: 83,
+        capacity: 2034, ticketPrice: 97.45,
         venueHire: { value: 26280, state: 'known', source: 'Minimum fee: Venue Hire $14,240 + Standing Charges $5,990 + FOH Staff $6,050. FOH staff is inside the minimum — not double-counted in on-costs.' },
         venueStaff: { value: 28012, state: 'estimated', source: '🔴 FLOOR ONLY — Historical 2026 actual (859 tix, 42% house): Lighting $7,313, Vision Package $5,095, Staging $4,179, Audio $3,894, Flyman $1,232, LX Systems Tech $918, Stage Door $996, Bump Out $680, LX Crew $616, Fire & Safety Warden $648, Bump In $552, Security $425, Followspot $276 + consumables. At 75–100% expect materially higher (more ushers @ $65/hr, security @ $85/hr, casual FOH).' },
         venueStaffItems: [
@@ -593,7 +594,7 @@ export const RUN_DEFAULTS: Record<string, RunDefault> = {
       },
       {
         showOrder: 2, venueName: 'Canberra Theatre', venueCity: 'Canberra', state: 'ACT', showDate: '2027-05-08',
-        capacity: 1239, ticketPrice: 85,
+        capacity: 1239, ticketPrice: 97.45,
         venueHire: { value: 6699, state: 'estimated', source: '$6,699. Source: Real 2026 historical remittance (confirmed, not a deposit line). ⚠ SCHEDULE status is EOI — Harbour has not yet approached venue. All figures provisional until at least HELD.' },
         venueStaff: { value: 14559, state: 'estimated', source: '🔴 Real 2026 historical remittance (includes venue\'s own technical/FOH staff — QF crew costs are separate and always additional). Canberra Theatre has flagged high on-costs historically. ⚠ 2026 show sell-through unknown — treat as a real anchor but not a firm 2027 quote.' },
         venueStaffItems: [
