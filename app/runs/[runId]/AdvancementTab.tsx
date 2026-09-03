@@ -2,9 +2,10 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { useProfile } from '@/lib/profile-context'
+import { formatDateShortAU } from '@/lib/dates'
 import {
-  ADVANCEMENT_CHECKLIST,
-  CATEGORY_ORDER,
+  RUN_CATEGORY_ORDER,
+  SHOW_CATEGORY_ORDER,
   OWNER_LABELS,
   OWNER_STYLES,
   type AssignedTo,
@@ -15,6 +16,7 @@ type ItemStatus = 'pending' | 'done' | 'n_a'
 type AdvancementItem = {
   id: string
   run_id: string
+  show_id: string | null
   category: string
   item_key: string
   label: string
@@ -25,6 +27,14 @@ type AdvancementItem = {
   paid: boolean
   sort_order: number
   updated_at: string
+}
+
+type ShowInfo = {
+  id: string
+  venue_name: string
+  venue_city: string
+  show_date: string | null
+  show_order: number
 }
 
 const STATUS_CYCLE: ItemStatus[] = ['pending', 'done', 'n_a']
@@ -97,7 +107,6 @@ function ItemRow({
       isDone ? 'bg-green-900/10' : isNa ? 'opacity-40' : 'hover:bg-slate-800/40'
     } ${isPending ? 'opacity-60' : ''}`}>
       <div className="flex items-start gap-2.5">
-        {/* Status toggle */}
         <button
           onClick={cycleStatus}
           disabled={!canEdit}
@@ -111,17 +120,14 @@ function ItemRow({
           {statusIcon(item.status)}
         </button>
 
-        {/* Label */}
         <span className={`flex-1 text-sm leading-snug ${isDone ? 'line-through text-slate-500' : 'text-slate-200'}`}>
           {item.label}
         </span>
 
-        {/* Owner badge */}
         <span className={`flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${OWNER_STYLES[item.assigned_to]}`}>
           {OWNER_LABELS[item.assigned_to]}
         </span>
 
-        {/* Payment badge */}
         {item.payment_type === 'upfront' && (
           <button
             onClick={togglePaid}
@@ -138,7 +144,6 @@ function ItemRow({
         )}
       </div>
 
-      {/* Notes row */}
       {!isNa && (
         <div className="pl-7">
           {editingNotes ? (
@@ -175,13 +180,58 @@ function ItemRow({
   )
 }
 
-export default function AdvancementTab({ runId }: { runId: string }) {
+function CategoryBlock({
+  category,
+  items,
+  canEditItem,
+  onUpdate,
+}: {
+  category: string
+  items: AdvancementItem[]
+  canEditItem: (item: AdvancementItem) => boolean
+  onUpdate: (id: string, updates: Partial<AdvancementItem>) => void
+}) {
+  if (items.length === 0) return null
+  const catDone = items.filter(i => i.status === 'done').length
+  const catNa = items.filter(i => i.status === 'n_a').length
+  const catActive = items.length - catNa
+  const allDone = catActive > 0 && catDone === catActive
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <h3 className={`text-xs font-semibold uppercase tracking-wider ${allDone ? 'text-green-500' : 'text-slate-400'}`}>
+          {category}
+        </h3>
+        <span className="text-slate-600 text-xs">{catDone}/{catActive}</span>
+        {allDone && <span className="text-green-500 text-xs">✓</span>}
+      </div>
+      <div className="divide-y divide-slate-800/60 border border-slate-800 rounded-lg overflow-hidden">
+        {items.map(item => (
+          <ItemRow
+            key={item.id}
+            item={item}
+            canEdit={canEditItem(item)}
+            onUpdate={updates => onUpdate(item.id, updates)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default function AdvancementTab({
+  runId,
+  shows,
+}: {
+  runId: string
+  shows: ShowInfo[]
+}) {
   const { effectiveRole } = useProfile()
   const [items, setItems] = useState<AdvancementItem[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | AssignedTo>('all')
 
-  // Owners/admins can edit all; crew can edit only their own (production_manager items in future; for now read-only for crew)
   const isOwnerOrAdmin = ['owner', 'admin'].includes(effectiveRole)
   const isProductionManager = effectiveRole === 'production'
 
@@ -196,37 +246,45 @@ export default function AdvancementTab({ runId }: { runId: string }) {
     setItems(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item))
   }
 
-  const doneCount = items.filter(i => i.status === 'done').length
-  const naCount   = items.filter(i => i.status === 'n_a').length
-  const totalActive = items.length - naCount
-  const pct = totalActive > 0 ? Math.round((doneCount / totalActive) * 100) : 0
-
-  const upfrontPending = items.filter(i => i.payment_type === 'upfront' && !i.paid && i.status !== 'n_a')
-
   const filteredItems = filter === 'all'
     ? items
     : items.filter(i => i.assigned_to === filter)
 
-  const byCategory: Record<string, AdvancementItem[]> = {}
+  const runItems = filteredItems.filter(i => i.show_id == null)
+  const showItemsByShow: Record<string, AdvancementItem[]> = {}
   for (const item of filteredItems) {
-    if (!byCategory[item.category]) byCategory[item.category] = []
-    byCategory[item.category].push(item)
-  }
-  const orderedCategories = CATEGORY_ORDER.filter(c => byCategory[c]?.length)
-
-  // Merge any unsorted categories from checklist
-  for (const cat of Object.keys(byCategory)) {
-    if (!orderedCategories.includes(cat)) orderedCategories.push(cat)
+    if (!item.show_id) continue
+    if (!showItemsByShow[item.show_id]) showItemsByShow[item.show_id] = []
+    showItemsByShow[item.show_id].push(item)
   }
 
-  if (loading) {
-    return <div className="text-slate-500 text-sm py-8 text-center">Loading advancement checklist…</div>
-  }
+  const doneCount = filteredItems.filter(i => i.status === 'done').length
+  const naCount = filteredItems.filter(i => i.status === 'n_a').length
+  const totalActive = filteredItems.length - naCount
+  const pct = totalActive > 0 ? Math.round((doneCount / totalActive) * 100) : 0
+  const upfrontPending = items.filter(i => i.payment_type === 'upfront' && !i.paid && i.status !== 'n_a')
 
   function canEditItem(item: AdvancementItem) {
     if (isOwnerOrAdmin) return true
     if (isProductionManager && item.assigned_to === 'production_manager') return true
     return false
+  }
+
+  function groupByCategory(list: AdvancementItem[], order: string[]) {
+    const byCategory: Record<string, AdvancementItem[]> = {}
+    for (const item of list) {
+      if (!byCategory[item.category]) byCategory[item.category] = []
+      byCategory[item.category].push(item)
+    }
+    const ordered = order.filter(c => byCategory[c]?.length)
+    for (const cat of Object.keys(byCategory)) {
+      if (!ordered.includes(cat)) ordered.push(cat)
+    }
+    return ordered.map(category => ({ category, items: byCategory[category] ?? [] }))
+  }
+
+  if (loading) {
+    return <div className="text-slate-500 text-sm py-8 text-center">Loading advancement checklist…</div>
   }
 
   const FILTER_OPTIONS: { key: 'all' | AssignedTo; label: string }[] = [
@@ -236,9 +294,10 @@ export default function AdvancementTab({ runId }: { runId: string }) {
     { key: 'finance',            label: 'Finance' },
   ]
 
+  const sortedShows = [...shows].sort((a, b) => a.show_order - b.show_order)
+
   return (
     <div>
-      {/* Progress header */}
       <div className="flex items-center gap-4 mb-4">
         <div className="flex-1">
           <div className="flex items-center justify-between mb-1">
@@ -253,7 +312,6 @@ export default function AdvancementTab({ runId }: { runId: string }) {
           </div>
         </div>
 
-        {/* Filter buttons */}
         <div className="flex gap-1">
           {FILTER_OPTIONS.map(opt => (
             <button
@@ -271,47 +329,68 @@ export default function AdvancementTab({ runId }: { runId: string }) {
         </div>
       </div>
 
-      {/* Upfront payments alert */}
       {upfrontPending.length > 0 && (
         <div className="mb-4 px-3 py-2 rounded border border-amber-700/60 bg-amber-900/20 text-amber-300 text-xs">
           ⚠ {upfrontPending.length} upfront payment{upfrontPending.length > 1 ? 's' : ''} outstanding — Scott needs to action these before the show.
         </div>
       )}
 
-      {/* Checklist by category */}
-      <div className="space-y-5">
-        {orderedCategories.map(category => {
-          const catItems = byCategory[category] ?? []
-          const catDone = catItems.filter(i => i.status === 'done').length
-          const catNa   = catItems.filter(i => i.status === 'n_a').length
-          const catActive = catItems.length - catNa
-          const allDone = catActive > 0 && catDone === catActive
+      {/* Run-level */}
+      <div className="mb-6">
+        <h2 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">
+          Run-level
+        </h2>
+        <div className="space-y-5">
+          {groupByCategory(runItems, RUN_CATEGORY_ORDER).map(({ category, items: catItems }) => (
+            <CategoryBlock
+              key={`run-${category}`}
+              category={category}
+              items={catItems}
+              canEditItem={canEditItem}
+              onUpdate={updateItem}
+            />
+          ))}
+          {runItems.length === 0 && (
+            <p className="text-slate-600 text-sm italic">No run-level items for this filter.</p>
+          )}
+        </div>
+      </div>
 
+      {/* Per show */}
+      <div className="space-y-6">
+        <h2 className="text-slate-400 text-xs font-semibold uppercase tracking-wider">
+          Per show
+        </h2>
+        {sortedShows.map(show => {
+          const showItems = showItemsByShow[show.id] ?? []
           return (
-            <div key={category}>
-              <div className="flex items-center gap-2 mb-1">
-                <h3 className={`text-xs font-semibold uppercase tracking-wider ${allDone ? 'text-green-500' : 'text-slate-400'}`}>
-                  {category}
-                </h3>
-                <span className="text-slate-600 text-xs">{catDone}/{catActive}</span>
-                {allDone && <span className="text-green-500 text-xs">✓</span>}
+            <div key={show.id} className="bg-slate-800/40 border border-slate-700 rounded-xl p-4">
+              <div className="mb-3">
+                <div className="text-white text-sm font-semibold">{show.venue_name}</div>
+                <div className="text-slate-500 text-xs mt-0.5">
+                  {show.venue_city}
+                  {show.show_date ? ` · ${formatDateShortAU(show.show_date)}` : ''}
+                </div>
               </div>
-              <div className="divide-y divide-slate-800/60 border border-slate-800 rounded-lg overflow-hidden">
-                {catItems.map(item => (
-                  <ItemRow
-                    key={item.id}
-                    item={item}
-                    canEdit={canEditItem(item)}
-                    onUpdate={updates => updateItem(item.id, updates)}
+              <div className="space-y-4">
+                {groupByCategory(showItems, SHOW_CATEGORY_ORDER).map(({ category, items: catItems }) => (
+                  <CategoryBlock
+                    key={`${show.id}-${category}`}
+                    category={category}
+                    items={catItems}
+                    canEditItem={canEditItem}
+                    onUpdate={updateItem}
                   />
                 ))}
+                {showItems.length === 0 && (
+                  <p className="text-slate-600 text-sm italic">No items for this filter.</p>
+                )}
               </div>
             </div>
           )
         })}
       </div>
 
-      {/* Legend */}
       <div className="mt-6 flex flex-wrap gap-3 text-xs text-slate-600">
         <span>○ = pending</span>
         <span className="text-green-600">✓ = done</span>
