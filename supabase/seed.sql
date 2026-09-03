@@ -4,8 +4,8 @@
 insert into runs (code, name, status, region, start_date, end_date) values
   ('R01', 'Broken Hill + Renmark + Adelaide', 'confirmed', 'group2', '2027-02-11', '2027-02-13'),
   ('R02', 'Taree + Wyong', 'confirmed', 'group2', '2027-02-26', '2027-02-27'),
-  ('R03', 'Springwood + Thirroul', 'confirmed', 'group1', '2027-03-12', '2027-03-13'),
-  ('R04', 'Penrith + Bathurst', 'confirmed', 'group1', '2027-03-19', '2027-03-20'),
+  ('R03', 'Springwood + Thirroul', 'confirmed', 'group2', '2027-03-12', '2027-03-13'),
+  ('R04', 'Penrith + Bathurst', 'confirmed', 'group2', '2027-03-19', '2027-03-20'),
   ('R05', 'Bunbury + Mandurah + Perth', 'confirmed', 'group3', '2027-04-01', '2027-04-03'),
   ('R06', 'Ararat', 'confirmed', 'group1', '2027-04-10', '2027-04-10'),
   ('R07', 'Dubbo + Narrabri', 'confirmed', 'group2', '2027-04-16', '2027-04-17'),
@@ -14,7 +14,7 @@ insert into runs (code, name, status, region, start_date, end_date) values
   ('R10', 'Newcastle + Wollondilly', 'proposed', 'group2', '2027-04-30', '2027-05-01'),
   ('R11', 'Bega Valley + Canberra', 'proposed', 'group2', '2027-05-07', '2027-05-08'),
   ('R12', 'Goulburn + Chatswood', 'proposed', 'group2', '2027-05-14', '2027-05-15'),
-  ('R13', 'Hobart + Launceston', 'proposed', 'group3', '2027-06-04', '2027-06-05'),
+  ('R13', 'Hobart + Launceston', 'proposed', 'group2', '2027-06-04', '2027-06-05'),
   ('R14', 'Hamilton + Geelong', 'proposed', 'group1', '2027-09-10', '2027-09-11')
 on conflict (code) do nothing;
 
