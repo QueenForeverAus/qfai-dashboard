@@ -193,3 +193,15 @@ create policy "Authenticated users can submit requests" on feature_requests
 -- show_id null = run scope; show_id set = that show
 -- Unique: (run_id, item_key) where show_id is null
 --         (run_id, item_key, show_id) where show_id is not null
+
+-- Virtual Show Pack (additive; see supabase/migrations/20260903_show_pack_and_advancing.sql)
+-- shows.michael_notes text
+-- runs.show_pack_status text draft|published
+-- runs.show_pack_published_at timestamptz
+-- runs.show_pack_published_by uuid -> profiles
+
+-- Advancing Shows owners: gareth|michael|harbour|anita|brad|finance|nigel
+-- (legacy tour_manager/production_manager mapped in app to gareth/michael)
+-- Migration of advancement_items: additive seed of new item_keys on GET;
+-- legacy keys soft-ignored in API response; overlapping keys keep status;
+-- wrong-scope orphans deleted only after new-scope copies exist.

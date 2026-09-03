@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile, canAccessTab } from '@/lib/profile-context'
 import AdvancementTab from './AdvancementTab'
+import ShowPackTab from './ShowPackTab'
 import TicketOutlookBlock from './TicketOutlookBlock'
 import { formatDateShortAU } from '@/lib/dates'
 
@@ -834,6 +835,11 @@ const RUN_CATEGORIES = [...new Set(RUN_FIELDS.map(f => f.category))]
 export default function CostFieldsTab({
   runId,
   runCode,
+  runName,
+  region,
+  startDate,
+  endDate,
+  synopsis,
   shows,
   initialFields,
   auditRows,
@@ -842,6 +848,11 @@ export default function CostFieldsTab({
 }: {
   runId: string
   runCode: string
+  runName: string
+  region: string
+  startDate: string | null
+  endDate: string | null
+  synopsis: string | null
   shows: Show[]
   initialFields: CostFieldRow[]
   auditRows: AuditEntry[]
@@ -851,10 +862,11 @@ export default function CostFieldsTab({
   const { effectiveRole } = useProfile()
   const hasTabAccess = canAccessTab(effectiveRole, 'costs')
   const hasAdvancement = canAccessTab(effectiveRole, 'advancement')
+  const hasShowPack = canAccessTab(effectiveRole, 'show_pack')
   const hasOutlook = canAccessTab(effectiveRole, 'outlook')
-  const defaultTab = hasTabAccess ? 'costs' : hasOutlook ? 'outlook' : hasAdvancement ? 'advancement' : 'costs'
-  const [activeTab, setActiveTab] = useState<'overview' | 'costs' | 'outlook' | 'audit' | 'advancement'>(
-    defaultTab as 'overview' | 'costs' | 'outlook' | 'audit' | 'advancement',
+  const defaultTab = hasTabAccess ? 'costs' : hasOutlook ? 'outlook' : hasAdvancement ? 'advancement' : hasShowPack ? 'show_pack' : 'costs'
+  const [activeTab, setActiveTab] = useState<'overview' | 'costs' | 'outlook' | 'audit' | 'advancement' | 'show_pack'>(
+    defaultTab as 'overview' | 'costs' | 'outlook' | 'audit' | 'advancement' | 'show_pack',
   )
   const isProduction = effectiveRole === 'production'
   // Which per-show fields production can see (no revenue, no venue hire)
@@ -986,7 +998,7 @@ export default function CostFieldsTab({
 
   return (
     <>
-      {!hasTabAccess && !hasAdvancement && (
+      {!hasTabAccess && !hasAdvancement && !hasShowPack && (
         <div className="rounded-xl p-6 mb-6 text-center" style={{ background: 'var(--surface, #1e293b)', border: '1px solid #334155' }}>
           <div className="text-2xl mb-2">🔒</div>
           <div className="text-slate-300 font-medium mb-1">Financial data restricted</div>
@@ -994,7 +1006,7 @@ export default function CostFieldsTab({
         </div>
       )}
 
-      {(hasTabAccess || hasOutlook || hasAdvancement) && (
+      {(hasTabAccess || hasOutlook || hasAdvancement || hasShowPack) && (
       <div className="relative mb-6">
         <div className="flex gap-1 border-b border-slate-700 items-end overflow-x-auto scrollbar-thin pb-px pr-6">
           {(['overview', 'costs', 'outlook', 'audit'] as const).filter(tab => canAccessTab(effectiveRole, tab)).map((tab) => (
@@ -1010,7 +1022,15 @@ export default function CostFieldsTab({
               className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
                 activeTab === 'advancement' ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
               }`}>
-              Advancement
+              Advancing Shows
+            </button>
+          )}
+          {hasShowPack && (
+            <button onClick={() => setActiveTab('show_pack')}
+              className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
+                activeTab === 'show_pack' ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
+              }`}>
+              Show Pack
             </button>
           )}
           <span className="ml-auto text-slate-800 text-xs pb-2 select-none flex-shrink-0">v3</span>
@@ -1039,7 +1059,7 @@ export default function CostFieldsTab({
         />
       )}
 
-      {/* ADVANCEMENT TAB */}
+      {/* ADVANCING SHOWS TAB */}
       {hasAdvancement && activeTab === 'advancement' && (
         <AdvancementTab
           runId={runId}
@@ -1048,6 +1068,28 @@ export default function CostFieldsTab({
             venue_name: s.venue_name,
             venue_city: s.venue_city,
             show_date: s.show_date,
+            show_order: s.show_order,
+          }))}
+        />
+      )}
+
+      {/* SHOW PACK TAB */}
+      {hasShowPack && activeTab === 'show_pack' && (
+        <ShowPackTab
+          runId={runId}
+          runCode={runCode}
+          runName={runName}
+          region={region}
+          startDate={startDate}
+          endDate={endDate}
+          synopsis={synopsis}
+          initialShows={showsState.map(s => ({
+            id: s.id,
+            venue_name: s.venue_name,
+            venue_city: s.venue_city,
+            state_territory: s.state_territory,
+            show_date: s.show_date,
+            capacity: s.capacity,
             show_order: s.show_order,
           }))}
         />

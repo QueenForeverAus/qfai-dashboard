@@ -1,7 +1,7 @@
 /**
  * Cost-field data completeness for Mission Control /runs list / run detail dial.
  * Matches the historical /runs list formula: (known + estimated) / non-pending.
- * Advancement checklist is a separate metric — do not reuse this for it.
+ * Advancing Shows checklist is a separate metric — do not reuse this for it.
  */
 export type CompletionField = { state: string }
 

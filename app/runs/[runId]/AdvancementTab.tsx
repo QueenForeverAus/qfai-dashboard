@@ -4,10 +4,11 @@ import { useEffect, useState, useTransition } from 'react'
 import { useProfile } from '@/lib/profile-context'
 import { formatDateShortAU } from '@/lib/dates'
 import {
-  RUN_CATEGORY_ORDER,
-  SHOW_CATEGORY_ORDER,
+  PHASE_ORDER,
   OWNER_LABELS,
   OWNER_STYLES,
+  FILTER_OWNERS,
+  normalizeAssignedTo,
   type AssignedTo,
 } from '@/lib/advancement-checklist'
 
@@ -57,6 +58,7 @@ function ItemRow({
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesVal, setNotesVal] = useState(item.notes ?? '')
   const [isPending, startTransition] = useTransition()
+  const owner = normalizeAssignedTo(item.assigned_to)
 
   function cycleStatus() {
     if (!canEdit) return
@@ -124,8 +126,8 @@ function ItemRow({
           {item.label}
         </span>
 
-        <span className={`flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${OWNER_STYLES[item.assigned_to]}`}>
-          {OWNER_LABELS[item.assigned_to]}
+        <span className={`flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${OWNER_STYLES[owner]}`}>
+          {OWNER_LABELS[owner]}
         </span>
 
         {item.payment_type === 'upfront' && (
@@ -180,42 +182,26 @@ function ItemRow({
   )
 }
 
-function CategoryBlock({
-  category,
+function ItemList({
   items,
   canEditItem,
   onUpdate,
 }: {
-  category: string
   items: AdvancementItem[]
   canEditItem: (item: AdvancementItem) => boolean
   onUpdate: (id: string, updates: Partial<AdvancementItem>) => void
 }) {
   if (items.length === 0) return null
-  const catDone = items.filter(i => i.status === 'done').length
-  const catNa = items.filter(i => i.status === 'n_a').length
-  const catActive = items.length - catNa
-  const allDone = catActive > 0 && catDone === catActive
-
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-1">
-        <h3 className={`text-xs font-semibold uppercase tracking-wider ${allDone ? 'text-green-500' : 'text-slate-400'}`}>
-          {category}
-        </h3>
-        <span className="text-slate-600 text-xs">{catDone}/{catActive}</span>
-        {allDone && <span className="text-green-500 text-xs">✓</span>}
-      </div>
-      <div className="divide-y divide-slate-800/60 border border-slate-800 rounded-lg overflow-hidden">
-        {items.map(item => (
-          <ItemRow
-            key={item.id}
-            item={item}
-            canEdit={canEditItem(item)}
-            onUpdate={updates => onUpdate(item.id, updates)}
-          />
-        ))}
-      </div>
+    <div className="divide-y divide-slate-800/60 border border-slate-800 rounded-lg overflow-hidden">
+      {items.map(item => (
+        <ItemRow
+          key={item.id}
+          item={item}
+          canEdit={canEditItem(item)}
+          onUpdate={updates => onUpdate(item.id, updates)}
+        />
+      ))}
     </div>
   )
 }
@@ -248,15 +234,7 @@ export default function AdvancementTab({
 
   const filteredItems = filter === 'all'
     ? items
-    : items.filter(i => i.assigned_to === filter)
-
-  const runItems = filteredItems.filter(i => i.show_id == null)
-  const showItemsByShow: Record<string, AdvancementItem[]> = {}
-  for (const item of filteredItems) {
-    if (!item.show_id) continue
-    if (!showItemsByShow[item.show_id]) showItemsByShow[item.show_id] = []
-    showItemsByShow[item.show_id].push(item)
-  }
+    : items.filter(i => normalizeAssignedTo(i.assigned_to) === filter)
 
   const doneCount = filteredItems.filter(i => i.status === 'done').length
   const naCount = filteredItems.filter(i => i.status === 'n_a').length
@@ -266,35 +244,34 @@ export default function AdvancementTab({
 
   function canEditItem(item: AdvancementItem) {
     if (isOwnerOrAdmin) return true
-    if (isProductionManager && item.assigned_to === 'production_manager') return true
+    const owner = normalizeAssignedTo(item.assigned_to)
+    if (isProductionManager && owner === 'michael') return true
     return false
   }
 
-  function groupByCategory(list: AdvancementItem[], order: string[]) {
-    const byCategory: Record<string, AdvancementItem[]> = {}
-    for (const item of list) {
-      if (!byCategory[item.category]) byCategory[item.category] = []
-      byCategory[item.category].push(item)
-    }
-    const ordered = order.filter(c => byCategory[c]?.length)
-    for (const cat of Object.keys(byCategory)) {
-      if (!ordered.includes(cat)) ordered.push(cat)
-    }
-    return ordered.map(category => ({ category, items: byCategory[category] ?? [] }))
-  }
-
   if (loading) {
-    return <div className="text-slate-500 text-sm py-8 text-center">Loading advancement checklist…</div>
+    return <div className="text-slate-500 text-sm py-8 text-center">Loading Advancing Shows checklist…</div>
   }
 
   const FILTER_OPTIONS: { key: 'all' | AssignedTo; label: string }[] = [
-    { key: 'all',                label: 'All' },
-    { key: 'tour_manager',       label: 'TM' },
-    { key: 'production_manager', label: 'PM' },
-    { key: 'finance',            label: 'Finance' },
+    { key: 'all', label: 'All' },
+    ...FILTER_OWNERS,
   ]
 
   const sortedShows = [...shows].sort((a, b) => a.show_order - b.show_order)
+
+  const phases = PHASE_ORDER.map(phase => {
+    const phaseItems = filteredItems.filter(i => i.category === phase)
+    const runItems = phaseItems.filter(i => i.show_id == null).sort((a, b) => a.sort_order - b.sort_order)
+    const byShow: { show: ShowInfo; items: AdvancementItem[] }[] = []
+    for (const show of sortedShows) {
+      const showItems = phaseItems
+        .filter(i => i.show_id === show.id)
+        .sort((a, b) => a.sort_order - b.sort_order)
+      if (showItems.length > 0) byShow.push({ show, items: showItems })
+    }
+    return { phase, runItems, byShow, all: phaseItems }
+  }).filter(p => p.all.length > 0)
 
   return (
     <div>
@@ -312,7 +289,7 @@ export default function AdvancementTab({
           </div>
         </div>
 
-        <div className="flex gap-1">
+        <div className="flex gap-1 flex-wrap justify-end max-w-[55%]">
           {FILTER_OPTIONS.map(opt => (
             <button
               key={opt.key}
@@ -331,73 +308,69 @@ export default function AdvancementTab({
 
       {upfrontPending.length > 0 && (
         <div className="mb-4 px-3 py-2 rounded border border-amber-700/60 bg-amber-900/20 text-amber-300 text-xs">
-          ⚠ {upfrontPending.length} upfront payment{upfrontPending.length > 1 ? 's' : ''} outstanding — Scott needs to action these before the show.
+          ⚠ {upfrontPending.length} upfront payment{upfrontPending.length > 1 ? 's' : ''} outstanding — Dave / Finance needs to action these before the show.
         </div>
       )}
 
-      {/* Run-level */}
-      <div className="mb-6">
-        <h2 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">
-          Run-level
-        </h2>
-        <div className="space-y-5">
-          {groupByCategory(runItems, RUN_CATEGORY_ORDER).map(({ category, items: catItems }) => (
-            <CategoryBlock
-              key={`run-${category}`}
-              category={category}
-              items={catItems}
-              canEditItem={canEditItem}
-              onUpdate={updateItem}
-            />
-          ))}
-          {runItems.length === 0 && (
-            <p className="text-slate-600 text-sm italic">No run-level items for this filter.</p>
-          )}
-        </div>
-      </div>
-
-      {/* Per show */}
       <div className="space-y-6">
-        <h2 className="text-slate-400 text-xs font-semibold uppercase tracking-wider">
-          Per show
-        </h2>
-        {sortedShows.map(show => {
-          const showItems = showItemsByShow[show.id] ?? []
+        {phases.map(({ phase, runItems, byShow, all }) => {
+          const catDone = all.filter(i => i.status === 'done').length
+          const catNa = all.filter(i => i.status === 'n_a').length
+          const catActive = all.length - catNa
+          const allDone = catActive > 0 && catDone === catActive
+
           return (
-            <div key={show.id} className="bg-slate-800/40 border border-slate-700 rounded-xl p-4">
-              <div className="mb-3">
-                <div className="text-white text-sm font-semibold">{show.venue_name}</div>
-                <div className="text-slate-500 text-xs mt-0.5">
-                  {show.venue_city}
-                  {show.show_date ? ` · ${formatDateShortAU(show.show_date)}` : ''}
+            <div key={phase}>
+              <div className="flex items-center gap-2 mb-2">
+                <h2 className={`text-xs font-semibold uppercase tracking-wider ${allDone ? 'text-green-500' : 'text-slate-300'}`}>
+                  {phase}
+                </h2>
+                <span className="text-slate-600 text-xs">{catDone}/{catActive}</span>
+                {allDone && <span className="text-green-500 text-xs">✓</span>}
+              </div>
+
+              {runItems.length > 0 && (
+                <div className="mb-3">
+                  <ItemList items={runItems} canEditItem={canEditItem} onUpdate={updateItem} />
                 </div>
-              </div>
-              <div className="space-y-4">
-                {groupByCategory(showItems, SHOW_CATEGORY_ORDER).map(({ category, items: catItems }) => (
-                  <CategoryBlock
-                    key={`${show.id}-${category}`}
-                    category={category}
-                    items={catItems}
-                    canEditItem={canEditItem}
-                    onUpdate={updateItem}
-                  />
-                ))}
-                {showItems.length === 0 && (
-                  <p className="text-slate-600 text-sm italic">No items for this filter.</p>
-                )}
-              </div>
+              )}
+
+              {byShow.length > 0 && (
+                <div className="space-y-3">
+                  {byShow.map(({ show, items: showItems }) => (
+                    <div key={`${phase}-${show.id}`} className="bg-slate-800/40 border border-slate-700 rounded-xl p-3">
+                      <div className="mb-2">
+                        <div className="text-white text-sm font-semibold">{show.venue_name}</div>
+                        <div className="text-slate-500 text-xs mt-0.5">
+                          {show.venue_city}
+                          {show.show_date ? ` · ${formatDateShortAU(show.show_date)}` : ''}
+                        </div>
+                      </div>
+                      <ItemList items={showItems} canEditItem={canEditItem} onUpdate={updateItem} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )
         })}
+
+        {phases.length === 0 && (
+          <p className="text-slate-600 text-sm italic">No Advancing Shows items for this filter.</p>
+        )}
       </div>
 
       <div className="mt-6 flex flex-wrap gap-3 text-xs text-slate-600">
         <span>○ = pending</span>
         <span className="text-green-600">✓ = done</span>
         <span>N/A = not applicable</span>
-        <span className="text-blue-600">TM = Tour Manager (Nigel/Gareth)</span>
-        <span className="text-purple-600">PM = Production Manager (Michael)</span>
-        <span className="text-emerald-600">Finance = Scott</span>
+        <span className="text-cyan-600">Harbour</span>
+        <span className="text-pink-600">Anita</span>
+        <span className="text-blue-600">Gareth (TM)</span>
+        <span className="text-purple-600">Michael (PM)</span>
+        <span className="text-orange-600">Brad</span>
+        <span className="text-emerald-600">Dave (Finance)</span>
+        <span className="text-slate-400">Nigel</span>
       </div>
     </div>
   )

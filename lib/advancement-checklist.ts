@@ -1,4 +1,14 @@
-export type AssignedTo = 'tour_manager' | 'production_manager' | 'finance'
+export type AssignedTo =
+  | 'gareth'
+  | 'michael'
+  | 'harbour'
+  | 'anita'
+  | 'brad'
+  | 'finance'
+  | 'nigel'
+  // Legacy values still present in DB rows until synced
+  | 'tour_manager'
+  | 'production_manager'
 
 export type AdvancementScope = 'run' | 'show'
 
@@ -12,80 +22,179 @@ export type AdvancementChecklistItem = {
   payment_type?: 'upfront' | 'post_gig'
 }
 
+/** Chronological Advancing Shows phases (draft v1). Phase 0 (offer) is outside this tab. */
 export const ADVANCEMENT_CHECKLIST: AdvancementChecklistItem[] = [
-  // ── Per show ──────────────────────────────────────────────────────────
-  { scope: 'show', category: 'Show Day Schedule', item_key: 'show_time_confirmed',    label: 'Performance start time confirmed with venue (target: 19:30)', assigned_to: 'tour_manager',       sort_order: 10 },
-  { scope: 'show', category: 'Show Day Schedule', item_key: 'venue_access_confirmed', label: 'Venue access time confirmed (target: 13:00)',                   assigned_to: 'tour_manager',       sort_order: 20 },
-  { scope: 'show', category: 'Show Day Schedule', item_key: 'soundcheck_time',        label: 'Soundcheck time confirmed with venue (target: 16:30)',          assigned_to: 'production_manager', sort_order: 30 },
-  { scope: 'show', category: 'Show Day Schedule', item_key: 'dinner_arranged',        label: 'Dinner time confirmed with venue (target: 17:30)',              assigned_to: 'production_manager', sort_order: 40 },
-  { scope: 'show', category: 'Show Day Schedule', item_key: 'doors_time',             label: 'Doors time confirmed with venue (target: 19:00)',               assigned_to: 'tour_manager',       sort_order: 50 },
-  { scope: 'show', category: 'Show Day Schedule', item_key: 'meet_greet_confirmed',   label: 'Freddie Meet & Greet slot confirmed (target: 22:00)',           assigned_to: 'tour_manager',       sort_order: 60 },
+  // ── 1. Harbour — Deal lock (per show) ─────────────────────────────────
+  { scope: 'show', category: '1. Harbour — Deal lock', item_key: 'venue_deal_locked', label: 'Venue deal locked (hold → confirm / contract / deposit as required)', assigned_to: 'harbour', sort_order: 100 },
+  { scope: 'show', category: '1. Harbour — Deal lock', item_key: 'ticketing_terms_confirmed', label: 'Ticketing terms / capacity / prices confirmed for announce', assigned_to: 'harbour', sort_order: 110 },
+  { scope: 'show', category: '1. Harbour — Deal lock', item_key: 'venue_contacts_for_michael', label: 'Venue contacts / intros available for Michael', assigned_to: 'harbour', sort_order: 120 },
 
-  { scope: 'show', category: 'Venue / Tech Requirements', item_key: 'loading_dock_info',      label: 'Loading dock address and access instructions received',               assigned_to: 'tour_manager',       sort_order: 110 },
-  { scope: 'show', category: 'Venue / Tech Requirements', item_key: 'bump_in_tech_audio',     label: 'Bump-in tech confirmed — Audio (4–5hr call)',                          assigned_to: 'production_manager', sort_order: 120 },
-  { scope: 'show', category: 'Venue / Tech Requirements', item_key: 'bump_in_tech_lighting',  label: 'Bump-in tech confirmed — Lighting (4–5hr call)',                       assigned_to: 'production_manager', sort_order: 130 },
-  { scope: 'show', category: 'Venue / Tech Requirements', item_key: 'bump_out_techs',         label: 'Bump-out techs confirmed × 2 (3–4hr min call)',                        assigned_to: 'production_manager', sort_order: 140 },
-  { scope: 'show', category: 'Venue / Tech Requirements', item_key: 'followspot_op',          label: 'Followspot operator confirmed (18:45–22:15)',                           assigned_to: 'production_manager', sort_order: 150 },
-  { scope: 'show', category: 'Venue / Tech Requirements', item_key: 'risers_keys',            label: 'Keys riser confirmed ≥300mm',                                          assigned_to: 'production_manager', sort_order: 160 },
-  { scope: 'show', category: 'Venue / Tech Requirements', item_key: 'risers_drum',            label: 'Drum riser confirmed ≥600mm',                                          assigned_to: 'production_manager', sort_order: 170 },
-  { scope: 'show', category: 'Venue / Tech Requirements', item_key: 'risers_amp',             label: 'Amp riser confirmed ≥600mm',                                           assigned_to: 'production_manager', sort_order: 180 },
-  { scope: 'show', category: 'Venue / Tech Requirements', item_key: 'guitar_risers',          label: 'Guitar risers pre-assembled confirmed',                                 assigned_to: 'production_manager', sort_order: 185 },
-  { scope: 'show', category: 'Venue / Tech Requirements', item_key: 'vision_input',           label: 'Vision input at USL of drum riser confirmed (HDMI or SDI)',             assigned_to: 'production_manager', sort_order: 190 },
-  { scope: 'show', category: 'Venue / Tech Requirements', item_key: 'merch_seller',           label: 'Merch seller arranged (1 table + 1 pinboard + cash float)',            assigned_to: 'production_manager', sort_order: 200 },
+  // ── 2. Anita — Marketing assets (per show) ────────────────────────────
+  { scope: 'show', category: '2. Anita — Marketing assets', item_key: 'venue_asset_brief', label: 'Venue asset brief received (sizes/layouts required)', assigned_to: 'anita', sort_order: 200 },
+  { scope: 'show', category: '2. Anita — Marketing assets', item_key: 'assets_prepared', label: 'Assets prepared (A3, 1920×1080, 1080×1920, etc. as requested)', assigned_to: 'anita', sort_order: 210 },
+  { scope: 'show', category: '2. Anita — Marketing assets', item_key: 'fb_event_image', label: 'FB event page image always prepared', assigned_to: 'anita', sort_order: 220 },
+  { scope: 'show', category: '2. Anita — Marketing assets', item_key: 'assets_sent_to_harbour', label: 'Assets sent to Harbour', assigned_to: 'anita', sort_order: 230 },
 
-  { scope: 'show', category: 'Hospitality', item_key: 'catering_rider_submitted', label: 'Hospitality rider submitted to venue — sandwiches ×7, fruit ×7, Coke Zero ×4, Coke ×8, Lemonade ×4, water ×24', assigned_to: 'production_manager', sort_order: 510 },
-  { scope: 'show', category: 'Hospitality', item_key: 'catering_quote_received',  label: 'Venue catering quote received',                                                                                   assigned_to: 'production_manager', sort_order: 520 },
-  { scope: 'show', category: 'Hospitality', item_key: 'catering_confirmed',       label: 'Catering arrangements confirmed',                                                                                  assigned_to: 'production_manager', sort_order: 530 },
+  // ── 3. Harbour — Ticket release / announce timing (per show) ──────────
+  { scope: 'show', category: '3. Harbour — Ticket release', item_key: 'ticket_onsale_date', label: 'Harbour confirms ticket-on-sale / announce date (after assets in)', assigned_to: 'harbour', sort_order: 300 },
+  { scope: 'show', category: '3. Harbour — Ticket release', item_key: 'presale_noted', label: 'Any Ticketmaster members / other presale noted', assigned_to: 'harbour', sort_order: 310 },
 
-  // ── Per run ───────────────────────────────────────────────────────────
-  { scope: 'run', category: 'Travel', item_key: 'travel_type',             label: 'Group travel type determined (van / fly / mixed)',                       assigned_to: 'tour_manager', sort_order: 210 },
-  { scope: 'run', category: 'Travel', item_key: 'flights_booked',          label: 'Flights booked for all travelling members',                             assigned_to: 'tour_manager', sort_order: 220 },
-  { scope: 'run', category: 'Travel', item_key: 'flight_details_recorded', label: 'Flight details recorded (name, flight no., times, terminals)',           assigned_to: 'tour_manager', sort_order: 230 },
-  { scope: 'run', category: 'Travel', item_key: 'baggage_allowance',       label: 'Baggage allowance checked and confirmed for all travellers',            assigned_to: 'tour_manager', sort_order: 240 },
-  { scope: 'run', category: 'Travel', item_key: 'car_hire_van',            label: 'Car hire / van booked',                                                assigned_to: 'tour_manager', sort_order: 250 },
-  { scope: 'run', category: 'Travel', item_key: 'driver_confirmed',        label: 'Designated driver confirmed (Brad or hire driver)',                     assigned_to: 'tour_manager', sort_order: 260 },
+  // ── 4. Announce — Our channels (per show) ─────────────────────────────
+  { scope: 'show', category: '4. Announce — Our channels', item_key: 'announced_qf_socials', label: 'Show announced on QF socials', assigned_to: 'gareth', sort_order: 400 },
+  { scope: 'show', category: '4. Announce — Our channels', item_key: 'listed_qf_website', label: 'Show listed / updated on QF website', assigned_to: 'gareth', sort_order: 410 },
+  { scope: 'show', category: '4. Announce — Our channels', item_key: 'presale_live', label: 'Presale live if applicable', assigned_to: 'harbour', sort_order: 420 },
+  { scope: 'show', category: '4. Announce — Our channels', item_key: 'fb_event_created', label: 'FB event created (using Anita’s event image)', assigned_to: 'gareth', sort_order: 430 },
 
-  { scope: 'run', category: 'Accommodation', item_key: 'hotel_booked',             label: 'Hotel booked — 7 rooms',                                             assigned_to: 'tour_manager', sort_order: 310 },
-  { scope: 'run', category: 'Accommodation', item_key: 'tech_rooms_noon',          label: '2 × tech rooms requested available by 12 noon',                     assigned_to: 'tour_manager', sort_order: 320 },
-  { scope: 'run', category: 'Accommodation', item_key: 'early_checkin_flights',    label: 'Early check-in / late check-out arranged for early or late flights', assigned_to: 'tour_manager', sort_order: 330 },
-  { scope: 'run', category: 'Accommodation', item_key: 'names_on_booking',         label: 'All 7 names confirmed on booking',                                   assigned_to: 'tour_manager', sort_order: 340 },
-  { scope: 'run', category: 'Accommodation', item_key: 'hotel_details_to_michael', label: 'Hotel address and check-in details sent to Michael',                 assigned_to: 'tour_manager', sort_order: 350 },
+  // ── 5. Promo plan (per show) ──────────────────────────────────────────
+  { scope: 'show', category: '5. Promo plan', item_key: 'promo_plan_agreed', label: 'Promo plan for this show/run agreed', assigned_to: 'harbour', sort_order: 500 },
+  { scope: 'show', category: '5. Promo plan', item_key: 'harbour_poster_assist', label: 'Harbour: poster print/distribution assist + idea chase', assigned_to: 'harbour', sort_order: 510 },
+  { scope: 'show', category: '5. Promo plan', item_key: 'fb_ads_placed', label: 'Gareth: FB ads placed / scheduled', assigned_to: 'gareth', sort_order: 520 },
+  { scope: 'show', category: '5. Promo plan', item_key: 'regional_offline_promo', label: 'Gareth: regional offline considered (street posters, local TV/radio, cafe posters, papers/mags)', assigned_to: 'gareth', sort_order: 530 },
+  { scope: 'show', category: '5. Promo plan', item_key: 'ongoing_promo_chase', label: 'Ongoing promo chase through to show', assigned_to: 'harbour', sort_order: 540 },
 
-  { scope: 'run', category: 'Backline & Hire', item_key: 'backline_needed',    label: 'Backline hire need assessed (relevant if flying)',                    assigned_to: 'production_manager', sort_order: 410 },
-  { scope: 'run', category: 'Backline & Hire', item_key: 'backline_quotes',    label: 'Backline hire quotes obtained',                                       assigned_to: 'production_manager', sort_order: 420 },
-  { scope: 'run', category: 'Backline & Hire', item_key: 'extra_lighting',     label: 'Extra lighting assessed (6 beams? moving spots? wash package?)',      assigned_to: 'production_manager', sort_order: 430 },
-  { scope: 'run', category: 'Backline & Hire', item_key: 'extra_pa',           label: 'Extra PA assessed (ground stack? desk?)',                             assigned_to: 'production_manager', sort_order: 440 },
-  { scope: 'run', category: 'Backline & Hire', item_key: 'hire_orders_placed', label: 'Hire quotes approved and orders placed',                              assigned_to: 'production_manager', sort_order: 450 },
+  // ── 6. Travel logistics plan — Finalised & locked (run) ───────────────
+  { scope: 'run', category: '6. Travel logistics plan', item_key: 'travel_type', label: 'Region / travel type locked (G1 self-drive / G2 fly+van / G3 fly+local backline / intl)', assigned_to: 'gareth', sort_order: 600 },
+  { scope: 'run', category: '6. Travel logistics plan', item_key: 'day_before_rules', label: 'Day-before rules applied if needed (WA, NT, far Nth QLD, intl; Tas ferry cabin for ferry traveller)', assigned_to: 'gareth', sort_order: 610 },
+  { scope: 'run', category: '6. Travel logistics plan', item_key: 'brad_availability', label: 'Brad availability confirmed for interstate drive days (if Brad driving)', assigned_to: 'brad', sort_order: 620 },
+  { scope: 'run', category: '6. Travel logistics plan', item_key: 'driver_confirmed', label: 'Designated drivers locked (Brad van interstate; Carnival usually Scott/Gareth; WA/NT/Nth QLD = any)', assigned_to: 'gareth', sort_order: 630 },
+  { scope: 'run', category: '6. Travel logistics plan', item_key: 'open_jaw_airport_plan', label: 'Open-jaw / airport plan locked (e.g. Tas HBA in / LSN out)', assigned_to: 'gareth', sort_order: 640 },
+  { scope: 'run', category: '6. Travel logistics plan', item_key: 'ferry_plan_locked', label: 'Ferry plan locked if Tas (cabin, not recliner; ~$1500 return van+cabin standing estimate)', assigned_to: 'gareth', sort_order: 650 },
 
-  { scope: 'run', category: 'Payments', item_key: 'payment_terms_noted',   label: 'All supplier payment terms noted (upfront vs post-gig)',          assigned_to: 'production_manager',                    sort_order: 610 },
-  { scope: 'run', category: 'Payments', item_key: 'accounts_notified',     label: 'Scott notified of all upfront payment requirements',              assigned_to: 'finance', payment_type: 'upfront',       sort_order: 620 },
-  { scope: 'run', category: 'Payments', item_key: 'upfront_payments_made', label: 'All upfront payments made on time',                             assigned_to: 'finance', payment_type: 'upfront',       sort_order: 630 },
+  // ── 7. Michael — Venue / tech advance (per show) ──────────────────────
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'first_venue_contact', label: 'First venue contact / advance email started', assigned_to: 'michael', sort_order: 700 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'loading_dock_info', label: 'Loading dock address & access instructions', assigned_to: 'michael', sort_order: 710 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'schedule_targets_confirmed', label: 'Performance start / doors / access / soundcheck / dinner targets confirmed with venue', assigned_to: 'michael', sort_order: 720 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'meet_greet_confirmed', label: 'Meet & Greet slot confirmed if applicable', assigned_to: 'michael', sort_order: 730 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'bump_in_tech_audio', label: 'Bump-in tech — Audio (Adam via Michael)', assigned_to: 'michael', sort_order: 740 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'bump_in_tech_lighting', label: 'Bump-in tech — Lighting', assigned_to: 'michael', sort_order: 750 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'bump_out_techs', label: 'Bump-out techs', assigned_to: 'michael', sort_order: 760 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'followspot_op', label: 'Followspot op if needed', assigned_to: 'michael', sort_order: 770 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'risers_confirmed', label: 'Risers: keys ≥300mm, drum ≥600mm, amp ≥600mm, guitar risers pre-assembled', assigned_to: 'michael', sort_order: 780 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'vision_input', label: 'Vision input at USL of drum riser (HDMI/SDI)', assigned_to: 'michael', sort_order: 790 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'extra_lighting', label: 'Extra lighting assessed (beams / movers / wash)', assigned_to: 'michael', sort_order: 800 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'extra_pa', label: 'Extra PA assessed (ground stack / desk)', assigned_to: 'michael', sort_order: 810 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'backline_needed', label: 'Backline hire need assessed', assigned_to: 'michael', sort_order: 820 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'backline_quotes', label: 'Backline quotes obtained', assigned_to: 'michael', sort_order: 830 },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'hire_orders_placed', label: 'Hire quotes approved & orders placed', assigned_to: 'michael', sort_order: 840 },
+
+  // ── 8. Gareth — Book travel & stay (run) ──────────────────────────────
+  { scope: 'run', category: '8. Book travel & stay', item_key: 'flights_booked', label: 'Flights booked for all travelling members', assigned_to: 'gareth', sort_order: 900 },
+  { scope: 'run', category: '8. Book travel & stay', item_key: 'flight_details_recorded', label: 'Flight details recorded (names, flight nos, times, terminals)', assigned_to: 'gareth', sort_order: 910 },
+  { scope: 'run', category: '8. Book travel & stay', item_key: 'baggage_allowance', label: 'Baggage / Musician Baggage / excess checked (intl: no APRA 64kg — estimate excess)', assigned_to: 'gareth', sort_order: 920 },
+  { scope: 'run', category: '8. Book travel & stay', item_key: 'car_hire_van', label: 'Car hire / van booked', assigned_to: 'gareth', sort_order: 930 },
+  { scope: 'run', category: '8. Book travel & stay', item_key: 'spirit_ferry_cabin', label: 'Spirit ferry booked with cabin if Tas', assigned_to: 'gareth', sort_order: 940 },
+  { scope: 'run', category: '8. Book travel & stay', item_key: 'hotel_booked', label: 'Hotel booked (night of gig; day-before night if required; never auto night-after)', assigned_to: 'gareth', sort_order: 950 },
+  { scope: 'run', category: '8. Book travel & stay', item_key: 'tech_rooms_noon', label: 'Tech rooms noon / early check-in / late checkout as needed', assigned_to: 'gareth', sort_order: 960 },
+  { scope: 'run', category: '8. Book travel & stay', item_key: 'names_on_booking', label: 'All names on booking', assigned_to: 'gareth', sort_order: 970 },
+  { scope: 'run', category: '8. Book travel & stay', item_key: 'hotel_details_to_michael', label: 'Hotel address & check-in details sent to Michael', assigned_to: 'gareth', sort_order: 980 },
+  { scope: 'run', category: '8. Book travel & stay', item_key: 'brad_vehicle_pickup', label: 'Brad: vehicle pickup/return only if he is interstate van driver; fuel receipts to finance', assigned_to: 'brad', sort_order: 990 },
+
+  // ── 9. Merch + Hospitality (per show) ─────────────────────────────────
+  { scope: 'show', category: '9. Merch + Hospitality', item_key: 'merch_decision', label: 'Merch decision: bringing/selling this show?', assigned_to: 'michael', sort_order: 1000 },
+  { scope: 'show', category: '9. Merch + Hospitality', item_key: 'merch_seller', label: 'Merch seller arranged if yes (table + pinboard + cash float)', assigned_to: 'michael', sort_order: 1010 },
+  { scope: 'show', category: '9. Merch + Hospitality', item_key: 'catering_rider_submitted', label: 'Hospitality rider submitted', assigned_to: 'michael', sort_order: 1020 },
+  { scope: 'show', category: '9. Merch + Hospitality', item_key: 'catering_quote_received', label: 'Venue catering quote received', assigned_to: 'michael', sort_order: 1030 },
+  { scope: 'show', category: '9. Merch + Hospitality', item_key: 'catering_confirmed', label: 'Catering confirmed', assigned_to: 'michael', sort_order: 1040 },
+
+  // ── 10. Finance — Show week / post (run) ──────────────────────────────
+  { scope: 'run', category: '10. Finance — Show week / post', item_key: 'payment_terms_noted', label: 'All supplier payment terms noted (upfront vs post-gig)', assigned_to: 'michael', sort_order: 1100 },
+  { scope: 'run', category: '10. Finance — Show week / post', item_key: 'accounts_notified', label: 'Finance notified of upfront payment requirements', assigned_to: 'finance', payment_type: 'upfront', sort_order: 1110 },
+  { scope: 'run', category: '10. Finance — Show week / post', item_key: 'upfront_payments_made', label: 'Upfront payments made on time', assigned_to: 'finance', payment_type: 'upfront', sort_order: 1120 },
+  { scope: 'run', category: '10. Finance — Show week / post', item_key: 'crew_band_fees_paid', label: 'Crew / band show fees paid / scheduled', assigned_to: 'finance', sort_order: 1130 },
+  { scope: 'run', category: '10. Finance — Show week / post', item_key: 'vendor_invoices_processed', label: 'Vendor invoices processed', assigned_to: 'finance', sort_order: 1140 },
+  { scope: 'run', category: '10. Finance — Show week / post', item_key: 'settlement_with_harbour', label: 'Settlement money / box office with Harbour', assigned_to: 'finance', sort_order: 1150 },
+  { scope: 'run', category: '10. Finance — Show week / post', item_key: 'books_updated', label: 'Books updated', assigned_to: 'finance', sort_order: 1160 },
+
+  // ── T-10 — Show worksheet (per show) ──────────────────────────────────
+  { scope: 'show', category: 'T-10 — Show worksheet', item_key: 'worksheet_drafted', label: 'Nigel drafts show worksheet (~10 days prior)', assigned_to: 'nigel', sort_order: 1200 },
+  { scope: 'show', category: 'T-10 — Show worksheet', item_key: 'worksheet_approved', label: 'Michael reviews / approves (approval line)', assigned_to: 'michael', sort_order: 1210 },
+  { scope: 'show', category: 'T-10 — Show worksheet', item_key: 'worksheet_issued', label: 'Worksheet issued to band/crew (and venue as needed)', assigned_to: 'nigel', sort_order: 1220 },
 ]
 
-export const RUN_CATEGORY_ORDER = [
-  'Travel',
-  'Accommodation',
-  'Backline & Hire',
-  'Payments',
+/** Phase display order (chronological). */
+export const PHASE_ORDER = [
+  '1. Harbour — Deal lock',
+  '2. Anita — Marketing assets',
+  '3. Harbour — Ticket release',
+  '4. Announce — Our channels',
+  '5. Promo plan',
+  '6. Travel logistics plan',
+  '7. Michael — Venue / tech',
+  '8. Book travel & stay',
+  '9. Merch + Hospitality',
+  '10. Finance — Show week / post',
+  'T-10 — Show worksheet',
 ]
 
-export const SHOW_CATEGORY_ORDER = [
-  'Show Day Schedule',
-  'Venue / Tech Requirements',
-  'Hospitality',
-]
+/** @deprecated use PHASE_ORDER */
+export const RUN_CATEGORY_ORDER = PHASE_ORDER.filter(p =>
+  ADVANCEMENT_CHECKLIST.some(i => i.category === p && i.scope === 'run'),
+)
 
-/** @deprecated use RUN_CATEGORY_ORDER + SHOW_CATEGORY_ORDER */
-export const CATEGORY_ORDER = [...SHOW_CATEGORY_ORDER, ...RUN_CATEGORY_ORDER]
+/** @deprecated use PHASE_ORDER */
+export const SHOW_CATEGORY_ORDER = PHASE_ORDER.filter(p =>
+  ADVANCEMENT_CHECKLIST.some(i => i.category === p && i.scope === 'show'),
+)
+
+/** @deprecated use PHASE_ORDER */
+export const CATEGORY_ORDER = PHASE_ORDER
+
+/** Map legacy assigned_to values → current owner keys. */
+export function normalizeAssignedTo(value: string): AssignedTo {
+  if (value === 'tour_manager') return 'gareth'
+  if (value === 'production_manager') return 'michael'
+  return value as AssignedTo
+}
+
+/**
+ * When seeding a new consolidated key, inherit status if all listed legacy
+ * keys (same scope) are done. Soft-ignore only — legacy rows are left in DB.
+ */
+export const LEGACY_STATUS_SOURCES: Record<string, string[]> = {
+  schedule_targets_confirmed: [
+    'show_time_confirmed',
+    'venue_access_confirmed',
+    'soundcheck_time',
+    'dinner_arranged',
+    'doors_time',
+  ],
+  risers_confirmed: ['risers_keys', 'risers_drum', 'risers_amp', 'guitar_risers'],
+  tech_rooms_noon: ['tech_rooms_noon', 'early_checkin_flights'],
+  spirit_ferry_cabin: [],
+}
 
 export const OWNER_LABELS: Record<AssignedTo, string> = {
-  tour_manager:       'TM',
-  production_manager: 'PM',
-  finance:            'Finance',
+  gareth: 'Gareth',
+  michael: 'Michael',
+  harbour: 'Harbour',
+  anita: 'Anita',
+  brad: 'Brad',
+  finance: 'Dave',
+  nigel: 'Nigel',
+  tour_manager: 'Gareth',
+  production_manager: 'Michael',
 }
 
 export const OWNER_STYLES: Record<AssignedTo, string> = {
-  tour_manager:       'bg-blue-900/50 text-blue-300 border border-blue-800',
+  gareth: 'bg-blue-900/50 text-blue-300 border border-blue-800',
+  michael: 'bg-purple-900/50 text-purple-300 border border-purple-800',
+  harbour: 'bg-cyan-900/50 text-cyan-300 border border-cyan-800',
+  anita: 'bg-pink-900/50 text-pink-300 border border-pink-800',
+  brad: 'bg-orange-900/50 text-orange-300 border border-orange-800',
+  finance: 'bg-emerald-900/50 text-emerald-300 border border-emerald-800',
+  nigel: 'bg-slate-700/60 text-slate-300 border border-slate-600',
+  tour_manager: 'bg-blue-900/50 text-blue-300 border border-blue-800',
   production_manager: 'bg-purple-900/50 text-purple-300 border border-purple-800',
-  finance:            'bg-emerald-900/50 text-emerald-300 border border-emerald-800',
 }
+
+export const FILTER_OWNERS: { key: AssignedTo; label: string }[] = [
+  { key: 'harbour', label: 'Harbour' },
+  { key: 'anita', label: 'Anita' },
+  { key: 'gareth', label: 'Gareth' },
+  { key: 'michael', label: 'Michael' },
+  { key: 'brad', label: 'Brad' },
+  { key: 'finance', label: 'Dave' },
+  { key: 'nigel', label: 'Nigel' },
+]
+
+export const KNOWN_ITEM_KEYS = new Set(ADVANCEMENT_CHECKLIST.map(i => i.item_key))
