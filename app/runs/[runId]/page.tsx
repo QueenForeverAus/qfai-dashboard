@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import CostFieldsTab from './CostFieldsTab'
 import SynopsisBlock from './SynopsisBlock'
+import TicketOutlookBlock from './TicketOutlookBlock'
 import { buildSynopsis } from '@/lib/synopsis'
 import { formatDateAU, formatDateTimeAU } from '@/lib/dates'
 import { computeCompletionPct } from '@/lib/completion'
@@ -18,6 +19,11 @@ type Show = {
   ticket_price: number | null
   sell_through_pct: number | null
   show_order: number
+  ticket_outlook: string | null
+  ticket_outlook_level: 'clear' | 'watch' | 'impediment' | null
+  ticket_outlook_status: 'empty' | 'draft' | 'confirmed'
+  ticket_outlook_as_of: string | null
+  ticket_outlook_sources: unknown
 }
 
 type CostFieldRow = {
@@ -174,6 +180,23 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
       <SynopsisBlock
         runId={run.id}
         initialText={run.synopsis ?? buildSynopsis(typedShows, typedFields)}
+        isOwnerOrAdmin={isOwnerOrAdmin}
+      />
+
+      <TicketOutlookBlock
+        shows={typedShows.map(s => ({
+          id: s.id,
+          venue_name: s.venue_name,
+          venue_city: s.venue_city,
+          state_territory: s.state_territory,
+          show_date: s.show_date,
+          ticket_outlook: s.ticket_outlook ?? null,
+          ticket_outlook_level: s.ticket_outlook_level ?? null,
+          ticket_outlook_status: s.ticket_outlook_status ?? 'empty',
+          ticket_outlook_as_of: s.ticket_outlook_as_of ?? null,
+          ticket_outlook_sources: s.ticket_outlook_sources ?? [],
+        }))}
+        runSummary={run.ticket_outlook_summary ?? null}
         isOwnerOrAdmin={isOwnerOrAdmin}
       />
 

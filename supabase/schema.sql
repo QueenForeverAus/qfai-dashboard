@@ -78,6 +78,12 @@ create table if not exists shows (
   ticket_price decimal(10,2),
   sell_through_pct integer,
   show_order integer not null default 1,
+  harbour_status text,
+  ticket_outlook text,
+  ticket_outlook_level text check (ticket_outlook_level is null or ticket_outlook_level in ('clear','watch','impediment')),
+  ticket_outlook_status text not null default 'empty' check (ticket_outlook_status in ('empty','draft','confirmed')),
+  ticket_outlook_as_of timestamptz,
+  ticket_outlook_sources jsonb default '[]'::jsonb,
   created_at timestamptz default now()
 );
 
