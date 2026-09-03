@@ -1041,7 +1041,16 @@ export default function CostFieldsTab({
 
       {/* ADVANCEMENT TAB */}
       {hasAdvancement && activeTab === 'advancement' && (
-        <AdvancementTab runId={runId} />
+        <AdvancementTab
+          runId={runId}
+          shows={showsState.map(s => ({
+            id: s.id,
+            venue_name: s.venue_name,
+            venue_city: s.venue_city,
+            show_date: s.show_date,
+            show_order: s.show_order,
+          }))}
+        />
       )}
 
       {/* P&L CALCULATOR TAB */}

@@ -188,3 +188,8 @@ create policy "Admins can view all requests" on feature_requests
 
 create policy "Authenticated users can submit requests" on feature_requests
   for insert with check (auth.uid() = submitted_by);
+
+-- Advancement checklist (run-level + per-show)
+-- show_id null = run scope; show_id set = that show
+-- Unique: (run_id, item_key) where show_id is null
+--         (run_id, item_key, show_id) where show_id is not null
