@@ -5,6 +5,8 @@ import { notFound } from 'next/navigation'
 import CostFieldsTab from './CostFieldsTab'
 import SynopsisBlock from './SynopsisBlock'
 import { buildSynopsis } from '@/lib/synopsis'
+import { formatDateAU, formatDateTimeAU } from '@/lib/dates'
+import { computeCompletionPct } from '@/lib/completion'
 
 type Show = {
   id: string
@@ -57,15 +59,6 @@ const REGION_LABELS: Record<string, string> = {
   group1: 'Group 1 · Self-drive',
   group2: 'Group 2 · Fly + Van',
   group3: 'Group 3 · Fly + Local Backline',
-}
-
-function fmt(date: string | null) {
-  if (!date) return '—'
-  return new Date(date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
-function fmtTime(ts: string) {
-  return new Date(ts).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
 export default async function RunDetailPage({ params }: { params: Promise<{ runId: string }> }) {
@@ -139,9 +132,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
 
   const typedAudit = (auditRows ?? []) as AuditRow[]
 
-  const totalExpectedFields = typedShows.length * 4 + 10 // 4 per show + 10 run-level
-  const knownCount = typedFields.filter(f => f.state === 'known').length
-  const completionPct = Math.round((knownCount / totalExpectedFields) * 100)
+  const completionPct = computeCompletionPct(typedFields)
 
   return (
     <div className="p-4 sm:p-6">
@@ -159,7 +150,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
           </div>
           <h1 className="text-white text-2xl font-bold">{run.name}</h1>
           <p className="text-slate-400 text-sm mt-1">
-            {fmt(run.start_date)}{run.start_date !== run.end_date ? ` – ${fmt(run.end_date)}` : ''} · {REGION_LABELS[run.region] ?? run.region}
+            {formatDateAU(run.start_date)}{run.start_date !== run.end_date ? ` – ${formatDateAU(run.end_date)}` : ''} · {REGION_LABELS[run.region] ?? run.region}
           </p>
         </div>
         <div className="flex flex-col items-center">
@@ -175,7 +166,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
             />
           </svg>
           <span className="text-white text-xs font-bold -mt-1">{completionPct}%</span>
-          <span className="text-slate-500 text-xs">complete</span>
+          <span className="text-slate-500 text-xs">cost fields</span>
         </div>
       </div>
 
@@ -197,7 +188,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
           field_name: r.field_name,
           old_value: r.old_value,
           new_value: r.new_value,
-          changed_at: fmtTime(r.changed_at),
+          changed_at: formatDateTimeAU(r.changed_at),
           change_type: r.change_type,
           changed_by_name: r.profiles?.full_name ?? 'Unknown',
         }))}

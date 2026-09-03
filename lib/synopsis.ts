@@ -1,3 +1,5 @@
+import { formatDateAU } from '@/lib/dates'
+
 type Show = {
   show_order: number
   venue_city: string
@@ -12,9 +14,16 @@ type CostField = {
 }
 
 function fmtDay(dateStr: string, offsetDays = 0): string {
-  const d = new Date(dateStr + 'T12:00:00')
-  d.setDate(d.getDate() + offsetDays)
-  return d.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'short' })
+  const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (m && offsetDays === 0) {
+    return formatDateAU(dateStr, { weekday: 'long', year: false })
+  }
+  const base = m
+    ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12))
+    : new Date(dateStr)
+  base.setUTCDate(base.getUTCDate() + offsetDays)
+  const iso = base.toISOString().slice(0, 10)
+  return formatDateAU(iso, { weekday: 'long', year: false })
 }
 
 function entries(f: CostField): Array<{ description?: string }> {

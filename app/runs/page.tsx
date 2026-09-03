@@ -1,4 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/server-admin'
+import { todayAU } from '@/lib/dates'
+import { computeCompletionPct } from '@/lib/completion'
 import RunsPageClient, { type Run } from './RunsPageClient'
 
 export const dynamic = 'force-dynamic'
@@ -11,7 +13,7 @@ export default async function RunsPage() {
   ])
 
   const allRuns = (runs ?? []) as Run[]
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayAU()
 
   const upcomingRuns     = allRuns.filter(r => !r.end_date || r.end_date >= today)
   const confirmedCount   = upcomingRuns.filter(r => r.status === 'confirmed').length
@@ -34,11 +36,7 @@ export default async function RunsPage() {
 
   const completionByRun: Record<string, number> = {}
   for (const run of allRuns) {
-    const fields = fieldsByRun.get(run.id) ?? []
-    const actionable = fields.filter(f => f.state !== 'pending')
-    if (actionable.length === 0) { completionByRun[run.id] = 0; continue }
-    const resolved = actionable.filter(f => f.state === 'known' || f.state === 'estimated')
-    completionByRun[run.id] = Math.round((resolved.length / actionable.length) * 100)
+    completionByRun[run.id] = computeCompletionPct(fieldsByRun.get(run.id) ?? [])
   }
 
   return (

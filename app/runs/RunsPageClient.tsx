@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { formatDateAU } from '@/lib/dates'
 
 const STATUS_STYLES: Record<string, string> = {
   confirmed:   'bg-green-900/40 text-green-400 border-green-800',
@@ -25,11 +26,6 @@ const REGION_LABELS: Record<string, string> = {
   group1: 'G1 · Self-drive',
   group2: 'G2 · Fly+Van',
   group3: 'G3 · Fly+Local',
-}
-
-function fmt(date: string | null) {
-  if (!date) return '—'
-  return new Date(date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 export type Run = {
@@ -148,8 +144,8 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
           const isPlaceholder = run.status === 'placeholder'
           const isDeclined = run.status === 'declined'
           const dateStr = run.start_date === run.end_date
-            ? fmt(run.start_date)
-            : `${fmt(run.start_date)} – ${fmt(run.end_date)}`
+            ? formatDateAU(run.start_date)
+            : `${formatDateAU(run.start_date)} – ${formatDateAU(run.end_date)}`
 
           const nameEl = isPlaceholder || isDeclined
             ? <span className={`text-sm font-medium ${isDeclined ? 'text-slate-500 line-through italic' : 'text-slate-500 italic'}`}>{run.name}</span>
@@ -235,7 +231,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
                 </td>
                 <td className="px-4 py-3">
                   <span className={`text-sm whitespace-nowrap ${isDeclined ? 'text-slate-600 line-through' : 'text-slate-300'}`}>
-                    {run.start_date === run.end_date ? fmt(run.start_date) : `${fmt(run.start_date)} – ${fmt(run.end_date)}`}
+                    {run.start_date === run.end_date ? formatDateAU(run.start_date) : `${formatDateAU(run.start_date)} – ${formatDateAU(run.end_date)}`}
                   </span>
                 </td>
                 <td className="px-4 py-3">
@@ -326,13 +322,13 @@ export default function RunsPageClient({
       </div>
 
       {/* Tab bar */}
-      <div className="mb-5 overflow-x-auto">
-        <div className="flex gap-1 bg-slate-800/60 rounded-lg p-1 border border-slate-700 w-full sm:w-fit min-w-min">
+      <div className="mb-5 -mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto">
+        <div className="flex gap-1 bg-slate-800/60 rounded-lg p-1 border border-slate-700 w-max min-w-full sm:min-w-0 sm:w-fit">
           {TABS.map(tab => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex-1 sm:flex-none px-3 sm:px-4 py-1.5 rounded-md text-xs font-semibold tracking-wide transition-colors whitespace-nowrap ${
+              className={`flex-none px-3 sm:px-4 py-1.5 rounded-md text-xs font-semibold tracking-wide transition-colors whitespace-nowrap ${
                 activeTab === tab.key
                   ? tab.key === 'declined'
                     ? 'bg-red-500/80 text-white'

@@ -1,4 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/server-admin'
+import { formatDateAU, todayAU } from '@/lib/dates'
+import { computeCompletionPct } from '@/lib/completion'
 
 export const dynamic = 'force-dynamic'
 import Link from 'next/link'
@@ -12,11 +14,6 @@ const STATUS_STYLES: Record<string, string> = {
   settled:    'bg-slate-700 text-slate-400 border-slate-600',
 }
 
-function fmt(date: string | null) {
-  if (!date) return '—'
-  return new Date(date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
 type Run = {
   id: string
   code: string
@@ -25,18 +22,28 @@ type Run = {
   region: string
   start_date: string | null
   end_date: string | null
-  completion_pct: number
 }
 
 export default async function MissionControl() {
   const supabase = createAdminClient()
-  const [{ data: runs }, { count: totalShows }] = await Promise.all([
+  const [{ data: runs }, { count: totalShows }, { data: costFields }] = await Promise.all([
     supabase.from('runs').select('*').order('start_date', { ascending: true }),
     supabase.from('shows').select('*', { count: 'exact', head: true }),
+    supabase.from('cost_fields').select('run_id, state'),
   ])
 
   const typedRuns = (runs ?? []) as Run[]
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayAU()
+
+  const fieldsByRun = new Map<string, { state: string }[]>()
+  for (const f of costFields ?? []) {
+    if (!fieldsByRun.has(f.run_id)) fieldsByRun.set(f.run_id, [])
+    fieldsByRun.get(f.run_id)!.push(f)
+  }
+  const completionByRun: Record<string, number> = {}
+  for (const run of typedRuns) {
+    completionByRun[run.id] = computeCompletionPct(fieldsByRun.get(run.id) ?? [])
+  }
 
   const confirmed = typedRuns.filter(r => r.status === 'confirmed')
   const proposed = typedRuns.filter(r => r.status === 'proposed')
@@ -65,7 +72,7 @@ export default async function MissionControl() {
         <div className="bg-slate-800 rounded-xl border border-slate-700 px-4 py-3 sm:px-5 sm:py-4">
           <div className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Next Run</div>
           <div className="text-lg font-bold text-white truncate">{nextRun?.code ?? '—'}</div>
-          <div className="text-slate-500 text-xs mt-1">{nextRun ? fmt(nextRun.start_date) : 'None upcoming'}</div>
+          <div className="text-slate-500 text-xs mt-1">{nextRun ? formatDateAU(nextRun.start_date) : 'None upcoming'}</div>
         </div>
         <div className="bg-slate-800 rounded-xl border border-slate-700 px-4 py-3 sm:px-5 sm:py-4">
           <div className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Total Shows</div>
@@ -88,10 +95,10 @@ export default async function MissionControl() {
             {/* Mobile: card list */}
             <div className="md:hidden divide-y divide-slate-700/50">
               {upcoming.map(run => {
-                const pct = run.completion_pct ?? 0
+                const pct = completionByRun[run.id] ?? 0
                 const dateStr = run.start_date === run.end_date
-                  ? fmt(run.start_date)
-                  : `${fmt(run.start_date)} – ${fmt(run.end_date)}`
+                  ? formatDateAU(run.start_date)
+                  : `${formatDateAU(run.start_date)} – ${formatDateAU(run.end_date)}`
                 return (
                   <Link
                     key={run.id}
@@ -101,7 +108,7 @@ export default async function MissionControl() {
                     <span className="text-amber-400 font-bold text-sm w-12 flex-shrink-0">{run.code}</span>
                     <div className="flex-1 min-w-0">
                       <div className="text-white text-sm font-medium truncate">{run.name}</div>
-                      <div className="text-slate-500 text-xs mt-0.5">{dateStr}</div>
+                      <div className="text-slate-500 text-xs mt-0.5">{dateStr} · {pct}% complete</div>
                     </div>
                     <span className={`flex-shrink-0 px-2 py-0.5 rounded border text-xs font-medium uppercase ${STATUS_STYLES[run.status] ?? STATUS_STYLES.confirmed}`}>
                       {run.status.replace('_', ' ')}
@@ -119,12 +126,12 @@ export default async function MissionControl() {
                   <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Run</th>
                   <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Status</th>
                   <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Dates</th>
-                  <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Complete</th>
+                  <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Cost fields</th>
                 </tr>
               </thead>
               <tbody>
                 {upcoming.map((run, i) => {
-                  const pct = run.completion_pct ?? 0
+                  const pct = completionByRun[run.id] ?? 0
                   return (
                     <tr key={run.id} className={`border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors ${i === upcoming.length - 1 ? 'border-0' : ''}`}>
                       <td className="px-4 py-3">
@@ -141,7 +148,7 @@ export default async function MissionControl() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-300 text-sm">
-                        {run.start_date === run.end_date ? fmt(run.start_date) : `${fmt(run.start_date)} – ${fmt(run.end_date)}`}
+                        {run.start_date === run.end_date ? formatDateAU(run.start_date) : `${formatDateAU(run.start_date)} – ${formatDateAU(run.end_date)}`}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
