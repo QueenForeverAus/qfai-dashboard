@@ -1,5 +1,7 @@
 'use client'
 
+import { formatDateAU } from '@/lib/dates'
+
 import { useState } from 'react'
 
 type Factor = {
@@ -20,7 +22,7 @@ function fmt(val: number, unit: string) {
 }
 
 function fmtDate(ts: string) {
-  return new Date(ts).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDateAU(ts)
 }
 
 function FactorRow({ factor, onUpdated }: { factor: Factor; onUpdated: (updated: Factor) => void }) {

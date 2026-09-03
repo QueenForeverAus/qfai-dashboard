@@ -344,7 +344,7 @@ export default function AdminPage() {
   const totalUsers = profiles.length + pending.length
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <div className="mb-6">
         <h1 className="text-white text-2xl font-bold">Admin</h1>
         <p className="text-slate-400 text-sm mt-1">User management and permissions</p>
@@ -373,34 +373,24 @@ export default function AdminPage() {
         ) : totalUsers === 0 ? (
           <div className="p-6 text-center text-slate-500 text-sm">No users found.</div>
         ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-slate-700">
-                <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Name</th>
-                <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Email</th>
-                <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Role</th>
-                <th className="text-left text-slate-400 text-xs font-medium px-4 py-3 hidden sm:table-cell">Last active</th>
-                <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* Confirmed users */}
-              {profiles.map((profile, i) => {
+          <>
+            {/* Mobile: card list */}
+            <div className="md:hidden divide-y divide-slate-700/50">
+              {profiles.map(profile => {
                 const status = resetStatus[profile.email]
-                const isLast = i === profiles.length - 1 && pending.length === 0
                 return (
-                  <tr key={profile.id} className={`border-b border-slate-700/50 ${isLast ? 'border-0' : ''}`}>
-                    <td className="px-4 py-3 text-white text-sm">{profile.full_name}</td>
-                    <td className="px-4 py-3 text-slate-400 text-sm">{profile.email}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded border text-xs font-medium uppercase ${roleStyles[profile.role] ?? roleStyles.external}`}>
+                  <div key={profile.id} className="px-4 py-3 space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-white text-sm font-medium truncate">{profile.full_name}</div>
+                        <div className="text-slate-400 text-xs truncate">{profile.email}</div>
+                      </div>
+                      <span className={`flex-shrink-0 px-2 py-0.5 rounded border text-xs font-medium uppercase ${roleStyles[profile.role] ?? roleStyles.external}`}>
                         {profile.role}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 hidden sm:table-cell">
-                      <span className="text-slate-400 text-xs">{fmtLastSeen(profile.last_sign_in_at)}</span>
-                    </td>
-                    <td className="px-4 py-3">
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-500 text-xs">Last active: {fmtLastSeen(profile.last_sign_in_at)}</span>
                       <button
                         onClick={() => sendResetLink(profile.email)}
                         disabled={status === 'sending'}
@@ -408,20 +398,20 @@ export default function AdminPage() {
                       >
                         {status === 'sending' ? 'Sending…' : status === 'sent' ? '✓ Sent' : status === 'error' ? '✗ Failed' : 'Send reset link'}
                       </button>
-                    </td>
-                  </tr>
+                    </div>
+                  </div>
                 )
               })}
-
-              {/* Pending invites */}
-              {pending.map((u, i) => (
-                <tr key={u.id} className={`border-b border-slate-700/50 bg-slate-800/50 ${i === pending.length - 1 ? 'border-0' : ''}`}>
-                  <td className="px-4 py-3 text-slate-300 text-sm">
-                    {u.full_name ?? <span className="text-slate-500 italic">—</span>}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400 text-sm">{u.email}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
+              {pending.map(u => (
+                <div key={u.id} className="px-4 py-3 space-y-1.5 bg-slate-800/50">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-slate-300 text-sm font-medium truncate">
+                        {u.full_name ?? <span className="text-slate-500 italic">—</span>}
+                      </div>
+                      <div className="text-slate-400 text-xs truncate">{u.email}</div>
+                    </div>
+                    <div className="flex flex-shrink-0 items-center gap-1.5">
                       {u.role && (
                         <span className={`px-2 py-0.5 rounded border text-xs font-medium uppercase ${roleStyles[u.role] ?? roleStyles.external}`}>
                           {u.role}
@@ -431,33 +421,114 @@ export default function AdminPage() {
                         pending
                       </span>
                     </div>
-                  </td>
-                  <td className="px-4 py-3 hidden sm:table-cell">
-                    <span className="text-slate-600 text-xs">—</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => resendInvite(u)}
-                        disabled={resendingId === u.id}
-                        className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-50"
-                      >
-                        {resendStatus[u.id] === 'sending' ? 'Sending…' : resendStatus[u.id] === 'sent' ? '✓ Sent' : resendStatus[u.id] === 'error' ? '✗ Failed' : 'Resend invite'}
-                      </button>
-                      <span className="text-slate-700">·</span>
-                      <button
-                        onClick={() => cancelInvite(u.id)}
-                        disabled={deletingId === u.id}
-                        className="text-xs text-slate-500 hover:text-red-400 transition-colors disabled:opacity-50"
-                      >
-                        {deletingId === u.id ? 'Removing…' : 'Cancel'}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => resendInvite(u)}
+                      disabled={resendingId === u.id}
+                      className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-50"
+                    >
+                      {resendStatus[u.id] === 'sending' ? 'Sending…' : resendStatus[u.id] === 'sent' ? '✓ Sent' : resendStatus[u.id] === 'error' ? '✗ Failed' : 'Resend invite'}
+                    </button>
+                    <span className="text-slate-700">·</span>
+                    <button
+                      onClick={() => cancelInvite(u.id)}
+                      disabled={deletingId === u.id}
+                      className="text-xs text-slate-500 hover:text-red-400 transition-colors disabled:opacity-50"
+                    >
+                      {deletingId === u.id ? 'Removing…' : 'Cancel'}
+                    </button>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+
+            {/* Desktop: full table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Name</th>
+                    <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Email</th>
+                    <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Role</th>
+                    <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Last active</th>
+                    <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {profiles.map((profile, i) => {
+                    const status = resetStatus[profile.email]
+                    const isLast = i === profiles.length - 1 && pending.length === 0
+                    return (
+                      <tr key={profile.id} className={`border-b border-slate-700/50 ${isLast ? 'border-0' : ''}`}>
+                        <td className="px-4 py-3 text-white text-sm">{profile.full_name}</td>
+                        <td className="px-4 py-3 text-slate-400 text-sm">{profile.email}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-0.5 rounded border text-xs font-medium uppercase ${roleStyles[profile.role] ?? roleStyles.external}`}>
+                            {profile.role}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-slate-400 text-xs">{fmtLastSeen(profile.last_sign_in_at)}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => sendResetLink(profile.email)}
+                            disabled={status === 'sending'}
+                            className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-50"
+                          >
+                            {status === 'sending' ? 'Sending…' : status === 'sent' ? '✓ Sent' : status === 'error' ? '✗ Failed' : 'Send reset link'}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {pending.map((u, i) => (
+                    <tr key={u.id} className={`border-b border-slate-700/50 bg-slate-800/50 ${i === pending.length - 1 ? 'border-0' : ''}`}>
+                      <td className="px-4 py-3 text-slate-300 text-sm">
+                        {u.full_name ?? <span className="text-slate-500 italic">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 text-sm">{u.email}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          {u.role && (
+                            <span className={`px-2 py-0.5 rounded border text-xs font-medium uppercase ${roleStyles[u.role] ?? roleStyles.external}`}>
+                              {u.role}
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded border text-xs font-medium border-yellow-700 text-yellow-500 bg-yellow-900/20">
+                            pending
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-slate-600 text-xs">—</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => resendInvite(u)}
+                            disabled={resendingId === u.id}
+                            className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-50"
+                          >
+                            {resendStatus[u.id] === 'sending' ? 'Sending…' : resendStatus[u.id] === 'sent' ? '✓ Sent' : resendStatus[u.id] === 'error' ? '✗ Failed' : 'Resend invite'}
+                          </button>
+                          <span className="text-slate-700">·</span>
+                          <button
+                            onClick={() => cancelInvite(u.id)}
+                            disabled={deletingId === u.id}
+                            className="text-xs text-slate-500 hover:text-red-400 transition-colors disabled:opacity-50"
+                          >
+                            {deletingId === u.id ? 'Removing…' : 'Cancel'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

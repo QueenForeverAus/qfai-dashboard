@@ -1,4 +1,7 @@
 'use client'
+
+import { formatDateShortAU } from '@/lib/dates'
+
 import { useState, useMemo } from 'react'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 
@@ -82,7 +85,7 @@ function fmt(n: number) {
 }
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+  return formatDateShortAU(iso)
 }
 
 function Row({ label, value, negative, bold }: { label: string; value: number; negative?: boolean; bold?: boolean }) {

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile, canAccessTab } from '@/lib/profile-context'
 import AdvancementTab from './AdvancementTab'
+import { formatDateShortAU } from '@/lib/dates'
 
 type FieldState = 'known' | 'estimated' | 'guess' | 'pending' | 'auto_calc'
 
@@ -98,10 +99,6 @@ function fmt(n: number | null) {
   return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 }).format(n)
 }
 
-function fmtDate(d: string | null) {
-  if (!d) return '—'
-  return new Date(d).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
-}
 
 // ─── Entry / Receipts panel ──────────────────────────────────────────────────
 
@@ -744,7 +741,7 @@ function ShowDetailsEditor({
         <div>
           <div className="text-white font-semibold text-sm">{show.venue_name}</div>
           <div className="text-slate-500 text-xs mt-0.5">
-            {show.venue_city}{show.state_territory ? `, ${show.state_territory}` : ''} · {fmtDate(show.show_date)}
+            {show.venue_city}{show.state_territory ? `, ${show.state_territory}` : ''} · {formatDateShortAU(show.show_date)}
             {show.capacity ? ` · Cap ${show.capacity.toLocaleString()}` : ''}
             {show.ticket_price ? ` · $${show.ticket_price}/ticket` : ''}
           </div>
@@ -1043,7 +1040,7 @@ export default function CostFieldsTab({
                       <div className="min-w-0 flex-1">
                         <div className="text-white text-sm font-semibold truncate">{show.venue_name}</div>
                         <div className="text-slate-500 text-xs mt-0.5 truncate">
-                          {show.venue_city}{show.state_territory ? `, ${show.state_territory}` : ''} · {fmtDate(show.show_date)}
+                          {show.venue_city}{show.state_territory ? `, ${show.state_territory}` : ''} · {formatDateShortAU(show.show_date)}
                           {show.capacity ? ` · Cap ${show.capacity.toLocaleString()}` : ''}
                         </div>
                       </div>

@@ -1,3 +1,4 @@
+import { formatDateShortAU } from '@/lib/dates'
 import type { RunDefault } from './run-defaults'
 
 export type SeedEntry = {
@@ -41,7 +42,7 @@ function uid() {
 
 function fmtDate(d: string | null) {
   if (!d) return ''
-  return new Date(d).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+  return formatDateShortAU(d)
 }
 
 export function generateEntries(

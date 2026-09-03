@@ -21,38 +21,40 @@ export default function ViewAsBar() {
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-50 flex items-center gap-3 px-4 py-2.5 text-xs"
+      className="fixed bottom-0 left-0 right-0 z-50 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 text-xs overflow-x-auto"
       style={{
         background: viewAs ? '#1a0a2e' : '#0f1629',
         borderTop: `1px solid ${viewAs ? '#7c3aed' : '#1e293b'}`,
       }}
     >
-      <span style={{ color: viewAs ? '#a78bfa' : '#475569' }} className="font-semibold shrink-0">
+      <span style={{ color: viewAs ? '#a78bfa' : '#475569' }} className="font-semibold shrink-0 whitespace-nowrap">
         {viewAs ? `👁 Previewing as ${ROLE_LABEL[viewAs]}` : '🛡 Admin view'}
       </span>
 
-      <span style={{ color: '#334155' }}>·</span>
-      <span style={{ color: '#475569' }}>Preview as:</span>
+      <span style={{ color: '#334155' }} className="shrink-0 hidden xs:inline sm:inline">·</span>
+      <span style={{ color: '#475569' }} className="shrink-0 whitespace-nowrap">Preview as:</span>
 
-      {ROLES.map(r => (
-        <button
-          key={r.key}
-          onClick={() => setViewAs(viewAs === r.key ? null : r.key)}
-          className="px-2.5 py-1 rounded font-medium transition-all"
-          style={{
-            background: viewAs === r.key ? r.color + '30' : 'transparent',
-            border: `1px solid ${viewAs === r.key ? r.color : '#334155'}`,
-            color: viewAs === r.key ? r.color : '#64748b',
-          }}
-        >
-          {r.label}
-        </button>
-      ))}
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        {ROLES.map(r => (
+          <button
+            key={r.key}
+            onClick={() => setViewAs(viewAs === r.key ? null : r.key)}
+            className="px-2 sm:px-2.5 py-1 rounded font-medium transition-all whitespace-nowrap"
+            style={{
+              background: viewAs === r.key ? r.color + '30' : 'transparent',
+              border: `1px solid ${viewAs === r.key ? r.color : '#334155'}`,
+              color: viewAs === r.key ? r.color : '#64748b',
+            }}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
 
       {viewAs && (
         <button
           onClick={() => setViewAs(null)}
-          className="ml-auto px-2.5 py-1 rounded font-medium transition-all"
+          className="ml-auto shrink-0 px-2.5 py-1 rounded font-medium transition-all whitespace-nowrap"
           style={{ border: '1px solid #334155', color: '#64748b' }}
         >
           ✕ Exit preview
