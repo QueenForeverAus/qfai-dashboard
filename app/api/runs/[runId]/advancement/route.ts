@@ -2,11 +2,13 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import {
-  ADVANCEMENT_CHECKLIST,
-  KNOWN_ITEM_KEYS,
+  checklistForRun,
+  knownKeysForRun,
   LEGACY_STATUS_SOURCES,
   normalizeAssignedTo,
+  type AdvancementChecklistItem,
 } from '@/lib/advancement-checklist'
+import type { RunRegion } from '@/lib/types'
 
 async function resolveRunId(supabase: ReturnType<typeof createAdminClient>, runIdOrCode: string): Promise<string | null> {
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(runIdOrCode)) return runIdOrCode
@@ -64,15 +66,15 @@ function buildSeedRows(
   runId: string,
   shows: { id: string; show_order: number }[],
   existing: ExistingRow[],
+  checklist: AdvancementChecklistItem[],
 ): SeedRow[] {
-  const runItems = ADVANCEMENT_CHECKLIST.filter(i => i.scope === 'run')
-  const showItems = ADVANCEMENT_CHECKLIST.filter(i => i.scope === 'show')
+  const runItems = checklist.filter(i => i.scope === 'run')
+  const showItems = checklist.filter(i => i.scope === 'show')
   const rows: SeedRow[] = []
 
   const has = (key: string, showId: string | null) =>
     existing.some(e => e.item_key === key && (e.show_id ?? null) === showId)
 
-  // Keys that were previously run-scoped but are now show-scoped (copy state onto each show)
   const showKeys = new Set(showItems.map(s => s.item_key))
   const runOrphansForShowKeys = existing.filter(
     e => e.show_id == null && showKeys.has(e.item_key),
@@ -134,12 +136,21 @@ export async function GET(
   const runId = await resolveRunId(supabase, runIdParam)
   if (!runId) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
 
-  const [{ data: existing, error }, { data: shows }] = await Promise.all([
+  const [{ data: runRow }, { data: existing, error }, { data: shows }] = await Promise.all([
+    supabase.from('runs').select('id, region').eq('id', runId).single(),
     supabase.from('advancement_items').select('*').eq('run_id', runId).order('sort_order'),
-    supabase.from('shows').select('id, show_order, venue_name, venue_city, show_date').eq('run_id', runId).order('show_order'),
+    supabase.from('shows').select('id, show_order, venue_name, venue_city, state_territory, show_date').eq('run_id', runId).order('show_order'),
   ])
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!runRow) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
+
+  const region = (runRow.region as RunRegion) ?? 'group2'
+  const showStates = (shows ?? [])
+    .map(s => (s.state_territory as string | null) ?? '')
+    .filter(Boolean)
+  const checklist = checklistForRun(region, showStates)
+  const applicableKeys = knownKeysForRun(region, showStates)
 
   const showList = (shows ?? []).map(s => ({ id: s.id as string, show_order: s.show_order as number }))
   const current = (existing ?? []).map(e => ({
@@ -156,36 +167,30 @@ export async function GET(
     payment_type: (e.payment_type as string | null) ?? null,
   }))
 
-  const toInsert = buildSeedRows(runId, showList, current)
+  const toInsert = buildSeedRows(runId, showList, current, checklist)
 
   if (toInsert.length > 0) {
     const { error: seedErr } = await supabase.from('advancement_items').insert(toInsert)
     if (seedErr) return NextResponse.json({ error: seedErr.message }, { status: 500 })
   }
 
-  // Sync category / label / assigned_to / sort_order / payment_type for known keys
-  const checklistByKey = new Map(ADVANCEMENT_CHECKLIST.map(i => [i.item_key, i]))
+  // Sync category / sort_order / payment_type only — preserve custom label & assigned_to
+  const checklistByKey = new Map(checklist.map(i => [i.item_key, i]))
   const syncUpdates: PromiseLike<unknown>[] = []
   for (const row of current) {
     const def = checklistByKey.get(row.item_key)
     if (!def) continue
     const expectedScopeShow = def.scope === 'show'
     const isShowRow = row.show_id != null
-    if (expectedScopeShow !== isShowRow) continue // leave wrong-scope legacy row alone
-    const nextAssigned = def.assigned_to
+    if (expectedScopeShow !== isShowRow) continue
     const needsSync =
       row.category !== def.category ||
-      row.label !== def.label ||
-      normalizeAssignedTo(row.assigned_to) !== nextAssigned ||
-      row.assigned_to !== nextAssigned ||
       row.sort_order !== def.sort_order ||
       (row.payment_type ?? null) !== (def.payment_type ?? null)
     if (needsSync) {
       syncUpdates.push(
         supabase.from('advancement_items').update({
           category: def.category,
-          label: def.label,
-          assigned_to: nextAssigned,
           sort_order: def.sort_order,
           payment_type: def.payment_type ?? null,
         }).eq('id', row.id),
@@ -194,9 +199,7 @@ export async function GET(
   }
   if (syncUpdates.length > 0) await Promise.all(syncUpdates)
 
-  // Soft-ignore: do not delete legacy keys. Drop only wrong-scope orphans once
-  // per-show (or run) copies of the same key exist in the new scope.
-  const showKeys = new Set(ADVANCEMENT_CHECKLIST.filter(i => i.scope === 'show').map(i => i.item_key))
+  const showKeys = new Set(checklist.filter(i => i.scope === 'show').map(i => i.item_key))
   const runOrphanIds = current
     .filter(e => e.show_id == null && showKeys.has(e.item_key))
     .map(e => e.id)
@@ -224,9 +227,8 @@ export async function GET(
 
   if (finalErr) return NextResponse.json({ error: finalErr.message }, { status: 500 })
 
-  // Only return known checklist keys (legacy keys soft-ignored in UI)
   const filtered = (final ?? [])
-    .filter(row => KNOWN_ITEM_KEYS.has(row.item_key as string))
+    .filter(row => applicableKeys.has(row.item_key as string))
     .map(row => ({
       ...row,
       assigned_to: normalizeAssignedTo(row.assigned_to as string),

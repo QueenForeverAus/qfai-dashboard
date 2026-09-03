@@ -8,8 +8,11 @@ import {
   OWNER_LABELS,
   OWNER_STYLES,
   FILTER_OWNERS,
+  ASSIGNABLE_OWNERS,
+  REGION_LABELS,
   normalizeAssignedTo,
   type AssignedTo,
+  type RunRegion,
 } from '@/lib/advancement-checklist'
 
 type ItemStatus = 'pending' | 'done' | 'n_a'
@@ -57,6 +60,9 @@ function ItemRow({
 }) {
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesVal, setNotesVal] = useState(item.notes ?? '')
+  const [editingMeta, setEditingMeta] = useState(false)
+  const [labelVal, setLabelVal] = useState(item.label)
+  const [ownerVal, setOwnerVal] = useState<AssignedTo>(normalizeAssignedTo(item.assigned_to))
   const [isPending, startTransition] = useTransition()
   const owner = normalizeAssignedTo(item.assigned_to)
 
@@ -84,6 +90,26 @@ function ItemRow({
       if (res.ok) {
         onUpdate({ notes: notesVal })
         setEditingNotes(false)
+      }
+    })
+  }
+
+  function saveMeta() {
+    const nextLabel = labelVal.trim()
+    if (!nextLabel) return
+    startTransition(async () => {
+      const res = await fetch(`/api/runs/${item.run_id}/advancement/${item.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: nextLabel, assigned_to: ownerVal }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        onUpdate({
+          label: data.label ?? nextLabel,
+          assigned_to: normalizeAssignedTo(data.assigned_to ?? ownerVal),
+        })
+        setEditingMeta(false)
       }
     })
   }
@@ -122,13 +148,76 @@ function ItemRow({
           {statusIcon(item.status)}
         </button>
 
-        <span className={`flex-1 text-sm leading-snug ${isDone ? 'line-through text-slate-500' : 'text-slate-200'}`}>
-          {item.label}
-        </span>
+        {editingMeta ? (
+          <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+            <input
+              autoFocus
+              value={labelVal}
+              onChange={e => setLabelVal(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') saveMeta()
+                if (e.key === 'Escape') {
+                  setEditingMeta(false)
+                  setLabelVal(item.label)
+                  setOwnerVal(normalizeAssignedTo(item.assigned_to))
+                }
+              }}
+              className="w-full text-sm bg-slate-900 border border-amber-400/50 rounded px-2 py-1 text-white focus:outline-none focus:border-amber-400"
+            />
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="text-[10px] uppercase tracking-wide text-slate-500">Owner</label>
+              <select
+                value={ownerVal}
+                onChange={e => setOwnerVal(e.target.value as AssignedTo)}
+                className="text-xs bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-amber-400"
+              >
+                {ASSIGNABLE_OWNERS.map(k => (
+                  <option key={k} value={k}>{OWNER_LABELS[k]}</option>
+                ))}
+              </select>
+              <button
+                onClick={saveMeta}
+                className="text-xs bg-amber-400 text-slate-900 font-semibold px-2 py-0.5 rounded hover:bg-amber-300 transition-colors"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => {
+                  setEditingMeta(false)
+                  setLabelVal(item.label)
+                  setOwnerVal(normalizeAssignedTo(item.assigned_to))
+                }}
+                className="text-slate-500 hover:text-slate-300 text-xs transition-colors px-1"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <span className={`flex-1 text-sm leading-snug ${isDone ? 'line-through text-slate-500' : 'text-slate-200'}`}>
+            {item.label}
+          </span>
+        )}
 
-        <span className={`flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${OWNER_STYLES[owner]}`}>
-          {OWNER_LABELS[owner]}
-        </span>
+        {!editingMeta && (
+          <span className={`flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${OWNER_STYLES[owner]}`}>
+            {OWNER_LABELS[owner]}
+          </span>
+        )}
+
+        {canEdit && !editingMeta && (
+          <button
+            onClick={() => {
+              setLabelVal(item.label)
+              setOwnerVal(normalizeAssignedTo(item.assigned_to))
+              setEditingMeta(true)
+            }}
+            title="Edit label / owner"
+            className="flex-shrink-0 text-slate-600 hover:text-amber-400 opacity-0 group-hover:opacity-100 transition-opacity text-xs px-1"
+          >
+            ✎
+          </button>
+        )}
 
         {item.payment_type === 'upfront' && (
           <button
@@ -209,9 +298,11 @@ function ItemList({
 export default function AdvancementTab({
   runId,
   shows,
+  region,
 }: {
   runId: string
   shows: ShowInfo[]
+  region: string
 }) {
   const { effectiveRole } = useProfile()
   const [items, setItems] = useState<AdvancementItem[]>([])
@@ -220,6 +311,8 @@ export default function AdvancementTab({
 
   const isOwnerOrAdmin = ['owner', 'admin'].includes(effectiveRole)
   const isProductionManager = effectiveRole === 'production'
+  const regionKey = (region in REGION_LABELS ? region : 'group2') as RunRegion
+  const regionLabel = REGION_LABELS[regionKey]
 
   useEffect(() => {
     fetch(`/api/runs/${runId}/advancement`)
@@ -275,6 +368,10 @@ export default function AdvancementTab({
 
   return (
     <div>
+      <div className="mb-4 px-3 py-2 rounded border border-slate-700/80 bg-slate-800/50 text-slate-300 text-xs">
+        This run is <span className="text-amber-400 font-semibold">{regionLabel}</span> — checklist filtered
+      </div>
+
       <div className="flex items-center gap-4 mb-4">
         <div className="flex-1">
           <div className="flex items-center justify-between mb-1">
@@ -371,6 +468,7 @@ export default function AdvancementTab({
         <span className="text-orange-600">Brad</span>
         <span className="text-emerald-600">Dave (Finance)</span>
         <span className="text-slate-400">Nigel</span>
+        <span className="text-slate-500">✎ = edit label / owner</span>
       </div>
     </div>
   )

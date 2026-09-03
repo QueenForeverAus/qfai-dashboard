@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { ASSIGNABLE_OWNERS, normalizeAssignedTo } from '@/lib/advancement-checklist'
 
 const ALLOWED_STATUSES = ['pending', 'done', 'n_a']
 
@@ -27,6 +28,21 @@ export async function PATCH(
   if (body.paid !== undefined) updates.paid = body.paid
   if (body.payment_type !== undefined) updates.payment_type = body.payment_type
 
+  if (body.label !== undefined) {
+    const label = typeof body.label === 'string' ? body.label.trim() : ''
+    if (!label) return NextResponse.json({ error: 'Label cannot be empty' }, { status: 400 })
+    if (label.length > 500) return NextResponse.json({ error: 'Label too long' }, { status: 400 })
+    updates.label = label
+  }
+
+  if (body.assigned_to !== undefined) {
+    const next = normalizeAssignedTo(String(body.assigned_to))
+    if (!ASSIGNABLE_OWNERS.includes(next)) {
+      return NextResponse.json({ error: 'Invalid assigned_to' }, { status: 400 })
+    }
+    updates.assigned_to = next
+  }
+
   const supabase = createAdminClient()
   const { data, error } = await supabase
     .from('advancement_items')
@@ -36,5 +52,8 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  return NextResponse.json({
+    ...data,
+    assigned_to: normalizeAssignedTo(data.assigned_to as string),
+  })
 }
