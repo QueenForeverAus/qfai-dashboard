@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
+import { syncRunDatesFromShows } from '@/lib/run-dates'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function PATCH(
@@ -45,6 +46,16 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Keep denormalized runs.start_date / end_date in sync with shows.show_date (SoT)
+  if (data?.run_id) {
+    try {
+      await syncRunDatesFromShows(supabase, data.run_id)
+    } catch (syncErr) {
+      const msg = syncErr instanceof Error ? syncErr.message : 'Failed to sync run dates'
+      return NextResponse.json({ error: msg }, { status: 500 })
+    }
+  }
 
   return NextResponse.json(data)
 }

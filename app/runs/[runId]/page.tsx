@@ -6,6 +6,7 @@ import CostFieldsTab from './CostFieldsTab'
 import SynopsisBlock from './SynopsisBlock'
 import { buildSynopsis } from '@/lib/synopsis'
 import { formatDateAU, formatDateTimeAU } from '@/lib/dates'
+import { runDateRangeFromShows } from '@/lib/run-dates'
 import { computeCompletionPct } from '@/lib/completion'
 
 type Show = {
@@ -198,6 +199,10 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
   const typedAudit = (auditRows ?? []) as AuditRow[]
 
   const completionPct = computeCompletionPct(typedFields)
+  // Prefer derived range from shows.show_date (SoT) over denormalized run columns
+  const dateRange = runDateRangeFromShows(typedShows)
+  const startDate = dateRange.start ?? run.start_date
+  const endDate = dateRange.end ?? run.end_date
 
   return (
     <div className="p-4 sm:p-6">
@@ -215,7 +220,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
           </div>
           <h1 className="text-white text-2xl font-bold">{run.name}</h1>
           <p className="text-slate-400 text-sm mt-1">
-            {formatDateAU(run.start_date)}{run.start_date !== run.end_date ? ` – ${formatDateAU(run.end_date)}` : ''} · {REGION_LABELS[run.region] ?? run.region}
+            {formatDateAU(startDate)}{startDate !== endDate ? ` – ${formatDateAU(endDate)}` : ''} · {REGION_LABELS[run.region] ?? run.region}
           </p>
         </div>
         <div className="flex flex-col items-center">
@@ -248,8 +253,8 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
         runCode={run.code}
         runName={run.name}
         region={run.region}
-        startDate={run.start_date}
-        endDate={run.end_date}
+        startDate={startDate}
+        endDate={endDate}
         synopsis={run.synopsis ?? null}
         shows={typedShows}
         initialFields={typedFields}

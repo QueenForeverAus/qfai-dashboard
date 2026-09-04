@@ -7,6 +7,7 @@ import AdvancementTab from './AdvancementTab'
 import ShowPackTab from './ShowPackTab'
 import TicketOutlookBlock from './TicketOutlookBlock'
 import { formatDateShortAU } from '@/lib/dates'
+import { runDateRangeFromShows } from '@/lib/run-dates'
 import {
   entriesSum as sumEntries,
   ensureMinimumEntry,
@@ -945,6 +946,9 @@ export default function CostFieldsTab({
     ? ['Production']
     : RUN_CATEGORIES
   const [showsState, setShowsState] = useState<Show[]>(shows)
+  const derivedRunDates = runDateRangeFromShows(showsState)
+  const effectiveStartDate = derivedRunDates.start ?? startDate
+  const effectiveEndDate = derivedRunDates.end ?? endDate
   const [fields, setFields] = useState<CostFieldRow[]>(initialFields)
   const [sellThrough, setSellThrough] = useState<Record<string, number>>(() =>
     Object.fromEntries(showsState.map(s => [s.id, s.sell_through_pct ?? 75]))
@@ -1221,8 +1225,8 @@ export default function CostFieldsTab({
           runCode={runCode}
           runName={runName}
           region={region}
-          startDate={startDate}
-          endDate={endDate}
+          startDate={effectiveStartDate}
+          endDate={effectiveEndDate}
           synopsis={synopsis}
           initialShows={showsState.map(s => ({
             id: s.id,

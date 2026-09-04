@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { RUN_DEFAULTS, LIGHTING_HIRE_PER_RUN, FOOD_PER_SHOW, CREW_FEE_PER_SHOW } from './run-defaults'
 import { generateEntries } from './generate-entries'
 import { ensureMinimumEntry, ENTRY_EXEMPT_FIELD_KEYS } from '@/lib/cost-fields'
+import { syncRunDatesFromShows } from '@/lib/run-dates'
 
 type Show = { id: string; show_order: number; capacity: number | null; ticket_price: number | null; venue_name: string; venue_city: string; show_date: string | null }
 
@@ -71,6 +72,8 @@ export async function seedRunDefaults(
         })
         .eq('id', show.id)
     }
+    // shows.show_date is SoT — refresh denormalized runs.start/end
+    await syncRunDatesFromShows(supabase, runId)
   }
 
   // Fixed run-level fields (same for every run)
