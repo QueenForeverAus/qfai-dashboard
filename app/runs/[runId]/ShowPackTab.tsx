@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { useProfile } from '@/lib/profile-context'
 import { formatDateAU, formatDateTimeAU } from '@/lib/dates'
+import { runDateRangeFromShows } from '@/lib/run-dates'
 import {
   SCHEDULE_DEFAULTS,
   SETS_DEFAULT,
@@ -377,11 +378,14 @@ export default function ShowPackTab({
             </div>
             <div className="text-white font-bold text-xl mb-1">{runName || run?.name}</div>
             <div className="text-amber-400 font-mono text-sm mb-3">{runCode || run?.code}</div>
-            <Field label="Dates" value={
-              startDate
-                ? `${formatDateAU(startDate)}${endDate && endDate !== startDate ? ` – ${formatDateAU(endDate)}` : ''}`
+            <Field label="Dates" value={(() => {
+              const range = runDateRangeFromShows(sortedShows)
+              const s = range.start ?? startDate
+              const e = range.end ?? endDate
+              return s
+                ? `${formatDateAU(s)}${e && e !== s ? ` – ${formatDateAU(e)}` : ''}`
                 : 'TBC'
-            } />
+            })()} />
             <Field label="Travel type" value={REGION_LABELS[region] ?? region ?? 'TBC'} />
             <Field label="Shows" value={String(sortedShows.length)} />
             <EditableInput

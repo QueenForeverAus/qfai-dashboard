@@ -7,6 +7,7 @@ import {
   pickRunWorksheetUpdates,
   pickShowWorksheetUpdates,
 } from '@/lib/worksheet-fields'
+import { runDateRangeFromShows } from '@/lib/run-dates'
 
 async function resolveRunId(supabase: ReturnType<typeof createAdminClient>, runIdOrCode: string): Promise<string | null> {
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(runIdOrCode)) return runIdOrCode
@@ -62,9 +63,12 @@ export async function GET(
     publishedByName = pub?.full_name ?? null
   }
 
+  const derived = runDateRangeFromShows((shows ?? []) as { show_date?: string | null }[])
   return NextResponse.json({
     run: {
       ...run,
+      start_date: derived.start ?? run?.start_date ?? null,
+      end_date: derived.end ?? run?.end_date ?? null,
       show_pack_status: run?.show_pack_status ?? 'draft',
       published_by_name: publishedByName,
     },

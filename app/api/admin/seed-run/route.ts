@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { RUN_DEFAULTS } from '@/lib/defaults/run-defaults'
 import { seedRunDefaults } from '@/lib/defaults/seed-run'
 import { classifyRunRegion, explainRunRegion } from '@/lib/region-classify'
+import { syncRunDatesFromShows } from '@/lib/run-dates'
 
 /**
  * Creates shows (if missing) and seeds cost_fields for a run.
@@ -66,6 +67,11 @@ export async function POST(req: NextRequest) {
   const { region: classifiedRegion, reason: regionReason } = explainRunRegion(locationInputs)
   if (classifiedRegion !== run.region) {
     await supabase.from('runs').update({ region: classifiedRegion }).eq('id', run.id)
+  }
+
+  // Keep runs.start/end aligned with shows.show_date (SoT)
+  if ((fullShows ?? []).length > 0) {
+    await syncRunDatesFromShows(supabase, run.id)
   }
 
   // Check if cost_fields already exist

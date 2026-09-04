@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatDateAU } from '@/lib/dates'
+import { runDateRangeFromShows } from '@/lib/run-dates'
 
 const STATUS_STYLES: Record<string, string> = {
   confirmed:   'bg-green-900/40 text-green-400 border-green-800',
@@ -37,7 +38,16 @@ export type Run = {
   start_date: string | null
   end_date: string | null
   completion_pct: number
-  shows: { id: string }[]
+  shows: { id: string; show_date?: string | null }[]
+}
+
+
+function runDisplayDates(run: Run): { start: string | null; end: string | null } {
+  const derived = runDateRangeFromShows(run.shows)
+  return {
+    start: derived.start ?? run.start_date,
+    end: derived.end ?? run.end_date,
+  }
 }
 
 type Tab = 'all' | 'proposed' | 'confirmed' | 'placeholders' | 'completed' | 'declined'
@@ -144,9 +154,10 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
           const pct = completionByRun[run.id] ?? 0
           const isPlaceholder = run.status === 'placeholder'
           const isDeclined = run.status === 'declined'
-          const dateStr = run.start_date === run.end_date
-            ? formatDateAU(run.start_date)
-            : `${formatDateAU(run.start_date)} – ${formatDateAU(run.end_date)}`
+          const { start: dStart, end: dEnd } = runDisplayDates(run)
+          const dateStr = dStart === dEnd
+            ? formatDateAU(dStart)
+            : `${formatDateAU(dStart)} – ${formatDateAU(dEnd)}`
 
           const nameEl = isPlaceholder || isDeclined
             ? <span className={`text-sm font-medium ${isDeclined ? 'text-slate-500 line-through italic' : 'text-slate-500 italic'}`}>{run.name}</span>
@@ -233,7 +244,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
                 </td>
                 <td className="px-4 py-3">
                   <span className={`text-sm whitespace-nowrap ${isDeclined ? 'text-slate-600 line-through' : 'text-slate-300'}`}>
-                    {run.start_date === run.end_date ? formatDateAU(run.start_date) : `${formatDateAU(run.start_date)} – ${formatDateAU(run.end_date)}`}
+                    {(() => { const { start: dStart, end: dEnd } = runDisplayDates(run); return dStart === dEnd ? formatDateAU(dStart) : `${formatDateAU(dStart)} – ${formatDateAU(dEnd)}` })()}
                   </span>
                 </td>
                 <td className="px-4 py-3">

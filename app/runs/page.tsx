@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 export default async function RunsPage() {
   const supabase = createAdminClient()
   const [{ data: runs }, { data: costFields }] = await Promise.all([
-    supabase.from('runs').select('*, shows(id)').order('start_date', { ascending: true }),
+    supabase.from('runs').select('*, shows(id, show_date)').order('start_date', { ascending: true }),
     supabase.from('cost_fields').select('run_id, state'),
   ])
 
