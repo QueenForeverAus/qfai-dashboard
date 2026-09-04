@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { RUN_DEFAULTS, LIGHTING_HIRE_PER_RUN, FOOD_PER_SHOW, CREW_FEE_PER_SHOW } from './run-defaults'
 import { generateEntries } from './generate-entries'
+import { ensureMinimumEntry, ENTRY_EXEMPT_FIELD_KEYS } from '@/lib/cost-fields'
 
 type Show = { id: string; show_order: number; capacity: number | null; ticket_price: number | null; venue_name: string; venue_city: string; show_date: string | null }
 
@@ -13,8 +14,34 @@ function withEntries(
   defaults: any,
   shows: Show[],
 ) {
-  const entries = generateEntries(fieldKey, String(row.state ?? ''), defaults as RunDefault | null, shows)
-  return { ...row, entries: entries.length > 0 ? entries : [] }
+  const generated = generateEntries(fieldKey, String(row.state ?? ''), defaults as RunDefault | null, shows)
+  if (ENTRY_EXEMPT_FIELD_KEYS.has(fieldKey)) {
+    return { ...row, entries: generated }
+  }
+  const label = String(row.label ?? fieldKey)
+  const value = row.value == null ? null : Number(row.value)
+  return {
+    ...row,
+    entries: ensureMinimumEntry(generated, label, value),
+  }
+}
+
+/** Attach a single default entry when seeding rows that skip generateEntries. */
+function withDefaultEntry(row: Record<string, unknown>) {
+  const fieldKey = String(row.field_key ?? '')
+  if (ENTRY_EXEMPT_FIELD_KEYS.has(fieldKey)) {
+    return { ...row, entries: row.entries ?? [] }
+  }
+  const label = String(row.label ?? fieldKey)
+  const value = row.value == null ? null : Number(row.value)
+  return {
+    ...row,
+    entries: ensureMinimumEntry(
+      Array.isArray(row.entries) ? row.entries as Parameters<typeof ensureMinimumEntry>[0] : [],
+      label,
+      value,
+    ),
+  }
 }
 
 export async function seedRunDefaults(
@@ -149,52 +176,52 @@ export async function seedRunDefaults(
       const show = shows.find(s => s.show_order === showDef.showOrder)
       if (!show) continue
 
-      rows.push({
+      rows.push(withDefaultEntry({
         run_id: runId, show_id: show.id,
         category: 'Revenue', field_key: 'gross_box_office',
         label: 'Gross Box Office',
         value: null, state: 'pending',
         source: `Cap ${showDef.capacity.toLocaleString()} × $${showDef.ticketPrice} nett — pending ticket sales. Use sell-through slider in Overview.`,
-      })
-      rows.push({
+      }))
+      rows.push(withDefaultEntry({
         run_id: runId, show_id: show.id,
         category: 'Venue Costs', field_key: 'venue_hire',
         label: 'Venue Hire',
         value: showDef.venueHire.value, state: showDef.venueHire.state,
         source: showDef.venueHire.source,
-      })
-      rows.push({
+      }))
+      rows.push(withDefaultEntry({
         run_id: runId, show_id: show.id,
         category: 'Venue Costs', field_key: 'venue_staff',
         label: 'Venue Staff / On-costs',
         value: showDef.venueStaff.value, state: showDef.venueStaff.state,
         source: showDef.venueStaff.source,
         line_items: showDef.venueStaffItems ?? [],
-      })
-      rows.push({
+      }))
+      rows.push(withDefaultEntry({
         run_id: runId, show_id: show.id,
         category: 'Venue Costs', field_key: 'production_costs',
         label: 'Production / AV',
         value: null, state: 'pending',
         source: 'Additional production/AV costs not included in venue staff on-costs. Confirm with Michael Richardson.',
-      })
+      }))
     }
   } else {
     // No specific defaults for this run — seed generic blanks
     for (const show of shows) {
       rows.push(
-        { run_id: runId, show_id: show.id, category: 'Revenue', field_key: 'gross_box_office', label: 'Gross Box Office', value: null, state: 'pending', source: null },
-        { run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_hire', label: 'Venue Hire', value: null, state: 'guess', source: null },
-        { run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_staff', label: 'Venue Staff / On-costs', value: null, state: 'guess', source: null, line_items: [] },
-        { run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'production_costs', label: 'Production / AV', value: null, state: 'pending', source: null },
+        withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Revenue', field_key: 'gross_box_office', label: 'Gross Box Office', value: null, state: 'pending', source: null }),
+        withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_hire', label: 'Venue Hire', value: null, state: 'guess', source: null }),
+        withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_staff', label: 'Venue Staff / On-costs', value: null, state: 'guess', source: null, line_items: [] }),
+        withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'production_costs', label: 'Production / AV', value: null, state: 'pending', source: null }),
       )
     }
     rows.push(
-      { run_id: runId, show_id: null, category: 'Travel & Accommodation', field_key: 'flights', label: 'Flights (band + crew)', value: null, state: 'guess', source: null },
-      { run_id: runId, show_id: null, category: 'Travel & Accommodation', field_key: 'accommodation', label: 'Accommodation', value: null, state: 'guess', source: null },
-      { run_id: runId, show_id: null, category: 'Travel & Accommodation', field_key: 'ground_transport', label: 'Ground Transport', value: null, state: 'guess', source: null },
-      { run_id: runId, show_id: null, category: 'Crew & Operations', field_key: 'per_diems', label: 'Per Diems', value: null, state: 'guess', source: null },
-      { run_id: runId, show_id: null, category: 'Marketing', field_key: 'fb_ads', label: 'Facebook / Social Ads', value: null, state: 'guess', source: null },
+      withDefaultEntry({ run_id: runId, show_id: null, category: 'Travel & Accommodation', field_key: 'flights', label: 'Flights (band + crew)', value: null, state: 'guess', source: null }),
+      withDefaultEntry({ run_id: runId, show_id: null, category: 'Travel & Accommodation', field_key: 'accommodation', label: 'Accommodation', value: null, state: 'guess', source: null }),
+      withDefaultEntry({ run_id: runId, show_id: null, category: 'Travel & Accommodation', field_key: 'ground_transport', label: 'Ground Transport', value: null, state: 'guess', source: null }),
+      withDefaultEntry({ run_id: runId, show_id: null, category: 'Crew & Operations', field_key: 'per_diems', label: 'Per Diems', value: null, state: 'guess', source: null }),
+      withDefaultEntry({ run_id: runId, show_id: null, category: 'Marketing', field_key: 'fb_ads', label: 'Facebook / Social Ads', value: null, state: 'guess', source: null }),
     )
   }
 
