@@ -1,5 +1,6 @@
 'use client'
 
+import { formatBookingStatus, formatHarbourStatus } from '@/lib/format-booking-status'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ImportPreview } from '@/app/api/admin/import-schedule/route'
 
@@ -181,9 +182,9 @@ function ImportScheduleSection() {
                   {preview.run_status_changes.map(r => (
                     <div key={r.run_id} className="flex items-center gap-3 text-xs px-3 py-2 bg-slate-700/30 rounded-lg">
                       <span className="font-mono font-bold text-slate-300">{r.run_code}</span>
-                      <span className="text-red-400/80">{r.old_status}</span>
+                      <span className="text-red-400/80">{formatBookingStatus(r.old_status)}</span>
                       <span className="text-slate-500">→</span>
-                      <span className="text-green-400">{r.new_status}</span>
+                      <span className="text-green-400">{formatBookingStatus(r.new_status)}</span>
                     </div>
                   ))}
                 </div>
@@ -197,7 +198,7 @@ function ImportScheduleSection() {
                 </h3>
                 <div className="text-xs text-slate-400 space-y-0.5 pl-2">
                   {preview.new_in_sheet.map(s => (
-                    <div key={s.show_date}>{s.show_date} · {s.venue_city} — {s.venue_name} (cap {s.capacity ?? '?'}, {s.harbour_status})</div>
+                    <div key={s.show_date}>{s.show_date} · {s.venue_city} — {s.venue_name} (cap {s.capacity ?? '?'}, {formatHarbourStatus(s.harbour_status)})</div>
                   ))}
                 </div>
               </div>

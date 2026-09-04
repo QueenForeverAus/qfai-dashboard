@@ -4,6 +4,7 @@ import { formatDateShortAU } from '@/lib/dates'
 
 import { useState, useMemo } from 'react'
 import { TrendingUp, TrendingDown } from 'lucide-react'
+import { formatBookingStatus } from '@/lib/format-booking-status'
 
 export type CalcShow = {
   id: string
@@ -171,7 +172,7 @@ export default function CalculatorClient({ runs, factors }: { runs: CalcRun[]; f
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs px-1.5 py-0.5 rounded font-bold uppercase"
                         style={{ color: statusColor(run.status), background: statusColor(run.status) + '20' }}>
-                        {run.status}
+                        {formatBookingStatus(run.status)}
                       </span>
                       <span className="text-xs" style={{ color: 'var(--muted)' }}>
                         cap {show.capacity.toLocaleString()} · ${show.nettPrice}/ticket

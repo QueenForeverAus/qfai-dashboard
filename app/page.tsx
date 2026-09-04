@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/server-admin'
 import { formatDateAU, todayAU } from '@/lib/dates'
 import { computeCompletionPct } from '@/lib/completion'
+import { formatBookingStatus } from '@/lib/format-booking-status'
 
 export const dynamic = 'force-dynamic'
 import Link from 'next/link'
@@ -60,7 +61,7 @@ export default async function MissionControl() {
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <div className="bg-slate-800 rounded-xl border border-slate-700 px-4 py-3 sm:px-5 sm:py-4">
-          <div className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Confirmed Runs</div>
+          <div className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Booked Runs</div>
           <div className="text-3xl font-bold text-green-400">{confirmed.length}</div>
           <div className="text-slate-500 text-xs mt-1">of {typedRuns.length} total</div>
         </div>
@@ -111,7 +112,7 @@ export default async function MissionControl() {
                       <div className="text-slate-500 text-xs mt-0.5">{dateStr} · {pct}% complete</div>
                     </div>
                     <span className={`flex-shrink-0 px-2 py-0.5 rounded border text-xs font-medium uppercase ${STATUS_STYLES[run.status] ?? STATUS_STYLES.confirmed}`}>
-                      {run.status.replace('_', ' ')}
+                      {formatBookingStatus(run.status)}
                     </span>
                   </Link>
                 )
@@ -144,7 +145,7 @@ export default async function MissionControl() {
                       </td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-0.5 rounded border text-xs font-medium uppercase ${STATUS_STYLES[run.status] ?? STATUS_STYLES.confirmed}`}>
-                          {run.status.replace('_', ' ')}
+                          {formatBookingStatus(run.status)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-300 text-sm">

@@ -5,6 +5,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatDateAU } from '@/lib/dates'
 import { runDateRangeFromShows } from '@/lib/run-dates'
+import { formatBookingStatus } from '@/lib/format-booking-status'
 
 const STATUS_STYLES: Record<string, string> = {
   confirmed:   'bg-green-900/40 text-green-400 border-green-800',
@@ -19,6 +20,7 @@ const STATUS_STYLES: Record<string, string> = {
 }
 
 const STATUS_LABELS: Record<string, string> = {
+  confirmed:   'BOOKED',
   placeholder: 'Harbour Placeholder',
   declined:    'Declined',
 }
@@ -55,7 +57,7 @@ type Tab = 'all' | 'proposed' | 'confirmed' | 'placeholders' | 'completed' | 'de
 const TABS: { key: Tab; label: string }[] = [
   { key: 'all',          label: 'ALL' },
   { key: 'proposed',     label: 'PROPOSED' },
-  { key: 'confirmed',    label: 'CONFIRMED' },
+  { key: 'confirmed',    label: 'BOOKED' },
   { key: 'placeholders', label: 'PLACEHOLDERS' },
   { key: 'completed',    label: 'COMPLETED' },
   { key: 'declined',     label: 'DECLINED' },
@@ -171,7 +173,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
                     {run.code}
                   </span>
                   <span className={`px-2 py-0.5 rounded border text-xs font-medium ${completed ? 'bg-slate-700 text-slate-400 border-slate-600' : (STATUS_STYLES[run.status] ?? STATUS_STYLES.confirmed)}`}>
-                    {completed ? 'COMPLETED' : (STATUS_LABELS[run.status] ?? run.status.replace('_', ' ').toUpperCase())}
+                    {completed ? 'COMPLETED' : (STATUS_LABELS[run.status] ?? formatBookingStatus(run.status))}
                   </span>
                 </div>
                 <div className="flex-shrink-0">
@@ -236,7 +238,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
                 </td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-0.5 rounded border text-xs font-medium whitespace-nowrap ${completed ? 'bg-slate-700 text-slate-400 border-slate-600' : (STATUS_STYLES[run.status] ?? STATUS_STYLES.confirmed)}`}>
-                    {completed ? 'COMPLETED' : (STATUS_LABELS[run.status] ?? run.status.replace('_', ' ').toUpperCase())}
+                    {completed ? 'COMPLETED' : (STATUS_LABELS[run.status] ?? formatBookingStatus(run.status))}
                   </span>
                 </td>
                 <td className="px-4 py-3">
@@ -330,13 +332,13 @@ export default function RunsPageClient({
           <div>
             <span className="text-white font-bold mr-2">RUNS: {upcomingRuns.length}</span>
             <span className="text-slate-400 text-sm">
-              ({liveConfirmed} confirmed · {liveProposed} proposed{livePlaceholder > 0 ? ` · ${livePlaceholder} placeholders` : ''}{liveOther > 0 ? ` · ${liveOther} other` : ''}{completedRuns.length > 0 ? ` · ${completedRuns.length} completed` : ''})
+              ({liveConfirmed} booked · {liveProposed} proposed{livePlaceholder > 0 ? ` · ${livePlaceholder} placeholders` : ''}{liveOther > 0 ? ` · ${liveOther} other` : ''}{completedRuns.length > 0 ? ` · ${completedRuns.length} completed` : ''})
             </span>
           </div>
           <div>
             <span className="text-white font-bold mr-2">SHOWS: {showStats.total}</span>
             <span className="text-slate-400 text-sm">
-              ({showStats.confirmed} confirmed · {showStats.proposed} proposed{showStats.placeholder > 0 ? ` · ${showStats.placeholder} placeholders` : ''})
+              ({showStats.confirmed} booked · {showStats.proposed} proposed{showStats.placeholder > 0 ? ` · ${showStats.placeholder} placeholders` : ''})
             </span>
           </div>
         </div>
