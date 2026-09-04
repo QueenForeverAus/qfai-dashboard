@@ -8,6 +8,7 @@ import { buildSynopsis } from '@/lib/synopsis'
 import { formatDateAU, formatDateTimeAU } from '@/lib/dates'
 import { runDateRangeFromShows } from '@/lib/run-dates'
 import { computeCompletionPct } from '@/lib/completion'
+import { formatBookingStatus } from '@/lib/format-booking-status'
 
 type Show = {
   id: string
@@ -215,7 +216,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
           <div className="flex items-center gap-3 mb-1">
             <span className="text-amber-400 font-bold text-lg">{run.code}</span>
             <span className={`px-2 py-0.5 rounded text-xs font-medium uppercase ${STATUS_STYLES[run.status] ?? STATUS_STYLES.confirmed}`}>
-              {run.status.replace('_', ' ')}
+              {formatBookingStatus(run.status)}
             </span>
           </div>
           <h1 className="text-white text-2xl font-bold">{run.name}</h1>
