@@ -161,6 +161,8 @@ export async function seedRunDefaults(
       value: defaults.fbAds.value, state: defaults.fbAds.state,
       source: defaults.fbAds.source,
     }, 'fb_ads', defaults, shows))
+    // Always seed backline_hire — UI always lists it (Production). Group 3 has defaults;
+    // Group 1/2 get a $0 estimate placeholder so the line is never missing.
     if (defaults.backlineHire) {
       rows.push(withEntries({
         run_id: runId, show_id: null,
@@ -169,6 +171,14 @@ export async function seedRunDefaults(
         value: defaults.backlineHire.value, state: defaults.backlineHire.state,
         source: defaults.backlineHire.source,
       }, 'backline_hire', defaults, shows))
+    } else {
+      rows.push(withDefaultEntry({
+        run_id: runId, show_id: null,
+        category: 'Production', field_key: 'backline_hire',
+        label: 'Backline Hire (local)',
+        value: 0, state: 'estimated',
+        source: 'Not required for this run region by default — set amount if local backline hire is needed.',
+      }))
     }
 
     // Show-level fields
@@ -222,6 +232,7 @@ export async function seedRunDefaults(
       withDefaultEntry({ run_id: runId, show_id: null, category: 'Travel & Accommodation', field_key: 'ground_transport', label: 'Ground Transport', value: null, state: 'guess', source: null }),
       withDefaultEntry({ run_id: runId, show_id: null, category: 'Crew & Operations', field_key: 'per_diems', label: 'Per Diems', value: null, state: 'guess', source: null }),
       withDefaultEntry({ run_id: runId, show_id: null, category: 'Marketing', field_key: 'fb_ads', label: 'Facebook / Social Ads', value: null, state: 'guess', source: null }),
+      withDefaultEntry({ run_id: runId, show_id: null, category: 'Production', field_key: 'backline_hire', label: 'Backline Hire (local)', value: 0, state: 'estimated', source: null }),
     )
   }
 

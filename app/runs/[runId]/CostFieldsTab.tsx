@@ -1,13 +1,23 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile, canAccessTab } from '@/lib/profile-context'
 import AdvancementTab from './AdvancementTab'
 import ShowPackTab from './ShowPackTab'
 import TicketOutlookBlock from './TicketOutlookBlock'
 import { formatDateShortAU } from '@/lib/dates'
-import { entriesSum as sumEntries } from '@/lib/cost-fields'
+import {
+  entriesSum as sumEntries,
+  ensureMinimumEntry,
+  ENTRY_EXEMPT_FIELD_KEYS,
+  DEFINED_RUN_COST_FIELDS,
+  DEFINED_SHOW_COST_FIELDS,
+  findMissingDefinedCostFields,
+  buildCreateCostFieldBody,
+  roleCanSeeCostField,
+  canEditCostFields,
+} from '@/lib/cost-fields'
 
 type FieldState = 'known' | 'estimated' | 'guess' | 'pending' | 'auto_calc'
 
@@ -80,27 +90,19 @@ const STATE_STYLES: Record<FieldState, { bg: string; text: string; border: strin
 // Fields that default to GST-not-included for new entries
 const NO_GST_DEFAULTS = new Set(['per_diems', 'brad_driver_fee'])
 
-const SHOW_FIELDS = [
-  { key: 'gross_box_office', label: 'Gross Box Office',       category: 'Revenue',     defaultState: 'pending' as FieldState },
-  { key: 'venue_hire',       label: 'Venue Hire',             category: 'Venue Costs', defaultState: 'guess' as FieldState },
-  { key: 'venue_staff',      label: 'Venue Staff / On-costs', category: 'Venue Costs', defaultState: 'guess' as FieldState },
-  { key: 'production_costs', label: 'Production / AV',        category: 'Venue Costs', defaultState: 'guess' as FieldState },
-]
+const SHOW_FIELDS = DEFINED_SHOW_COST_FIELDS.map(f => ({
+  key: f.key,
+  label: f.label,
+  category: f.category,
+  defaultState: f.defaultState as FieldState,
+}))
 
-const RUN_FIELDS = [
-  { key: 'flights',          label: 'Flights',                    category: 'Travel & Accommodation', defaultState: 'guess' as FieldState },
-  { key: 'accommodation',    label: 'Accommodation',              category: 'Travel & Accommodation', defaultState: 'guess' as FieldState },
-  { key: 'ground_transport', label: 'Ground Transport',           category: 'Travel & Accommodation', defaultState: 'guess' as FieldState },
-  { key: 'brad_driver_fee',  label: 'Brad Driver Fee (weekday off work)', category: 'Travel & Accommodation', defaultState: 'known' as FieldState },
-  { key: 'crew_fees_total',  label: 'Crew Fees (all shows)',      category: 'Crew & Operations',      defaultState: 'guess' as FieldState },
-  { key: 'food_basics',      label: 'Food & Basics',              category: 'Production',             defaultState: 'estimated' as FieldState },
-  { key: 'per_diems',        label: 'Per Diems',                  category: 'Crew & Operations',      defaultState: 'guess' as FieldState },
-  { key: 'lighting_hire',    label: 'Lighting Equipment Hire',    category: 'Production',             defaultState: 'estimated' as FieldState },
-  { key: 'backline_hire',    label: 'Backline Hire (local)',       category: 'Production',             defaultState: 'estimated' as FieldState },
-  { key: 'crew_travel_day',  label: 'Crew Travel-Day Fee',        category: 'Crew & Operations',      defaultState: 'guess' as FieldState },
-  { key: 'fb_ads',           label: 'Facebook / Social Ads',      category: 'Marketing',              defaultState: 'guess' as FieldState },
-  { key: 'social_ads_var',   label: 'Social Media Marketing Co. — $1/ticket', category: 'Marketing', defaultState: 'auto_calc' as FieldState },
-]
+const RUN_FIELDS = DEFINED_RUN_COST_FIELDS.map(f => ({
+  key: f.key,
+  label: f.label,
+  category: f.category,
+  defaultState: f.defaultState as FieldState,
+}))
 
 
 function entriesSum(entries: Entry[] | null | undefined): number {
@@ -947,6 +949,79 @@ export default function CostFieldsTab({
   const [sellThrough, setSellThrough] = useState<Record<string, number>>(() =>
     Object.fromEntries(showsState.map(s => [s.id, s.sell_through_pct ?? 75]))
   )
+  const ensureOnceRef = useRef(false)
+
+  // On open: create missing defined rows + seed ≥1 entry via /api/cost-fields
+  // (production can write; covers backline_hire when seed skipped the row).
+  useEffect(() => {
+    if (ensureOnceRef.current) return
+    if (!hasTabAccess) return
+    if (!canEditCostFields(effectiveRole)) return
+    ensureOnceRef.current = true
+
+    let cancelled = false
+
+    async function ensureDefinedFields() {
+      const role = effectiveRole ?? undefined
+      const missing = findMissingDefinedCostFields(
+        fields.map(f => ({ show_id: f.show_id, field_key: f.field_key })),
+        showsState.map(s => s.id),
+        { role, onlyVisibleToRole: true },
+      )
+
+      const created: CostFieldRow[] = []
+      for (const spec of missing) {
+        try {
+          const body = buildCreateCostFieldBody(runId, spec)
+          const data = await createCostField(body)
+          created.push(data)
+        } catch (err) {
+          // Race / already exists — ignore; page SSR or refresh will reconcile.
+          console.warn('ensure cost field create skipped:', spec.fieldDef.key, err)
+        }
+      }
+
+      // Existing rows with empty entries → PATCH seed (non-exempt).
+      const emptyRows = fields.filter(f => {
+        if (!roleCanSeeCostField(role, f.field_key)) return false
+        if (ENTRY_EXEMPT_FIELD_KEYS.has(f.field_key)) return false
+        return f.entries === null || (Array.isArray(f.entries) && f.entries.length === 0)
+      })
+
+      const patched: CostFieldRow[] = []
+      for (const row of emptyRows) {
+        try {
+          const entries = ensureMinimumEntry(row.entries, row.label, row.value)
+          const data = await patchCostField(row.id, { entries })
+          patched.push(data)
+        } catch (err) {
+          console.warn('ensure cost field entries skipped:', row.field_key, err)
+        }
+      }
+
+      if (cancelled) return
+      if (created.length === 0 && patched.length === 0) return
+
+      setFields(prev => {
+        const byId = new Map(prev.map(f => [f.id, f]))
+        for (const row of [...created, ...patched]) byId.set(row.id, row)
+        // Drop duplicates for same field_key + show_id (prefer newest created)
+        const seen = new Set<string>()
+        const out: CostFieldRow[] = []
+        for (const row of [...byId.values()].reverse()) {
+          const k = `${row.show_id ?? 'run'}:${row.field_key}`
+          if (seen.has(k)) continue
+          seen.add(k)
+          out.push(row)
+        }
+        return out.reverse()
+      })
+    }
+
+    void ensureDefinedFields()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on open for this run
+  }, [runId, hasTabAccess, effectiveRole])
 
   function handleShowUpdated(updated: Show) {
     setShowsState(prev => prev.map(s => s.id === updated.id ? updated : s))

@@ -118,10 +118,19 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
     if (updatedShows) typedShows.splice(0, typedShows.length, ...updatedShows as Show[])
   } else if (rawFields.length > 0) {
     // Backfill: empty entries → ≥1 default; diverging value → value = sum(entries)
+    // Also create missing defined fields (e.g. backline_hire on G2 R01 where seed skipped it).
     const { RUN_DEFAULTS } = await import('@/lib/defaults/run-defaults')
     const { generateEntries } = await import('@/lib/defaults/generate-entries')
-    const { ensureMinimumEntry, entriesSum, ENTRY_EXEMPT_FIELD_KEYS } = await import('@/lib/cost-fields')
+    const {
+      ensureMinimumEntry,
+      entriesSum,
+      ENTRY_EXEMPT_FIELD_KEYS,
+      findMissingDefinedCostFields,
+      buildCreateCostFieldBody,
+    } = await import('@/lib/cost-fields')
     const defaults = RUN_DEFAULTS[run.code] ?? null
+    let dirty = false
+
     const needsWork = rawFields.filter(f => {
       if (ENTRY_EXEMPT_FIELD_KEYS.has(f.field_key)) return false
       const empty = f.entries === null || (Array.isArray(f.entries) && f.entries.length === 0)
@@ -150,6 +159,35 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
           return supabase.from('cost_fields').update(patch).eq('id', f.id)
         })
       )
+      dirty = true
+    }
+
+    const missing = findMissingDefinedCostFields(
+      rawFields.map(f => ({ show_id: f.show_id, field_key: f.field_key })),
+      typedShows.map(s => s.id),
+    )
+    if (missing.length > 0) {
+      const rows = missing.map(spec => {
+        const body = buildCreateCostFieldBody(run.id, spec)
+        // Prefer generateEntries when defaults exist (e.g. Group 3 backline).
+        if (!ENTRY_EXEMPT_FIELD_KEYS.has(spec.fieldDef.key)) {
+          const generated = generateEntries(
+            spec.fieldDef.key,
+            spec.fieldDef.defaultState,
+            defaults,
+            typedShows,
+          )
+          const entries = ensureMinimumEntry(generated, spec.fieldDef.label, null)
+          body.entries = entries
+          body.value = entriesSum(entries)
+        }
+        return body
+      })
+      await supabase.from('cost_fields').insert(rows)
+      dirty = true
+    }
+
+    if (dirty) {
       const { data: backfilledFields } = await supabase
         .from('cost_fields').select('*').eq('run_id', run.id)
         .order('show_id', { ascending: true, nullsFirst: false })
