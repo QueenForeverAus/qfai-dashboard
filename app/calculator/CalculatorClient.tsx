@@ -5,15 +5,24 @@ import { formatDateShortAU } from '@/lib/dates'
 import { useState, useMemo } from 'react'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { formatBookingStatus } from '@/lib/format-booking-status'
+import BandedSellSlider from '@/components/BandedSellSlider'
+import {
+  normalizeCapacityBands,
+  topBandSeats,
+  modelledVenueStaffForTickets,
+} from '@/lib/capacity-bands'
 
 export type CalcShow = {
   id: string
   venue: string
   date: string
   capacity: number
+  capacityBands?: unknown | null
   nettPrice: number
   venueHire: number
+  /** BASE venue_staff — never overwrite from max band. */
   onCosts: number
+  staffLineItems?: unknown | null
 }
 
 export type CalcRun = {
@@ -34,18 +43,39 @@ export type Factors = {
   ccPct: number
 }
 
+function showModelCap(show: CalcShow): number {
+  const bands = normalizeCapacityBands(show.capacityBands)
+  return topBandSeats(bands, show.capacity) ?? show.capacity ?? 0
+}
+
+function showModelledOnCosts(show: CalcShow, tickets: number): number {
+  const bands = normalizeCapacityBands(show.capacityBands)
+  if (!bands.length) return show.onCosts
+  const lineItems = Array.isArray(show.staffLineItems)
+    ? (show.staffLineItems as Array<{ role: string; rate: number; hours: number; headcount: number }>)
+    : null
+  return modelledVenueStaffForTickets({
+    bands,
+    tickets,
+    baseTotal: show.onCosts,
+    lineItems,
+  })
+}
+
 function calcRun(run: CalcRun, factors: Factors, sellPcts: number[]) {
   const showResults = run.shows.map((show, i) => {
     const pct = sellPcts[i] ?? 0.65
-    const tickets = Math.floor(show.capacity * pct)
+    const cap = showModelCap(show)
+    const tickets = Math.floor(cap * pct)
     const nettBO = tickets * show.nettPrice
+    const onCosts = showModelledOnCosts(show, tickets)
     const showNet = nettBO
       - factors.harbourPct * nettBO
       - factors.apraPct * nettBO
       - factors.ccPct * nettBO
       - show.venueHire
-      - show.onCosts
-    return { tickets, showNet }
+      - onCosts
+    return { tickets, showNet, onCosts, cap }
   })
 
   const totalTickets = showResults.reduce((s, r) => s + r.tickets, 0)
@@ -115,8 +145,8 @@ export default function CalculatorClient({ runs, factors }: { runs: CalcRun[]; f
   const result = useMemo(() => calcRun(run, factors, pcts), [run, factors, pcts])
   const be = useMemo(() => calcBreakeven(run, factors), [run, factors])
 
-  const totalTickets = pcts.reduce((s, p, i) => s + Math.floor((run.shows[i]?.capacity ?? 0) * p), 0)
-  const totalCap = run.shows.reduce((s, sh) => s + sh.capacity, 0)
+  const totalTickets = pcts.reduce((s, p, i) => s + Math.floor(showModelCap(run.shows[i]!) * p), 0)
+  const totalCap = run.shows.reduce((s, sh) => s + showModelCap(sh), 0)
 
   if (!run) return <p className="text-slate-400 p-8">No runs available.</p>
 
@@ -164,7 +194,14 @@ export default function CalculatorClient({ runs, factors }: { runs: CalcRun[]; f
               </p>
             </div>
 
-            {run.shows.map((show, i) => (
+            {run.shows.map((show, i) => {
+              const cap = showModelCap(show)
+              const pct = pcts[i] ?? 0.65
+              const tickets = Math.floor(cap * pct)
+              const modelledStaff = showModelledOnCosts(show, tickets)
+              const stepped = Math.abs(modelledStaff - show.onCosts) > 0.005
+              const bands = normalizeCapacityBands(show.capacityBands)
+              return (
               <div key={show.id} className="space-y-2">
                 <div className="flex justify-between items-center">
                   <div>
@@ -175,28 +212,29 @@ export default function CalculatorClient({ runs, factors }: { runs: CalcRun[]; f
                         {formatBookingStatus(run.status)}
                       </span>
                       <span className="text-xs" style={{ color: 'var(--muted)' }}>
-                        cap {show.capacity.toLocaleString()} · ${show.nettPrice}/ticket
+                        cap {cap.toLocaleString()}{bands.length > 1 ? ` · ${bands.length} bands` : ''} · ${show.nettPrice}/ticket
                       </span>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-2xl font-bold" style={{ color: 'var(--gold)' }}>{Math.round((pcts[i] ?? 0.65) * 100)}%</div>
+                    <div className="text-2xl font-bold" style={{ color: 'var(--gold)' }}>{Math.round(pct * 100)}%</div>
                     <div className="text-xs" style={{ color: 'var(--muted)' }}>
-                      {Math.floor(show.capacity * (pcts[i] ?? 0.65)).toLocaleString()} tickets
+                      {tickets.toLocaleString()} tickets
                     </div>
                   </div>
                 </div>
-                <input
-                  type="range" min={0} max={100} value={Math.round((pcts[i] ?? 0.65) * 100)}
-                  onChange={e => { const np = [...pcts]; np[i] = Number(e.target.value) / 100; setPcts(np) }}
-                  className="w-full h-2 rounded-full appearance-none cursor-pointer"
-                  style={{ accentColor: 'var(--gold)' }}
+                <BandedSellSlider
+                  value={Math.round(pct * 100)}
+                  onChange={v => { const np = [...pcts]; np[i] = v / 100; setPcts(np) }}
+                  capacity={cap}
+                  capacityBands={show.capacityBands}
                 />
                 <div className="flex justify-between text-xs" style={{ color: 'var(--muted)' }}>
-                  <span>0%</span><span>50%</span><span>100%</span>
+                  <span>Staff {stepped ? '(calc)' : '(base)'}: {fmt(modelledStaff)}</span>
+                  {stepped ? <span>base {fmt(show.onCosts)}</span> : <span>0% — 100%</span>}
                 </div>
               </div>
-            ))}
+            )})}
 
             {/* Breakeven indicator */}
             {be && (

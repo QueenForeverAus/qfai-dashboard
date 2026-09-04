@@ -50,6 +50,7 @@ export const SHOW_SELECT_COLS = [
   'state_territory',
   'show_date',
   'capacity',
+  'capacity_bands',
   'show_order',
   'michael_notes',
   ...SHOW_WORKSHEET_FIELDS.filter(f => f !== 'michael_notes'),
