@@ -116,23 +116,83 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
       .eq('run_id', run.id)
       .order('show_order')
     if (updatedShows) typedShows.splice(0, typedShows.length, ...updatedShows as Show[])
-  } else if (rawFields.length > 0 && rawFields.some(f => f.entries === null || (Array.isArray(f.entries) && f.entries.length === 0))) {
-    // Backfill entries for existing cost_fields that pre-date the entries feature
+  } else if (rawFields.length > 0) {
+    // Backfill: empty entries → ≥1 default; diverging value → value = sum(entries)
+    // Also create missing defined fields (e.g. backline_hire on G2 R01 where seed skipped it).
     const { RUN_DEFAULTS } = await import('@/lib/defaults/run-defaults')
     const { generateEntries } = await import('@/lib/defaults/generate-entries')
+    const {
+      ensureMinimumEntry,
+      entriesSum,
+      ENTRY_EXEMPT_FIELD_KEYS,
+      findMissingDefinedCostFields,
+      buildCreateCostFieldBody,
+    } = await import('@/lib/cost-fields')
     const defaults = RUN_DEFAULTS[run.code] ?? null
-    await Promise.all(
-      rawFields
-        .filter(f => f.entries === null || (Array.isArray(f.entries) && f.entries.length === 0))
-        .map(f => {
-          const entries = generateEntries(f.field_key, f.state, defaults, typedShows)
-          return supabase.from('cost_fields').update({ entries }).eq('id', f.id)
+    let dirty = false
+
+    const needsWork = rawFields.filter(f => {
+      if (ENTRY_EXEMPT_FIELD_KEYS.has(f.field_key)) return false
+      const empty = f.entries === null || (Array.isArray(f.entries) && f.entries.length === 0)
+      if (empty) return true
+      if (Array.isArray(f.entries) && f.entries.length > 0) {
+        const sum = entriesSum(f.entries)
+        // venue_staff with planned roles: do not overwrite value from entries
+        const hasLineItems = f.field_key === 'venue_staff' && Array.isArray(f.line_items) && f.line_items.length > 0
+        if (hasLineItems) return false
+        return f.value == null || Math.abs(Number(f.value) - sum) > 0.005
+      }
+      return false
+    })
+    if (needsWork.length > 0) {
+      await Promise.all(
+        needsWork.map(f => {
+          const empty = f.entries === null || (Array.isArray(f.entries) && f.entries.length === 0)
+          let entries = Array.isArray(f.entries) ? f.entries : []
+          if (empty) {
+            const generated = generateEntries(f.field_key, f.state, defaults, typedShows)
+            entries = ensureMinimumEntry(generated, f.label, f.value)
+          }
+          const hasLineItems = f.field_key === 'venue_staff' && Array.isArray(f.line_items) && f.line_items.length > 0
+          const patch: { entries: unknown; value?: number } = { entries }
+          if (!hasLineItems) patch.value = entriesSum(entries as Parameters<typeof entriesSum>[0])
+          return supabase.from('cost_fields').update(patch).eq('id', f.id)
         })
+      )
+      dirty = true
+    }
+
+    const missing = findMissingDefinedCostFields(
+      rawFields.map(f => ({ show_id: f.show_id, field_key: f.field_key })),
+      typedShows.map(s => s.id),
     )
-    const { data: backfilledFields } = await supabase
-      .from('cost_fields').select('*').eq('run_id', run.id)
-      .order('show_id', { ascending: true, nullsFirst: false })
-    typedFields = (backfilledFields ?? []) as CostFieldRow[]
+    if (missing.length > 0) {
+      const rows = missing.map(spec => {
+        const body = buildCreateCostFieldBody(run.id, spec)
+        // Prefer generateEntries when defaults exist (e.g. Group 3 backline).
+        if (!ENTRY_EXEMPT_FIELD_KEYS.has(spec.fieldDef.key)) {
+          const generated = generateEntries(
+            spec.fieldDef.key,
+            spec.fieldDef.defaultState,
+            defaults,
+            typedShows,
+          )
+          const entries = ensureMinimumEntry(generated, spec.fieldDef.label, null)
+          body.entries = entries
+          body.value = entriesSum(entries)
+        }
+        return body
+      })
+      await supabase.from('cost_fields').insert(rows)
+      dirty = true
+    }
+
+    if (dirty) {
+      const { data: backfilledFields } = await supabase
+        .from('cost_fields').select('*').eq('run_id', run.id)
+        .order('show_id', { ascending: true, nullsFirst: false })
+      typedFields = (backfilledFields ?? []) as CostFieldRow[]
+    }
   }
 
   const typedAudit = (auditRows ?? []) as AuditRow[]

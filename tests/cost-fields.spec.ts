@@ -1,15 +1,13 @@
 import { test, expect, Page } from '@playwright/test'
 import { login } from './helpers'
 
-// This test creates a run and verifies cost field entry persistence
-// The core regression that was broken: entries not saving to DB
+// Core regression: cost field entries persist after refresh (API write path)
 
 test.beforeEach(async ({ page }) => {
   await login(page)
 })
 
 async function seedTestRun(page: Page): Promise<string> {
-  // Use the seed-run API to create a test run on staging
   const res = await page.request.post('/api/admin/seed-run', {
     data: { runCode: 'TEST01' },
     headers: { 'Content-Type': 'application/json' },
@@ -21,7 +19,6 @@ async function seedTestRun(page: Page): Promise<string> {
 test('cost field entry saves and persists after refresh', async ({ page }) => {
   await page.goto('/runs')
 
-  // Find a run link — take the first one available
   const runLinks = page.getByRole('link', { name: /R\d+|TEST/i })
   const count = await runLinks.count()
 
@@ -33,62 +30,37 @@ test('cost field entry saves and persists after refresh', async ({ page }) => {
   await runLinks.first().click()
   await page.waitForURL(/\/runs\//)
 
-  // Click into the "Run Costing" tab if not already active
   const costingTab = page.getByRole('button', { name: /run costing/i })
   if (await costingTab.isVisible()) await costingTab.click()
 
-  // Find a cost field Edit button (not the synopsis one)
-  const editBtn = page.locator('[data-testid="cost-field-edit"]').first()
-  await expect(editBtn).toBeVisible({ timeout: 5000 })
-  await editBtn.click()
+  // Line total is read-only — edit sub-item entries instead
+  const entriesToggle = page.locator('button').filter({ hasText: /▼/ }).first()
+  await expect(entriesToggle).toBeVisible({ timeout: 5000 })
+  await entriesToggle.click()
 
-  // Set value and change status to Confirmed
-  const valueInput = page.locator('input[type="number"]').first()
-  await valueInput.fill('100')
+  const descInput = page.getByPlaceholder(/description/i)
+  await descInput.fill('Playwright test entry')
 
-  const statusSelect = page.locator('select').first()
-  await statusSelect.selectOption('known')
+  const amountInput = page.getByPlaceholder(/\$0/i)
+  await amountInput.fill('50')
 
-  // Save
-  await page.getByRole('button', { name: /^save$/i }).click()
-  await page.waitForTimeout(1000)
+  await page.getByRole('button', { name: /\+ add/i }).click()
+  await page.waitForTimeout(1500)
 
-  // Open the entries panel (▼ button)
-  const entriesToggle = page.locator('button').filter({ hasText: /▼/ }).last()
-  if (await entriesToggle.isVisible()) {
-    await entriesToggle.click()
+  await expect(page.getByText('Playwright test entry').first()).toBeVisible()
 
-    // Add an entry
-    const descInput = page.getByPlaceholder(/description/i)
-    await descInput.fill('Playwright test entry')
+  await page.reload()
+  await page.waitForLoadState('networkidle')
 
-    const amountInput = page.getByPlaceholder(/\$0/i)
-    await amountInput.fill('50')
+  const tab = page.getByRole('button', { name: /run costing/i })
+  if (await tab.isVisible()) await tab.click()
 
-    await page.getByRole('button', { name: /\+ add/i }).click()
-    await page.waitForTimeout(1500)
+  const toggle2 = page.locator('button').filter({ hasText: /▼/ }).first()
+  if (await toggle2.isVisible()) await toggle2.click()
 
-    // Verify entry appears (use first() in case prior test runs left duplicate entries)
-    await expect(page.getByText('Playwright test entry').first()).toBeVisible()
-
-    // Refresh the page
-    await page.reload()
-    await page.waitForLoadState('networkidle')
-
-    // Click Run Costing tab again
-    const tab = page.getByRole('button', { name: /run costing/i })
-    if (await tab.isVisible()) await tab.click()
-
-    // Open entries panel again (click the ▼ toggle on the field we edited)
-    const toggle2 = page.locator('button').filter({ hasText: /▼/ }).last()
-    if (await toggle2.isVisible()) await toggle2.click()
-
-    // Entry should still be there — this is the core regression test
-    await expect(page.getByText('Playwright test entry').first()).toBeVisible({ timeout: 5000 })
-    // Subtitle shows "1 entry" or "N entries" — just check the word "entr" (first match on page)
-    await expect(page.getByText(/\d+\s+entr(y|ies)/).first()).toBeVisible()
-    await expect(page.getByText(/\d+ receipts?/)).not.toBeVisible()
-  }
+  await expect(page.getByText('Playwright test entry').first()).toBeVisible({ timeout: 5000 })
+  await expect(page.getByText(/\d+\s+entr(y|ies)/).first()).toBeVisible()
+  await expect(page.getByText(/\d+ receipts?/)).not.toBeVisible()
 })
 
 test('entries label shows "entries" not "receipts"', async ({ page }) => {
@@ -102,11 +74,9 @@ test('entries label shows "entries" not "receipts"', async ({ page }) => {
   await runLinks.first().click()
   await page.waitForURL(/\/runs\//)
 
-  // Should never see the word "receipts" on cost fields
   const costingTab = page.getByRole('button', { name: /run costing/i })
   if (await costingTab.isVisible()) await costingTab.click()
 
-  // Check that "receipts" label doesn't appear in the cost field area
   const receiptsText = page.locator('[class*="text-slate"]').filter({ hasText: /\d+ receipts/ })
   await expect(receiptsText).toHaveCount(0)
 })

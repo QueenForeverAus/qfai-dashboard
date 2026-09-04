@@ -1,12 +1,23 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile, canAccessTab } from '@/lib/profile-context'
 import AdvancementTab from './AdvancementTab'
 import ShowPackTab from './ShowPackTab'
 import TicketOutlookBlock from './TicketOutlookBlock'
 import { formatDateShortAU } from '@/lib/dates'
+import {
+  entriesSum as sumEntries,
+  ensureMinimumEntry,
+  ENTRY_EXEMPT_FIELD_KEYS,
+  DEFINED_RUN_COST_FIELDS,
+  DEFINED_SHOW_COST_FIELDS,
+  findMissingDefinedCostFields,
+  buildCreateCostFieldBody,
+  roleCanSeeCostField,
+  canEditCostFields,
+} from '@/lib/cost-fields'
 
 type FieldState = 'known' | 'estimated' | 'guess' | 'pending' | 'auto_calc'
 
@@ -79,40 +90,74 @@ const STATE_STYLES: Record<FieldState, { bg: string; text: string; border: strin
 // Fields that default to GST-not-included for new entries
 const NO_GST_DEFAULTS = new Set(['per_diems', 'brad_driver_fee'])
 
-const SHOW_FIELDS = [
-  { key: 'gross_box_office', label: 'Gross Box Office',       category: 'Revenue',     defaultState: 'pending' as FieldState },
-  { key: 'venue_hire',       label: 'Venue Hire',             category: 'Venue Costs', defaultState: 'guess' as FieldState },
-  { key: 'venue_staff',      label: 'Venue Staff / On-costs', category: 'Venue Costs', defaultState: 'guess' as FieldState },
-  { key: 'production_costs', label: 'Production / AV',        category: 'Venue Costs', defaultState: 'guess' as FieldState },
-]
+const SHOW_FIELDS = DEFINED_SHOW_COST_FIELDS.map(f => ({
+  key: f.key,
+  label: f.label,
+  category: f.category,
+  defaultState: f.defaultState as FieldState,
+}))
 
-const RUN_FIELDS = [
-  { key: 'flights',          label: 'Flights',                    category: 'Travel & Accommodation', defaultState: 'guess' as FieldState },
-  { key: 'accommodation',    label: 'Accommodation',              category: 'Travel & Accommodation', defaultState: 'guess' as FieldState },
-  { key: 'ground_transport', label: 'Ground Transport',           category: 'Travel & Accommodation', defaultState: 'guess' as FieldState },
-  { key: 'brad_driver_fee',  label: 'Brad Driver Fee (weekday off work)', category: 'Travel & Accommodation', defaultState: 'known' as FieldState },
-  { key: 'crew_fees_total',  label: 'Crew Fees (all shows)',      category: 'Crew & Operations',      defaultState: 'guess' as FieldState },
-  { key: 'food_basics',      label: 'Food & Basics',              category: 'Production',             defaultState: 'estimated' as FieldState },
-  { key: 'per_diems',        label: 'Per Diems',                  category: 'Crew & Operations',      defaultState: 'guess' as FieldState },
-  { key: 'lighting_hire',    label: 'Lighting Equipment Hire',    category: 'Production',             defaultState: 'estimated' as FieldState },
-  { key: 'backline_hire',    label: 'Backline Hire (local)',       category: 'Production',             defaultState: 'estimated' as FieldState },
-  { key: 'crew_travel_day',  label: 'Crew Travel-Day Fee',        category: 'Crew & Operations',      defaultState: 'guess' as FieldState },
-  { key: 'fb_ads',           label: 'Facebook / Social Ads',      category: 'Marketing',              defaultState: 'guess' as FieldState },
-  { key: 'social_ads_var',   label: 'Social Media Marketing Co. — $1/ticket', category: 'Marketing', defaultState: 'auto_calc' as FieldState },
-]
+const RUN_FIELDS = DEFINED_RUN_COST_FIELDS.map(f => ({
+  key: f.key,
+  label: f.label,
+  category: f.category,
+  defaultState: f.defaultState as FieldState,
+}))
 
 
 function entriesSum(entries: Entry[] | null | undefined): number {
-  if (!entries?.length) return 0
-  return entries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+  return sumEntries(entries)
 }
 
-/** Prefer explicit value; fall back to line-item entries total. */
+/**
+ * Line total = sum(entries) when entries exist.
+ * venue_staff: if planned line_items exist and entries are only a placeholder,
+ * prefer line_items sum when value was set from roles; still prefer entries when
+ * they carry the amount (API keeps them in sync on entry edits).
+ */
 function effectiveFieldValue(row: CostFieldRow | undefined): number | null {
   if (!row) return null
-  if (row.value !== null && row.value !== undefined) return row.value
   const fromEntries = entriesSum(row.entries)
-  return fromEntries > 0 ? fromEntries : null
+  if (row.entries && row.entries.length > 0) {
+    // venue_staff with planned roles: value may track line_items; show value if set
+    if (
+      row.field_key === 'venue_staff' &&
+      Array.isArray(row.line_items) &&
+      row.line_items.length > 0 &&
+      row.value != null
+    ) {
+      return row.value
+    }
+    return fromEntries
+  }
+  if (row.value !== null && row.value !== undefined) return row.value
+  return null
+}
+
+async function patchCostField(id: string, body: Record<string, unknown>) {
+  const res = await fetch(`/api/cost-fields/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(data.error ?? `Save failed (${res.status})`)
+  }
+  return data as CostFieldRow
+}
+
+async function createCostField(body: Record<string, unknown>) {
+  const res = await fetch('/api/cost-fields', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(data.error ?? `Create failed (${res.status})`)
+  }
+  return data as CostFieldRow
 }
 
 function fmt(n: number | null) {
@@ -127,10 +172,12 @@ function EntryRow({
   entry,
   onUpdate,
   onRemove,
+  canRemove,
 }: {
   entry: Entry
   onUpdate: (updated: Entry) => void
   onRemove: () => void
+  canRemove: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [desc, setDesc] = useState(entry.description)
@@ -199,8 +246,9 @@ function EntryRow({
           className="flex-shrink-0 text-slate-700 hover:text-amber-400 text-xs transition-colors sm:opacity-0 sm:group-hover:opacity-100">
           ✎
         </button>
-        <button onClick={onRemove}
-          className="flex-shrink-0 text-slate-700 hover:text-red-400 text-xs transition-colors sm:opacity-0 sm:group-hover:opacity-100">
+        <button onClick={onRemove} disabled={!canRemove}
+          title={canRemove ? 'Remove entry' : 'Cannot remove the last entry'}
+          className="flex-shrink-0 text-slate-700 hover:text-red-400 text-xs transition-colors sm:opacity-0 sm:group-hover:opacity-100 disabled:opacity-20 disabled:hover:text-slate-700 disabled:cursor-not-allowed">
           ✕
         </button>
       </div>
@@ -215,29 +263,46 @@ function EntryRow({
 function EntryPanel({
   fieldId,
   fieldKey,
+  fieldLabel,
   entries,
   onEntriesUpdated,
 }: {
   fieldId: string
   fieldKey: string
+  fieldLabel: string
   entries: Entry[]
-  onEntriesUpdated: (entries: Entry[]) => void
+  onEntriesUpdated: (entries: Entry[], value: number) => void
 }) {
   const [desc, setDesc] = useState('')
   const [notes, setNotes] = useState('')
   const [amount, setAmount] = useState('')
   const [gst, setGst] = useState(!NO_GST_DEFAULTS.has(fieldKey))
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const total = entries.reduce((sum, e) => sum + e.amount, 0)
   const confirmed = entries.filter(e => e.confirmed).reduce((sum, e) => sum + e.amount, 0)
   const gstContent = entries.filter(e => e.gst_included).reduce((sum, e) => sum + e.amount / 11, 0)
 
   async function persist(updated: Entry[]) {
-    const supabase = createClient()
-    const { error } = await supabase.from('cost_fields').update({ entries: updated }).eq('id', fieldId)
-    if (error) { console.error('Entry persist failed:', error); return }
-    onEntriesUpdated(updated)
+    if (updated.length === 0) {
+      setError('At least one entry is required')
+      return
+    }
+    setError(null)
+    setSaving(true)
+    try {
+      const data = await patchCostField(fieldId, { entries: updated })
+      const nextEntries = (data.entries as Entry[]) ?? updated
+      const nextValue = data.value != null ? Number(data.value) : entriesSum(nextEntries)
+      onEntriesUpdated(nextEntries, nextValue)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Save failed'
+      setError(msg)
+      console.error('Entry persist failed:', err)
+    } finally {
+      setSaving(false)
+    }
   }
 
   function updateEntry(idx: number, updated: Entry) {
@@ -247,15 +312,18 @@ function EntryPanel({
   }
 
   function removeEntry(idx: number) {
+    if (entries.length <= 1) {
+      setError('Cannot remove the last entry — set amount to $0 instead')
+      return
+    }
     persist(entries.filter((_, i) => i !== idx))
   }
 
   async function addEntry() {
     if (!amount) return
-    setSaving(true)
     const newEntry: Entry = {
       id: crypto.randomUUID(),
-      description: desc,
+      description: desc || fieldLabel || 'Estimate',
       notes,
       amount: parseFloat(amount),
       gst_included: gst,
@@ -266,11 +334,15 @@ function EntryPanel({
     setNotes('')
     setAmount('')
     setGst(!NO_GST_DEFAULTS.has(fieldKey))
-    setSaving(false)
   }
 
   return (
     <div className="border-t border-slate-700/40 bg-slate-900/20 rounded-b-lg px-3 pt-2 pb-3">
+      {error && (
+        <div className="mb-2 rounded border border-red-800 bg-red-950/50 px-2 py-1.5 text-xs text-red-300" role="alert">
+          {error}
+        </div>
+      )}
       {entries.length > 0 && (
         <>
           <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-600 mb-0.5">
@@ -288,6 +360,7 @@ function EntryPanel({
                 entry={e}
                 onUpdate={updated => updateEntry(i, updated)}
                 onRemove={() => removeEntry(i)}
+                canRemove={entries.length > 1}
               />
             ))}
           </div>
@@ -343,59 +416,54 @@ function FieldRow({
   fieldDef: { key: string; label: string; category: string; defaultState: FieldState }
   existing: CostFieldRow | undefined
   onSaved: (updated: CostFieldRow) => void
-  onEntriesUpdated: (fieldId: string, entries: Entry[]) => void
+  onEntriesUpdated: (fieldId: string, entries: Entry[], value: number) => void
 }) {
   const [isEditing, setIsEditing] = useState(false)
-  const [value, setValue] = useState(existing?.value?.toString() ?? '')
   const [state, setState] = useState<FieldState>((existing?.state as FieldState) ?? fieldDef.defaultState)
   const [saving, setSaving] = useState(false)
   const [entriesOpen, setEntriesOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const styles = STATE_STYLES[state]
   const entries = existing?.entries ?? []
-  const enteredTotal = entries.reduce((s, e) => s + e.amount, 0)
+  const displayTotal = entries.length > 0 ? entriesSum(entries) : (existing?.value ?? null)
 
-  async function handleSave() {
+  async function handleSaveState() {
     setSaving(true)
-    const supabase = createClient()
-    const numVal = value === '' ? null : parseFloat(value)
-
-    if (existing?.id) {
-      const { data, error } = await supabase
-        .from('cost_fields')
-        .update({ value: numVal, state, updated_at: new Date().toISOString() })
-        .eq('id', existing.id)
-        .select()
-        .single()
-      if (error) {
-        console.error('Cost field update failed:', error)
+    setError(null)
+    try {
+      if (existing?.id) {
+        const data = await patchCostField(existing.id, { state })
+        onSaved(data)
       } else {
-        // Use returned row if available; otherwise construct from what we sent
-        onSaved((data ?? { ...existing, value: numVal, state }) as CostFieldRow)
-      }
-    } else {
-      const { data, error } = await supabase
-        .from('cost_fields')
-        .insert({
+        const data = await createCostField({
           run_id: runId,
           show_id: showId,
           category: fieldDef.category,
           field_key: fieldDef.key,
           label: fieldDef.label,
-          value: numVal,
+          value: 0,
           state,
+          entries: [{
+            id: crypto.randomUUID(),
+            description: fieldDef.label || 'Estimate',
+            notes: '',
+            amount: 0,
+            gst_included: !NO_GST_DEFAULTS.has(fieldDef.key),
+            confirmed: false,
+          }],
         })
-        .select()
-        .single()
-      if (error) {
-        console.error('Cost field insert failed:', error)
-      } else if (data) {
-        onSaved(data as CostFieldRow)
+        onSaved(data)
+        setEntriesOpen(true)
       }
+      setIsEditing(false)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Save failed'
+      setError(msg)
+      console.error('Cost field update failed:', err)
+    } finally {
+      setSaving(false)
     }
-
-    setSaving(false)
-    setIsEditing(false)
   }
 
   return (
@@ -404,20 +472,13 @@ function FieldRow({
       <div className="flex items-center gap-3 px-3 py-2.5">
         <div className="flex-1 min-w-0">
           <div className="text-slate-300 text-sm">{fieldDef.label}</div>
-          {enteredTotal > 0 && existing?.value != null && Math.abs(enteredTotal - existing.value) > 0.005 && (
-            <div className="text-amber-500/80 text-xs mt-0.5">
-              {fmt(enteredTotal)} entered · {entries.length} {entries.length !== 1 ? 'entries' : 'entry'}
-            </div>
-          )}
-          {enteredTotal > 0 && existing?.value == null && (
+          {entries.length > 0 && (
             <div className="text-slate-500 text-xs mt-0.5">
-              {fmt(enteredTotal)} entered · {entries.length} {entries.length !== 1 ? 'entries' : 'entry'}
+              {entries.length} {entries.length !== 1 ? 'entries' : 'entry'} · total from sub-items
             </div>
           )}
-          {enteredTotal > 0 && existing?.value != null && Math.abs(enteredTotal - existing.value) <= 0.005 && (
-            <div className="text-green-600/70 text-xs mt-0.5">
-              {entries.length} {entries.length !== 1 ? 'entries' : 'entry'} · matches total
-            </div>
+          {error && (
+            <div className="text-red-400 text-xs mt-0.5" role="alert">{error}</div>
           )}
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -434,23 +495,16 @@ function FieldRow({
                 <option value="pending">Figures Needed</option>
                 <option value="auto_calc">Auto Calc</option>
               </select>
-              <span className="text-slate-400 text-sm">$</span>
-              <input
-                autoFocus
-                type="number"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                className="w-24 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-amber-400"
-              />
+              <span className={`text-sm font-medium ${styles.text}`}>{fmt(displayTotal)}</span>
               <button
-                onClick={handleSave}
+                onClick={handleSaveState}
                 disabled={saving}
                 className="bg-amber-400 text-slate-900 text-xs font-semibold px-2.5 py-1 rounded hover:bg-amber-300 disabled:opacity-50 transition-colors"
               >
                 {saving ? '…' : 'Save'}
               </button>
               <button
-                onClick={() => { setIsEditing(false); setValue(existing?.value?.toString() ?? ''); setState((existing?.state as FieldState) ?? fieldDef.defaultState) }}
+                onClick={() => { setIsEditing(false); setState((existing?.state as FieldState) ?? fieldDef.defaultState); setError(null) }}
                 className="text-slate-500 hover:text-slate-300 text-xs px-1 transition-colors"
               >
                 ✕
@@ -458,9 +512,8 @@ function FieldRow({
             </>
           ) : (
             <>
-              {/* Show entries total when no manual value has been set */}
-              <span className={`text-sm font-medium ${existing?.value == null && enteredTotal > 0 ? 'text-slate-400' : styles.text}`}>
-                {existing?.value != null ? fmt(existing.value) : enteredTotal > 0 ? fmt(enteredTotal) : '—'}
+              <span className={`text-sm font-medium ${styles.text}`}>
+                {displayTotal != null ? fmt(displayTotal) : '—'}
               </span>
               <span className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}>{styles.label}</span>
               <button onClick={() => setIsEditing(true)} data-testid="cost-field-edit" className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
@@ -484,8 +537,9 @@ function FieldRow({
         <EntryPanel
           fieldId={existing.id}
           fieldKey={fieldDef.key}
+          fieldLabel={fieldDef.label}
           entries={entries}
-          onEntriesUpdated={(updated) => onEntriesUpdated(existing.id, updated)}
+          onEntriesUpdated={(updated, value) => onEntriesUpdated(existing.id, updated, value)}
         />
       )}
     </div>
@@ -505,13 +559,14 @@ function VenueStaffRow({
   showId: string
   existing: CostFieldRow | undefined
   onSaved: (updated: CostFieldRow) => void
-  onEntriesUpdated: (fieldId: string, entries: Entry[]) => void
+  onEntriesUpdated: (fieldId: string, entries: Entry[], value: number) => void
 }) {
   const [open, setOpen] = useState(false)
   const [entriesOpen, setEntriesOpen] = useState(false)
   const [items, setItems] = useState<LineItem[]>(existing?.line_items ?? [])
   const [state, setState] = useState<FieldState>((existing?.state as FieldState) ?? 'guess')
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const styles = STATE_STYLES[state]
   const total = items.reduce((sum, item) => sum + (item.rate || 0) * (item.hours || 0) * (item.headcount || 0), 0)
@@ -536,21 +591,18 @@ function VenueStaffRow({
 
   async function handleSave() {
     setSaving(true)
-    const supabase = createClient()
+    setError(null)
     const numVal = total === 0 ? null : total
-
-    if (existing?.id) {
-      const { data } = await supabase
-        .from('cost_fields')
-        .update({ value: numVal, state, line_items: items, updated_at: new Date().toISOString() })
-        .eq('id', existing.id)
-        .select()
-        .single()
-      if (data) onSaved(data as CostFieldRow)
-    } else {
-      const { data } = await supabase
-        .from('cost_fields')
-        .insert({
+    try {
+      if (existing?.id) {
+        const data = await patchCostField(existing.id, {
+          value: numVal,
+          state,
+          line_items: items,
+        })
+        onSaved(data)
+      } else {
+        const data = await createCostField({
           run_id: runId,
           show_id: showId,
           category: 'Venue Costs',
@@ -559,13 +611,24 @@ function VenueStaffRow({
           value: numVal,
           state,
           line_items: items,
+          entries: [{
+            id: crypto.randomUUID(),
+            description: 'Venue Staff / On-costs',
+            notes: 'Estimate from planned roles',
+            amount: numVal ?? 0,
+            gst_included: true,
+            confirmed: false,
+          }],
         })
-        .select()
-        .single()
-      if (data) onSaved(data as CostFieldRow)
+        onSaved(data)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Save failed'
+      setError(msg)
+      console.error('Venue staff save failed:', err)
+    } finally {
+      setSaving(false)
     }
-
-    setSaving(false)
   }
 
   return (
@@ -575,7 +638,10 @@ function VenueStaffRow({
         <div className="flex-1 min-w-0">
           <div className="text-slate-300 text-sm">Venue Staff / On-costs</div>
           {enteredTotal > 0 && (
-            <div className="text-slate-500 text-xs mt-0.5">{fmt(enteredTotal)} entered</div>
+            <div className="text-slate-500 text-xs mt-0.5">{fmt(enteredTotal)} in actuals / entries</div>
+          )}
+          {error && (
+            <div className="text-red-400 text-xs mt-0.5" role="alert">{error}</div>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -700,8 +766,9 @@ function VenueStaffRow({
                   <EntryPanel
                     fieldId={existing.id}
                     fieldKey="venue_staff"
+                    fieldLabel="Venue Staff / On-costs"
                     entries={entries}
-                    onEntriesUpdated={(updated) => onEntriesUpdated(existing.id, updated)}
+                    onEntriesUpdated={(updated, value) => onEntriesUpdated(existing.id, updated, value)}
                   />
                 </div>
               )}
@@ -882,6 +949,79 @@ export default function CostFieldsTab({
   const [sellThrough, setSellThrough] = useState<Record<string, number>>(() =>
     Object.fromEntries(showsState.map(s => [s.id, s.sell_through_pct ?? 75]))
   )
+  const ensureOnceRef = useRef(false)
+
+  // On open: create missing defined rows + seed ≥1 entry via /api/cost-fields
+  // (production can write; covers backline_hire when seed skipped the row).
+  useEffect(() => {
+    if (ensureOnceRef.current) return
+    if (!hasTabAccess) return
+    if (!canEditCostFields(effectiveRole)) return
+    ensureOnceRef.current = true
+
+    let cancelled = false
+
+    async function ensureDefinedFields() {
+      const role = effectiveRole ?? undefined
+      const missing = findMissingDefinedCostFields(
+        fields.map(f => ({ show_id: f.show_id, field_key: f.field_key })),
+        showsState.map(s => s.id),
+        { role, onlyVisibleToRole: true },
+      )
+
+      const created: CostFieldRow[] = []
+      for (const spec of missing) {
+        try {
+          const body = buildCreateCostFieldBody(runId, spec)
+          const data = await createCostField(body)
+          created.push(data)
+        } catch (err) {
+          // Race / already exists — ignore; page SSR or refresh will reconcile.
+          console.warn('ensure cost field create skipped:', spec.fieldDef.key, err)
+        }
+      }
+
+      // Existing rows with empty entries → PATCH seed (non-exempt).
+      const emptyRows = fields.filter(f => {
+        if (!roleCanSeeCostField(role, f.field_key)) return false
+        if (ENTRY_EXEMPT_FIELD_KEYS.has(f.field_key)) return false
+        return f.entries === null || (Array.isArray(f.entries) && f.entries.length === 0)
+      })
+
+      const patched: CostFieldRow[] = []
+      for (const row of emptyRows) {
+        try {
+          const entries = ensureMinimumEntry(row.entries, row.label, row.value)
+          const data = await patchCostField(row.id, { entries })
+          patched.push(data)
+        } catch (err) {
+          console.warn('ensure cost field entries skipped:', row.field_key, err)
+        }
+      }
+
+      if (cancelled) return
+      if (created.length === 0 && patched.length === 0) return
+
+      setFields(prev => {
+        const byId = new Map(prev.map(f => [f.id, f]))
+        for (const row of [...created, ...patched]) byId.set(row.id, row)
+        // Drop duplicates for same field_key + show_id (prefer newest created)
+        const seen = new Set<string>()
+        const out: CostFieldRow[] = []
+        for (const row of [...byId.values()].reverse()) {
+          const k = `${row.show_id ?? 'run'}:${row.field_key}`
+          if (seen.has(k)) continue
+          seen.add(k)
+          out.push(row)
+        }
+        return out.reverse()
+      })
+    }
+
+    void ensureDefinedFields()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on open for this run
+  }, [runId, hasTabAccess, effectiveRole])
 
   function handleShowUpdated(updated: Show) {
     setShowsState(prev => prev.map(s => s.id === updated.id ? updated : s))
@@ -895,8 +1035,8 @@ export default function CostFieldsTab({
     })
   }
 
-  function handleEntriesUpdated(fieldId: string, entries: Entry[]) {
-    setFields(prev => prev.map(f => f.id === fieldId ? { ...f, entries } : f))
+  function handleEntriesUpdated(fieldId: string, entries: Entry[], value: number) {
+    setFields(prev => prev.map(f => f.id === fieldId ? { ...f, entries, value } : f))
   }
 
   function showFieldKey(showId: string, key: string) { return `${showId}:${key}` }
