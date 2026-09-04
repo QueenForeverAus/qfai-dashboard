@@ -88,12 +88,17 @@ type AuditEntry = {
   changed_by_name: string
 }
 
-const STATE_STYLES: Record<FieldState, { bg: string; text: string; border: string; label: string }> = {
+const STATE_STYLES: Record<string, { bg: string; text: string; border: string; label: string }> = {
   known:     { bg: 'bg-green-900/30',  text: 'text-green-400',  border: 'border-green-800',  label: 'CONFIRMED' },
   estimated: { bg: 'bg-orange-900/30', text: 'text-orange-400', border: 'border-orange-800', label: 'ESTIMATE' },
   guess:     { bg: 'bg-red-900/30',    text: 'text-red-400',    border: 'border-red-800',    label: 'GUESS' },
   pending:   { bg: 'bg-red-900/20',    text: 'text-red-400',    border: 'border-red-900',    label: 'FIGURES NEEDED' },
+  figures_needed: { bg: 'bg-red-900/20', text: 'text-red-400', border: 'border-red-900', label: 'FIGURES NEEDED' },
   auto_calc: { bg: 'bg-slate-800/60',  text: 'text-slate-400',  border: 'border-slate-700',  label: 'AUTO CALC' },
+}
+
+function stateStyles(state: string | null | undefined) {
+  return STATE_STYLES[state ?? ''] ?? STATE_STYLES.pending
 }
 
 // Fields that default to GST-not-included for new entries
@@ -433,7 +438,7 @@ function FieldRow({
   const [entriesOpen, setEntriesOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const styles = STATE_STYLES[state]
+  const styles = stateStyles(state)
   const entries = existing?.entries ?? []
   const displayTotal = entries.length > 0 ? entriesSum(entries) : (existing?.value ?? null)
 
@@ -577,7 +582,7 @@ function VenueStaffRow({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const styles = STATE_STYLES[state]
+  const styles = stateStyles(state)
   const total = items.reduce((sum, item) => sum + (item.rate || 0) * (item.hours || 0) * (item.headcount || 0), 0)
   const entries = existing?.entries ?? []
   const enteredTotal = entries.reduce((s, e) => s + e.amount, 0)
@@ -908,6 +913,29 @@ function ShowDetailsEditor({
 // ─── Groups run-level fields by category ────────────────────────────────────
 const RUN_CATEGORIES = [...new Set(RUN_FIELDS.map(f => f.category))]
 
+/** Physical max / top band for sell-slider modelling. */
+function modelCapacity(show: Show): number | null {
+  const bands = normalizeCapacityBands(show.capacity_bands)
+  return topBandSeats(bands, show.capacity)
+}
+
+/** Calc-only venue staff $ — never writes back to cost_fields. */
+function calcVenueStaff(show: Show, pct: number, row: CostFieldRow | undefined): number | null {
+  const base = effectiveFieldValue(row)
+  const bands = normalizeCapacityBands(show.capacity_bands)
+  if (!bands.length) return base
+  const cap = modelCapacity(show)
+  const tickets = cap ? Math.round(cap * (pct / 100)) : 0
+  const lineItems = Array.isArray(row?.line_items) ? row!.line_items : null
+  return modelledVenueStaffForTickets({
+    bands,
+    tickets,
+    baseTotal: base,
+    lineItems,
+  })
+}
+
+
 export default function CostFieldsTab({
   runId,
   runCode,
@@ -1051,29 +1079,6 @@ export default function CostFieldsTab({
     setFields(prev => prev.map(f => f.id === fieldId ? { ...f, entries, value } : f))
   }
 
-
-/** Physical max / top band for sell-slider modelling. */
-function modelCapacity(show: Show): number | null {
-  const bands = normalizeCapacityBands(show.capacity_bands)
-  return topBandSeats(bands, show.capacity)
-}
-
-/** Calc-only venue staff $ — never writes back to cost_fields. */
-function calcVenueStaff(show: Show, pct: number, row: CostFieldRow | undefined): number | null {
-  const base = effectiveFieldValue(row)
-  const bands = normalizeCapacityBands(show.capacity_bands)
-  if (!bands.length) return base
-  const cap = modelCapacity(show)
-  const tickets = cap ? Math.round(cap * (pct / 100)) : 0
-  const lineItems = Array.isArray(row?.line_items) ? row!.line_items : null
-  return modelledVenueStaffForTickets({
-    bands,
-    tickets,
-    baseTotal: base,
-    lineItems,
-  })
-}
-
   function showFieldKey(showId: string, key: string) { return `${showId}:${key}` }
   function runFieldKey(key: string) { return `run:${key}` }
 
@@ -1128,7 +1133,7 @@ function calcVenueStaff(show: Show, pct: number, row: CostFieldRow | undefined):
     if (COMPLETENESS_EXCLUDED.has(f.key)) continue
     const row = fieldMap.get(runFieldKey(f.key))
     if (!row) continue
-    if (row.state === 'pending') {
+    if (row.state === 'pending' || row.state === 'figures_needed') {
       incompleteFields.push(f.label)
     }
   }
@@ -1136,7 +1141,7 @@ function calcVenueStaff(show: Show, pct: number, row: CostFieldRow | undefined):
     for (const sf of SHOW_FIELDS.filter(sf => sf.category !== 'Revenue')) {
       const row = fieldMap.get(showFieldKey(show.id, sf.key))
       if (!row) continue
-      if (row.state === 'pending') {
+      if (row.state === 'pending' || row.state === 'figures_needed') {
         incompleteFields.push(`${show.venue_city} – ${sf.label}`)
       }
     }
