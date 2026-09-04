@@ -33,6 +33,8 @@ export interface Show {
   venue_city: string
   show_date: string | null
   capacity: number | null
+  /** Ordered Harbour capacity options; null/[] = single-cap. See lib/capacity-bands.ts */
+  capacity_bands?: unknown | null
   ticket_price: number | null
   show_order: number
   created_at: string

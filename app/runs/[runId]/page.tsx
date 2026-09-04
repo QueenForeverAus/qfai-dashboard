@@ -17,6 +17,7 @@ type Show = {
   state_territory: string | null
   show_date: string | null
   capacity: number | null
+  capacity_bands?: unknown | null
   ticket_price: number | null
   sell_through_pct: number | null
   show_order: number

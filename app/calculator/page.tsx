@@ -20,7 +20,7 @@ export default async function CalculatorPage() {
   ] = await Promise.all([
     supabase
       .from('runs')
-      .select('id, code, name, status, region, shows(id, venue_name, show_date, capacity, ticket_price, show_order)')
+      .select('id, code, name, status, region, shows(id, venue_name, show_date, capacity, capacity_bands, ticket_price, show_order)')
       .order('start_date', { ascending: true }),
 
     // Run-level costs — exclude social_ads_var (computed dynamically) and revenue fields
@@ -33,7 +33,7 @@ export default async function CalculatorPage() {
     // Show-level costs: venue hire and on-costs only
     supabase
       .from('cost_fields')
-      .select('show_id, field_key, value')
+      .select('show_id, field_key, value, line_items')
       .not('show_id', 'is', null)
       .in('field_key', ['venue_hire', 'venue_staff']),
 
@@ -59,15 +59,18 @@ export default async function CalculatorPage() {
   }
 
   // Map show-level costs (venue_hire, venue_staff) keyed by show_id
-  const showCostMap: Record<string, { venueHire: number; onCosts: number }> = {}
+  const showCostMap: Record<string, { venueHire: number; onCosts: number; lineItems: unknown }> = {}
   for (const cf of showCostsRaw ?? []) {
-    if (!showCostMap[cf.show_id]) showCostMap[cf.show_id] = { venueHire: 0, onCosts: 0 }
+    if (!showCostMap[cf.show_id]) showCostMap[cf.show_id] = { venueHire: 0, onCosts: 0, lineItems: null }
     if (cf.field_key === 'venue_hire') showCostMap[cf.show_id].venueHire = Number(cf.value) || 0
-    if (cf.field_key === 'venue_staff') showCostMap[cf.show_id].onCosts = Number(cf.value) || 0
+    if (cf.field_key === 'venue_staff') {
+      showCostMap[cf.show_id].onCosts = Number(cf.value) || 0
+      showCostMap[cf.show_id].lineItems = cf.line_items ?? null
+    }
   }
 
   // Assemble CalcRun[]
-  type RawShow = { id: string; venue_name: string; show_date: string; capacity: number; ticket_price: number; show_order: number }
+  type RawShow = { id: string; venue_name: string; show_date: string; capacity: number; capacity_bands?: unknown; ticket_price: number; show_order: number }
   const runs: CalcRun[] = (runsRaw ?? [])
     .filter(r => Array.isArray(r.shows) && r.shows.length > 0)
     .map(r => ({
@@ -85,9 +88,11 @@ export default async function CalculatorPage() {
           venue: show.venue_name,
           date: show.show_date,
           capacity: show.capacity,
+          capacityBands: show.capacity_bands ?? null,
           nettPrice: show.ticket_price,
           venueHire: showCostMap[show.id]?.venueHire ?? 0,
           onCosts: showCostMap[show.id]?.onCosts ?? 0,
+          staffLineItems: showCostMap[show.id]?.lineItems ?? null,
         })),
     }))
 

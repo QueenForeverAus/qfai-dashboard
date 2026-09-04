@@ -75,6 +75,7 @@ create table if not exists shows (
   state_territory text,
   show_date date,
   capacity integer,
+  capacity_bands jsonb,
   ticket_price decimal(10,2),
   sell_through_pct integer,
   show_order integer not null default 1,

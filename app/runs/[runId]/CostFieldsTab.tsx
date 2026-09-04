@@ -8,6 +8,13 @@ import ShowPackTab from './ShowPackTab'
 import TicketOutlookBlock from './TicketOutlookBlock'
 import { formatDateShortAU } from '@/lib/dates'
 import { runDateRangeFromShows } from '@/lib/run-dates'
+import BandedSellSlider from '@/components/BandedSellSlider'
+import {
+  normalizeCapacityBands,
+  topBandSeats,
+  modelledVenueStaffForTickets,
+  activeBandForTickets,
+} from '@/lib/capacity-bands'
 import {
   entriesSum as sumEntries,
   ensureMinimumEntry,
@@ -46,6 +53,7 @@ type Show = {
   state_territory: string | null
   show_date: string | null
   capacity: number | null
+  capacity_bands?: unknown | null
   ticket_price: number | null
   sell_through_pct: number | null
   show_order: number
@@ -1043,6 +1051,29 @@ export default function CostFieldsTab({
     setFields(prev => prev.map(f => f.id === fieldId ? { ...f, entries, value } : f))
   }
 
+
+/** Physical max / top band for sell-slider modelling. */
+function modelCapacity(show: Show): number | null {
+  const bands = normalizeCapacityBands(show.capacity_bands)
+  return topBandSeats(bands, show.capacity)
+}
+
+/** Calc-only venue staff $ — never writes back to cost_fields. */
+function calcVenueStaff(show: Show, pct: number, row: CostFieldRow | undefined): number | null {
+  const base = effectiveFieldValue(row)
+  const bands = normalizeCapacityBands(show.capacity_bands)
+  if (!bands.length) return base
+  const cap = modelCapacity(show)
+  const tickets = cap ? Math.round(cap * (pct / 100)) : 0
+  const lineItems = Array.isArray(row?.line_items) ? row!.line_items : null
+  return modelledVenueStaffForTickets({
+    bands,
+    tickets,
+    baseTotal: base,
+    lineItems,
+  })
+}
+
   function showFieldKey(showId: string, key: string) { return `${showId}:${key}` }
   function runFieldKey(key: string) { return `run:${key}` }
 
@@ -1054,8 +1085,9 @@ export default function CostFieldsTab({
 
   // Overview calculations
   function projectedBoxOffice(show: Show, pct: number) {
-    if (!show.capacity || !show.ticket_price) return null
-    return Math.round(show.capacity * (pct / 100) * show.ticket_price)
+    const cap = modelCapacity(show)
+    if (!cap || !show.ticket_price) return null
+    return Math.round(cap * (pct / 100) * show.ticket_price)
   }
 
   const totalRevenue = showsState.reduce((sum, s) => sum + (projectedBoxOffice(s, sellThrough[s.id] ?? 75) ?? 0), 0)
@@ -1064,7 +1096,7 @@ export default function CostFieldsTab({
 
   // social_ads_var is AUTO-CALC: tickets × $1.10 — computed live from sliders, not from stored value
   const dynamicSocialAds = showsState.reduce((sum, s) => {
-    const tickets = s.capacity ? Math.round(s.capacity * (sellThrough[s.id] ?? 75) / 100) : 0
+    const cap = modelCapacity(s); const tickets = cap ? Math.round(cap * (sellThrough[s.id] ?? 75) / 100) : 0
     return sum + Math.round(tickets * 1.10)
   }, 0)
 
@@ -1075,8 +1107,10 @@ export default function CostFieldsTab({
   }, 0)
 
   const showCostTotal = showsState.reduce((sum, show) => {
+    const pct = sellThrough[show.id] ?? 75
     return sum + SHOW_FIELDS.filter(f => f.category !== 'Revenue').reduce((s2, f) => {
       const row = fieldMap.get(showFieldKey(show.id, f.key))
+      if (f.key === 'venue_staff') return s2 + (calcVenueStaff(show, pct, row) ?? 0)
       return s2 + (effectiveFieldValue(row) ?? 0)
     }, 0)
   }, 0)
@@ -1130,7 +1164,7 @@ export default function CostFieldsTab({
     await supabase.from('shows').update({ sell_through_pct: pct }).eq('id', showId)
     // Keep stored social_ads_var in sync so Costs tab matches
     const newSocialAds = showsState.reduce((sum, s) => {
-      const tickets = s.capacity ? Math.round(s.capacity * (newSellThrough[s.id] ?? 75) / 100) : 0
+      const cap = modelCapacity(s); const tickets = cap ? Math.round(cap * (newSellThrough[s.id] ?? 75) / 100) : 0
       return sum + Math.round(tickets * 1.10)
     }, 0)
     const socialAdsField = fieldMap.get(runFieldKey('social_ads_var'))
@@ -1279,8 +1313,10 @@ export default function CostFieldsTab({
             <div className="space-y-3">
               {showsState.map(show => {
                 const pct = sellThrough[show.id] ?? 75
-                const tickets = show.capacity ? Math.round(show.capacity * pct / 100) : null
+                const cap = modelCapacity(show)
+                const tickets = cap ? Math.round(cap * pct / 100) : null
                 const gbo = projectedBoxOffice(show, pct)
+                const bands = normalizeCapacityBands(show.capacity_bands)
                 return (
                   <div key={show.id} className="bg-slate-800 rounded-xl border border-slate-700 p-3 sm:p-4">
                     <div className="flex items-center justify-between gap-3 mb-3">
@@ -1288,7 +1324,8 @@ export default function CostFieldsTab({
                         <div className="text-white text-sm font-semibold truncate">{show.venue_name}</div>
                         <div className="text-slate-500 text-xs mt-0.5 truncate">
                           {show.venue_city}{show.state_territory ? `, ${show.state_territory}` : ''} · {formatDateShortAU(show.show_date)}
-                          {show.capacity ? ` · Cap ${show.capacity.toLocaleString()}` : ''}
+                          {cap ? ` · Cap ${cap.toLocaleString()}` : ''}
+                          {bands.length > 1 ? ` · ${bands.length} bands` : ''}
                           {show.ticket_price != null ? ` · $${Number(show.ticket_price).toFixed(2)} nett/ticket` : ' · Ticket price —'}
                         </div>
                       </div>
@@ -1297,10 +1334,12 @@ export default function CostFieldsTab({
                         <div className="text-slate-500 text-xs">{tickets != null ? `${tickets.toLocaleString()} tix` : '—'}</div>
                       </div>
                     </div>
-                    <input type="range" min={0} max={100} value={pct}
-                      onChange={e => updateSellThrough(show.id, parseInt(e.target.value))}
-                      className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-700 accent-amber-400 mb-3"
-                      style={{ maxWidth: '100%' }}
+                    <BandedSellSlider
+                      value={pct}
+                      onChange={v => updateSellThrough(show.id, v)}
+                      capacity={cap}
+                      capacityBands={show.capacity_bands}
+                      className="mb-3"
                     />
                     <div className="flex justify-between text-sm gap-2 mb-1.5">
                       <span className="text-slate-400">Ticket price <span className="text-slate-500">(Harbour nett)</span></span>
@@ -1311,8 +1350,8 @@ export default function CostFieldsTab({
                     <div className="flex justify-between text-sm gap-2">
                       <span className="text-slate-400">
                         Gross Box Office
-                        {show.capacity && show.ticket_price != null ? (
-                          <span className="text-slate-600 font-normal"> · {show.capacity.toLocaleString()} × {pct}% × ${Number(show.ticket_price).toFixed(2)}</span>
+                        {cap && show.ticket_price != null ? (
+                          <span className="text-slate-600 font-normal"> · {cap.toLocaleString()} × {pct}% × ${Number(show.ticket_price).toFixed(2)}</span>
                         ) : null}
                       </span>
                       <span className="text-white font-semibold flex-shrink-0">{fmt(gbo)}</span>
@@ -1342,10 +1381,18 @@ export default function CostFieldsTab({
             <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">Venue Costs — Per Show</h3>
             <div className="bg-slate-800 rounded-xl border border-slate-700 divide-y divide-slate-700/60">
               {showsState.map(show => {
+                const pct = sellThrough[show.id] ?? 75
                 const hire = effectiveFieldValue(fieldMap.get(showFieldKey(show.id, 'venue_hire')))
-                const staff = effectiveFieldValue(fieldMap.get(showFieldKey(show.id, 'venue_staff')))
+                const staffRow = fieldMap.get(showFieldKey(show.id, 'venue_staff'))
+                const staffBase = effectiveFieldValue(staffRow)
+                const staff = calcVenueStaff(show, pct, staffRow)
+                const staffStepped = staffBase != null && staff != null && Math.abs(staff - staffBase) > 0.005
                 const prod = effectiveFieldValue(fieldMap.get(showFieldKey(show.id, 'production_costs')))
                 const showTotal = (hire ?? 0) + (staff ?? 0) + (prod ?? 0)
+                const bands = normalizeCapacityBands(show.capacity_bands)
+                const cap = modelCapacity(show)
+                const tickets = cap ? Math.round(cap * pct / 100) : 0
+                const band = activeBandForTickets(bands, tickets)
                 return (
                   <div key={show.id} className="p-3">
                     <div className="text-white text-sm font-medium mb-2">{show.venue_city} <span className="text-slate-500 font-normal text-xs">— {show.venue_name}</span></div>
@@ -1355,8 +1402,11 @@ export default function CostFieldsTab({
                         <div className="text-slate-200">{hire !== null ? fmt(hire) : <span className="text-red-400/70">—</span>}</div>
                       </div>
                       <div>
-                        <div className="text-slate-500 mb-0.5">Staff / On-costs</div>
+                        <div className="text-slate-500 mb-0.5">Staff / On-costs {staffStepped ? <span className="text-amber-400/80">(calc)</span> : null}</div>
                         <div className="text-slate-200">{staff !== null ? fmt(staff) : <span className="text-red-400/70">—</span>}</div>
+                        {staffStepped && staffBase != null && (
+                          <div className="text-slate-500 mt-0.5">Base {fmt(staffBase)}{band ? ` · ${band.label ?? band.seats}` : ''}</div>
+                        )}
                       </div>
                       <div>
                         <div className="text-slate-500 mb-0.5">Production / AV</div>
