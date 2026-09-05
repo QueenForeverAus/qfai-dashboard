@@ -103,22 +103,29 @@ export function buildSynopsis(
     }
   }
 
-  // Local transport
-  const transportLines: string[] = []
-  if (hasKia) transportLines.push('Kia Carnival hired for local transport between venues')
-  if (hasVan && hasFlights) transportLines.push('hired van driven from Melbourne with band gear')
-  if (transportLines.length) {
-    const joined = transportLines[0].charAt(0).toUpperCase() + transportLines[0].slice(1) +
-      (transportLines.length > 1 ? ' and ' + transportLines.slice(1).join(' and ') : '')
-    parts.push(joined + '.')
-  }
-
-  // Backline copy must follow run.region — G2 often has a $0 backline_hire seed row;
-  // treating row-presence as G3 caused contradictory R01 copy.
+  // Local transport + region logistics (must follow run.region)
+  // G2 often has a $0 backline_hire seed — never treat row-presence as Group 3.
   if (region === 'group3') {
     parts.push('Group 3 run — backline hired locally (drum kit, keys, guitar amps). Own gear stays in Melbourne.')
-  } else if (region === 'group2' && hasVan && hasFlights) {
-    parts.push('Group 2 — fly + van (not local backline hire).')
+  } else if (hasVan && hasFlights) {
+    // Preferred G2 wording (Lead / Gareth): kit in van from MEL + local Carnival hops.
+    const kit = 'Show kit travels with hired van from Melbourne'
+    const hops = hasKia
+      ? 'Kia Carnival (or equivalent) for local hops between venues'
+      : 'local car hire for hops between venues'
+    parts.push(`${kit}; ${hops}.`)
+    if (region === 'group2') {
+      parts.push('Group 2 — fly + van.')
+    }
+  } else {
+    const transportLines: string[] = []
+    if (hasKia) transportLines.push('Kia Carnival hired for local transport between venues')
+    if (hasVan) transportLines.push('hired van from Melbourne with band gear')
+    if (transportLines.length) {
+      const joined = transportLines[0].charAt(0).toUpperCase() + transportLines[0].slice(1) +
+        (transportLines.length > 1 ? ' and ' + transportLines.slice(1).join(' and ') : '')
+      parts.push(joined + '.')
+    }
   }
 
   // Accommodation
