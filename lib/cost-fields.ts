@@ -22,10 +22,11 @@ export const ENTRY_EXEMPT_FIELD_KEYS = new Set(['social_ads_var', 'gross_box_off
 
 /**
  * Fields production role may edit (matches CostFieldsTab visibility).
- * Run-level Production category + per-show venue_staff / production_costs.
+ * Run-level Production category + per-show venue_staff / venue_marketing / production_costs.
  */
 export const PRODUCTION_EDITABLE_FIELD_KEYS = new Set([
   'venue_staff',
+  'venue_marketing',
   'production_costs',
   'lighting_hire',
   'backline_hire',
@@ -37,6 +38,7 @@ export const DEFINED_SHOW_COST_FIELDS: CostFieldDef[] = [
   { key: 'gross_box_office', label: 'Gross Box Office', category: 'Revenue', defaultState: 'pending', scope: 'show' },
   { key: 'venue_hire', label: 'Venue Hire', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
   { key: 'venue_staff', label: 'Venue Staff / On-costs', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
+  { key: 'venue_marketing', label: 'Venue Marketing', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
   { key: 'production_costs', label: 'Production / AV', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
 ]
 
@@ -106,7 +108,13 @@ export function ensureMinimumEntry(
   }]
 }
 
-/** Normalize entries payload from client; drop invalid rows. */
+/**
+ * Normalize entries payload from client; drop invalid rows.
+ * Venue cue classification is `classifyVenueLine` / `classifyVenueCostCue`
+ * in `lib/venue-cost-classify.ts` — normalize stays shape-only (per-field).
+ * Ingest paths that assign field_key should classify first; misfiles are
+ * moved via `reclassifyShowVenueLines` (clears venue_staff.line_items).
+ */
 export function normalizeEntries(raw: unknown): CostEntry[] | null {
   if (raw === undefined) return null
   if (!Array.isArray(raw)) return []

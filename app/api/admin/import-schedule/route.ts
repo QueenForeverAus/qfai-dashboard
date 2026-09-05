@@ -3,6 +3,9 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
 import { explainRunRegion, type ShowLocationInput } from '@/lib/region-classify'
+// Import Schedule updates show itinerary only — it does not ingest venue_staff /
+// production cost line items. Classify those cues with classifyVenueLine
+// (`lib/venue-cost-classify.ts`) or POST /api/admin/reclassify-venue-costs.
 
 type SheetShow = {
   show_date: string
