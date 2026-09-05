@@ -3,9 +3,11 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import {
   SHOW_SELECT_COLS,
+  SHOW_WORKSHEET_FIELDS,
   canEditWorksheet,
   pickShowWorksheetUpdates,
 } from '@/lib/worksheet-fields'
+import { auditFieldDiffs, setAuditActor, writeAuditLog } from '@/lib/audit-log'
 
 /**
  * Advancing tab saves the same shows.* columns Worksheet reads.
@@ -62,6 +64,14 @@ export async function PATCH(
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
   }
 
+  const { data: existing } = await supabase
+    .from('shows')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  await setAuditActor(supabase, user.id)
+
   const { data, error } = await supabase
     .from('shows')
     .update({ ...updates, updated_by: user.id })
@@ -70,5 +80,20 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  const runId = (existing?.run_id as string | null) ?? null
+  await writeAuditLog(
+    supabase,
+    user.id,
+    auditFieldDiffs(
+      'shows',
+      id,
+      runId,
+      (existing ?? {}) as Record<string, unknown>,
+      { ...(existing ?? {}), ...updates } as Record<string, unknown>,
+      SHOW_WORKSHEET_FIELDS,
+    ),
+  )
+
   return NextResponse.json({ show: data })
 }

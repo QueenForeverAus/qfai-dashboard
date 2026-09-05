@@ -3,11 +3,18 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import {
   SHOW_SELECT_COLS,
+  SHOW_WORKSHEET_FIELDS,
   canEditWorksheet,
   pickRunWorksheetUpdates,
   pickShowWorksheetUpdates,
 } from '@/lib/worksheet-fields'
 import { runDateRangeFromShows } from '@/lib/run-dates'
+import {
+  RUN_WORKSHEET_AUDIT_FIELDS,
+  auditFieldDiffs,
+  setAuditActor,
+  writeAuditLog,
+} from '@/lib/audit-log'
 
 async function resolveRunId(supabase: ReturnType<typeof createAdminClient>, runIdOrCode: string): Promise<string | null> {
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(runIdOrCode)) return runIdOrCode
@@ -111,14 +118,36 @@ export async function PATCH(
       return NextResponse.json({ error: 'No valid show fields to update' }, { status: 400 })
     }
 
+    const { data: existing } = await supabase
+      .from('shows')
+      .select('*')
+      .eq('id', body.show_id)
+      .eq('run_id', runId)
+      .single()
+
+    await setAuditActor(supabase, user.id)
+
     const { data, error } = await supabase
       .from('shows')
-      .update(updates)
+      .update({ ...updates, updated_by: user.id })
       .eq('id', body.show_id)
       .eq('run_id', runId)
       .select(SHOW_SELECT_COLS)
       .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    await writeAuditLog(
+      supabase,
+      user.id,
+      auditFieldDiffs(
+        'shows',
+        body.show_id as string,
+        runId,
+        (existing ?? {}) as Record<string, unknown>,
+        { ...(existing ?? {}), ...updates } as Record<string, unknown>,
+        SHOW_WORKSHEET_FIELDS,
+      ),
+    )
     return NextResponse.json({ show: data })
   }
 
@@ -131,6 +160,15 @@ export async function PATCH(
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: 'No valid run fields to update' }, { status: 400 })
     }
+
+    const { data: existing } = await supabase
+      .from('runs')
+      .select('id, flights_notes, vehicles_notes, hotels_overview_notes')
+      .eq('id', runId)
+      .single()
+
+    await setAuditActor(supabase, user.id)
+
     const { data, error } = await supabase
       .from('runs')
       .update(updates)
@@ -138,6 +176,19 @@ export async function PATCH(
       .select('id, flights_notes, vehicles_notes, hotels_overview_notes')
       .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    await writeAuditLog(
+      supabase,
+      user.id,
+      auditFieldDiffs(
+        'runs',
+        runId,
+        runId,
+        (existing ?? {}) as Record<string, unknown>,
+        (data ?? {}) as Record<string, unknown>,
+        RUN_WORKSHEET_AUDIT_FIELDS,
+      ),
+    )
     return NextResponse.json({ run: data })
   }
 

@@ -2,6 +2,12 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { ASSIGNABLE_OWNERS, normalizeAssignedTo } from '@/lib/advancement-checklist'
+import {
+  ADVANCEMENT_AUDIT_FIELDS,
+  auditFieldDiffs,
+  setAuditActor,
+  writeAuditLog,
+} from '@/lib/audit-log'
 
 const ALLOWED_STATUSES = ['pending', 'done', 'n_a']
 
@@ -44,6 +50,14 @@ export async function PATCH(
   }
 
   const supabase = createAdminClient()
+  const { data: existing } = await supabase
+    .from('advancement_items')
+    .select('*')
+    .eq('id', itemId)
+    .single()
+
+  await setAuditActor(supabase, user.id)
+
   const { data, error } = await supabase
     .from('advancement_items')
     .update(updates)
@@ -52,6 +66,21 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  const runId = (data?.run_id as string | null) ?? (existing?.run_id as string | null) ?? null
+  await writeAuditLog(
+    supabase,
+    user.id,
+    auditFieldDiffs(
+      'advancement_items',
+      itemId,
+      runId,
+      (existing ?? {}) as Record<string, unknown>,
+      (data ?? {}) as Record<string, unknown>,
+      ADVANCEMENT_AUDIT_FIELDS,
+    ),
+  )
+
   return NextResponse.json({
     ...data,
     assigned_to: normalizeAssignedTo(data.assigned_to as string),

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { syncRunDatesFromShows } from '@/lib/run-dates'
 import { normalizeCapacityBands, topBandSeats } from '@/lib/capacity-bands'
 import { NextRequest, NextResponse } from 'next/server'
+import { auditFieldDiffs, setAuditActor, writeAuditLog } from '@/lib/audit-log'
 
 export async function PATCH(
   req: NextRequest,
@@ -39,7 +40,11 @@ export async function PATCH(
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
   }
 
-  updates.updated_by = user.id
+  const { data: existing } = await supabase
+    .from('shows')
+    .select('*')
+    .eq('id', id)
+    .single()
 
   // Normalize capacity_bands; keep shows.capacity = top band when bands present.
   // Never touch venue_staff from this path.
@@ -50,6 +55,9 @@ export async function PATCH(
     if (top != null) updates.capacity = top
   }
 
+  updates.updated_by = user.id
+  await setAuditActor(supabase, user.id)
+
   const { data, error } = await supabase
     .from('shows')
     .update(updates)
@@ -58,6 +66,21 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  const runId = (data?.run_id as string | null) ?? (existing?.run_id as string | null) ?? null
+  const patchedFields = Object.keys(updates).filter(k => k !== 'updated_by' && k !== 'updated_at')
+  await writeAuditLog(
+    supabase,
+    user.id,
+    auditFieldDiffs(
+      'shows',
+      id,
+      runId,
+      (existing ?? {}) as Record<string, unknown>,
+      (data ?? {}) as Record<string, unknown>,
+      patchedFields,
+    ),
+  )
 
   // Keep denormalized runs.start_date / end_date in sync with shows.show_date (SoT)
   if (data?.run_id) {

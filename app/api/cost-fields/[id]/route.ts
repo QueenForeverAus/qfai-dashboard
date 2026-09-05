@@ -9,6 +9,12 @@ import {
   normalizeEntries,
   productionCanEditFieldKey,
 } from '@/lib/cost-fields'
+import {
+  COST_FIELD_AUDIT_FIELDS,
+  auditFieldDiffs,
+  setAuditActor,
+  writeAuditLog,
+} from '@/lib/audit-log'
 
 type LineItem = {
   role: string
@@ -133,6 +139,9 @@ export async function PATCH(
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
   }
 
+  updates.updated_by = user.id
+  await setAuditActor(supabase, user.id)
+
   const { data, error } = await supabase
     .from('cost_fields')
     .update(updates)
@@ -141,5 +150,20 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  const runId = (existing.run_id as string | null) ?? (data?.run_id as string | null) ?? null
+  await writeAuditLog(
+    supabase,
+    user.id,
+    auditFieldDiffs(
+      'cost_fields',
+      id,
+      runId,
+      existing as Record<string, unknown>,
+      (data ?? {}) as Record<string, unknown>,
+      COST_FIELD_AUDIT_FIELDS,
+    ),
+  )
+
   return NextResponse.json(data)
 }
