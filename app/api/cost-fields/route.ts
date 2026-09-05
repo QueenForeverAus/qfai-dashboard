@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
     source: body.source ?? null,
     line_items: body.line_items ?? null,
     entries,
+    updated_by: user.id,
   }
 
   const { data, error } = await supabase

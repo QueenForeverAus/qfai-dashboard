@@ -286,7 +286,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
           new_value: r.new_value,
           changed_at: formatDateTimeAU(r.changed_at),
           change_type: r.change_type,
-          changed_by_name: r.profiles?.full_name ?? 'Unknown',
+          changed_by_name: r.profiles?.full_name ?? 'System',
         }))}
       />
     </div>

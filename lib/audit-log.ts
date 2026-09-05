@@ -23,7 +23,9 @@ export const ADVANCEMENT_AUDIT_FIELDS = [
   'status',
   'notes',
   'assigned_to',
-  'done',
+  'paid',
+  'payment_type',
+  'label',
 ] as const
 
 export const RUN_WORKSHEET_AUDIT_FIELDS = [
