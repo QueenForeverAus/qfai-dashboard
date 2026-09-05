@@ -26,12 +26,12 @@ export const ENTRY_EXEMPT_FIELD_KEYS = new Set(['social_ads_var', 'gross_box_off
  */
 export const PRODUCTION_EDITABLE_FIELD_KEYS = new Set([
   'venue_staff',
-  'venue_marketing',
   'production_costs',
   'lighting_hire',
   'backline_hire',
   'food_basics',
 ])
+// venue_marketing intentionally omitted — production must not see Venue Marketing (Lead 2026-09-05)
 
 /** Canonical per-show cost lines shown in Run Costing. */
 export const DEFINED_SHOW_COST_FIELDS: CostFieldDef[] = [
