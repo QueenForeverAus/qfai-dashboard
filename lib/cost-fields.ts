@@ -26,6 +26,7 @@ export const ENTRY_EXEMPT_FIELD_KEYS = new Set(['social_ads_var', 'gross_box_off
  */
 export const PRODUCTION_EDITABLE_FIELD_KEYS = new Set([
   'venue_staff',
+  'venue_marketing',
   'production_costs',
   'lighting_hire',
   'backline_hire',
@@ -37,6 +38,7 @@ export const DEFINED_SHOW_COST_FIELDS: CostFieldDef[] = [
   { key: 'gross_box_office', label: 'Gross Box Office', category: 'Revenue', defaultState: 'pending', scope: 'show' },
   { key: 'venue_hire', label: 'Venue Hire', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
   { key: 'venue_staff', label: 'Venue Staff / On-costs', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
+  { key: 'venue_marketing', label: 'Venue Marketing', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
   { key: 'production_costs', label: 'Production / AV', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
 ]
 

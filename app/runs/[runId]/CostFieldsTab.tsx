@@ -975,7 +975,7 @@ export default function CostFieldsTab({
   const isProduction = effectiveRole === 'production'
   // Which per-show fields production can see (no revenue, no venue hire)
   const visibleShowFields = isProduction
-    ? SHOW_FIELDS.filter(f => f.key === 'venue_staff' || f.key === 'production_costs')
+    ? SHOW_FIELDS.filter(f => f.key === 'venue_staff' || f.key === 'venue_marketing' || f.key === 'production_costs')
     : SHOW_FIELDS.filter(f => f.category !== 'Revenue')
   // Which run-level categories production can see (only Production = lighting_hire)
   const visibleRunCategories = isProduction
