@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
 import { explainRunRegion, type ShowLocationInput } from '@/lib/region-classify'
+import { reclassifyShowVenueLines } from '@/lib/venue-line-classifier'
 
 type SheetShow = {
   show_date: string
@@ -435,9 +436,32 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  // Best-effort: reclassify venue staff / marketing / production lines for patched shows.
+  // Import Schedule itself does not create cost_fields rows; this moves mis-filed entries
+  // when Harbour schedule updates land on shows that already have venue cost lines.
+  const venue_reclassify: { show_id: string; moved: number; flagged: number }[] = []
+  for (const u of body.updates ?? []) {
+    try {
+      const result = await reclassifyShowVenueLines({
+        adminClient: supabase,
+        showId: u.show_id,
+      })
+      if (result.moved > 0 || result.flagged > 0) {
+        venue_reclassify.push({
+          show_id: u.show_id,
+          moved: result.moved,
+          flagged: result.flagged,
+        })
+      }
+    } catch (err) {
+      console.error('venue reclassify after import-schedule failed', u.show_id, err)
+    }
+  }
+
   return NextResponse.json({
     shows_updated: showsUpdated,
     runs_updated: runsUpdated,
     region_updates: regionResults,
+    venue_reclassify,
   })
 }

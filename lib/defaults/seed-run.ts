@@ -213,6 +213,13 @@ export async function seedRunDefaults(
       }))
       rows.push(withDefaultEntry({
         run_id: runId, show_id: show.id,
+        category: 'Venue Costs', field_key: 'venue_marketing',
+        label: 'Venue Marketing',
+        value: 0, state: 'guess',
+        source: 'Venue marketing levy / promo / EDM campaigns — classify from Harbour quotes.',
+      }))
+      rows.push(withDefaultEntry({
+        run_id: runId, show_id: show.id,
         category: 'Venue Costs', field_key: 'production_costs',
         label: 'Production / AV',
         value: null, state: 'pending',
@@ -226,6 +233,7 @@ export async function seedRunDefaults(
         withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Revenue', field_key: 'gross_box_office', label: 'Gross Box Office', value: null, state: 'pending', source: null }),
         withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_hire', label: 'Venue Hire', value: null, state: 'guess', source: null }),
         withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_staff', label: 'Venue Staff / On-costs', value: null, state: 'guess', source: null, line_items: [] }),
+        withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_marketing', label: 'Venue Marketing', value: 0, state: 'guess', source: null }),
         withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'production_costs', label: 'Production / AV', value: null, state: 'pending', source: null }),
       )
     }
