@@ -94,7 +94,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
   const [{ data: shows }, { data: costFields }, { data: auditRows }] = await Promise.all([
     supabase.from('shows').select('*').eq('run_id', run.id).order('show_order'),
     supabase.from('cost_fields').select('*').eq('run_id', run.id).order('show_id', { ascending: true, nullsFirst: false }),
-    supabase.from('audit_log').select('*, profiles(full_name)').eq('record_id', run.id).order('changed_at', { ascending: false }).limit(50),
+    supabase.from('audit_log').select('*, profiles(full_name)').or(`run_id.eq.${run.id},record_id.eq.${run.id}`).order('changed_at', { ascending: false }).limit(100),
   ])
 
   // Auto-seed defaults on first view
@@ -269,7 +269,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
           new_value: r.new_value,
           changed_at: formatDateTimeAU(r.changed_at),
           change_type: r.change_type,
-          changed_by_name: r.profiles?.full_name ?? 'Unknown',
+          changed_by_name: r.profiles?.full_name ?? 'System',
         }))}
       />
     </div>

@@ -64,7 +64,7 @@ export async function PATCH(
 
   const { data, error } = await supabase
     .from('shows')
-    .update(updates)
+    .update({ ...updates, updated_by: user.id })
     .eq('id', id)
     .select(SHOW_SELECT_COLS)
     .single()

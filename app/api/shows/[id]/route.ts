@@ -39,6 +39,8 @@ export async function PATCH(
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
   }
 
+  updates.updated_by = user.id
+
   // Normalize capacity_bands; keep shows.capacity = top band when bands present.
   // Never touch venue_staff from this path.
   if ('capacity_bands' in updates) {
