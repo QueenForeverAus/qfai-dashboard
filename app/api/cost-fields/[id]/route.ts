@@ -73,6 +73,7 @@ export async function PATCH(
   const body = await req.json()
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
+    updated_by: user.id,
   }
 
   if (body.state !== undefined) {

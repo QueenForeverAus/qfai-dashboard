@@ -61,6 +61,7 @@ export interface AuditLog {
   id: string
   table_name: string
   record_id: string
+  run_id?: string | null
   field_name: string | null
   old_value: string | null
   new_value: string | null
