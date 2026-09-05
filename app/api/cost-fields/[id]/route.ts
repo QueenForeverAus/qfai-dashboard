@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { diffAuditFields, insertAuditRows } from '@/lib/audit-log'
 import {
   canEditCostFields,
   ensureMinimumEntry,
@@ -129,7 +130,8 @@ export async function PATCH(
     updates.value = total === 0 ? null : total
   }
 
-  if (Object.keys(updates).length <= 1) {
+  const mutableKeys = Object.keys(updates).filter((k) => k !== 'updated_at' && k !== 'updated_by')
+  if (mutableKeys.length === 0) {
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
   }
 
@@ -141,5 +143,18 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  const runId = (data?.run_id as string | null) ?? (existing.run_id as string | null) ?? null
+  const auditFields = ['value', 'state', 'source', 'entries', 'line_items', 'label']
+  const changes = diffAuditFields(
+    'cost_fields',
+    id,
+    runId,
+    existing as Record<string, unknown>,
+    data as Record<string, unknown>,
+    auditFields,
+  )
+  await insertAuditRows(supabase, user.id, changes)
+
   return NextResponse.json(data)
 }

@@ -6,6 +6,7 @@ import {
   canEditWorksheet,
   pickShowWorksheetUpdates,
 } from '@/lib/worksheet-fields'
+import { diffAuditFields, insertAuditRows } from '@/lib/audit-log'
 
 /**
  * Advancing tab saves the same shows.* columns Worksheet reads.
@@ -62,13 +63,36 @@ export async function PATCH(
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
   }
 
+  const { data: existingAdvance, error: existingErr } = await supabase
+    .from('shows')
+    .select('*')
+    .eq('id', id)
+    .single()
+  if (existingErr || !existingAdvance) {
+    return NextResponse.json({ error: 'Show not found' }, { status: 404 })
+  }
+
   const { data, error } = await supabase
     .from('shows')
     .update({ ...updates, updated_by: user.id })
     .eq('id', id)
-    .select(SHOW_SELECT_COLS)
+    .select('*')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await insertAuditRows(
+    supabase,
+    user.id,
+    diffAuditFields(
+      'shows',
+      id,
+      (data?.run_id as string | null) ?? (existingAdvance.run_id as string | null) ?? null,
+      existingAdvance as Record<string, unknown>,
+      data as Record<string, unknown>,
+      Object.keys(updates),
+    ),
+  )
+
   return NextResponse.json({ show: data })
 }

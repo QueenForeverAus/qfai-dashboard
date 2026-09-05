@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { ASSIGNABLE_OWNERS, normalizeAssignedTo } from '@/lib/advancement-checklist'
+import { diffAuditFields, insertAuditRows } from '@/lib/audit-log'
 
 const ALLOWED_STATUSES = ['pending', 'done', 'n_a']
 
@@ -44,6 +45,15 @@ export async function PATCH(
   }
 
   const supabase = createAdminClient()
+  const { data: existingItem, error: existingErr } = await supabase
+    .from('advancement_items')
+    .select('*')
+    .eq('id', itemId)
+    .single()
+  if (existingErr || !existingItem) {
+    return NextResponse.json({ error: 'Item not found' }, { status: 404 })
+  }
+
   const { data, error } = await supabase
     .from('advancement_items')
     .update(updates)
@@ -52,6 +62,20 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await insertAuditRows(
+    supabase,
+    user.id,
+    diffAuditFields(
+      'advancement_items',
+      itemId,
+      (data?.run_id as string | null) ?? (existingItem.run_id as string | null) ?? null,
+      existingItem as Record<string, unknown>,
+      data as Record<string, unknown>,
+      ['status', 'notes', 'paid', 'payment_type', 'label', 'assigned_to'],
+    ),
+  )
+
   return NextResponse.json({
     ...data,
     assigned_to: normalizeAssignedTo(data.assigned_to as string),

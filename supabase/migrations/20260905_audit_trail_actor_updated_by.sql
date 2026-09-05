@@ -1,14 +1,13 @@
--- STAGING ONLY (nlenbzhwnyigsihcphoz). Applied via MCP apply_migration names:
+-- STAGING ONLY (nlenbzhwnyigsihcphoz). Applied via MCP apply_migration:
 --   audit_log_run_id_and_triggers, audit_trail_triggers,
 --   audit_trail_actor_updated_by, audit_trail_dedupe_triggers
--- DO NOT apply to prod (pfbgrukqxegkiaksuatm) from this agent.
--- Additive; does NOT wipe audit_log; does NOT invent historical who (no backfill).
+-- DO NOT apply to prod (pfbgrukqxegkiaksuatm) from automation without Lead approval.
+-- Additive; does NOT wipe audit_log; NO historical who backfill (updated_by was null).
 --
--- Effect on staging:
--- 1) audit_log.run_id + indexes
--- 2) updated_by on cost_fields/shows/advancement_items
--- 3) SECURITY DEFINER tg_audit_* triggers on cost_fields/shows/advancement_items/runs
--- 4) audit_actor() = auth.uid() OR app.user_id OR app.audit_actor; triggers also use NEW.updated_by
--- 5) Duplicate trg_qf_audit_* triggers dropped (dedupe)
---
--- Full SQL lives in 20260905_audit_trail_triggers.sql plus MCP-applied patches above.
+-- Staging effect:
+-- 1) audit_log.run_id + indexes (audit_log_run_id_idx, audit_log_run_id_changed_at_idx)
+-- 2) updated_by on cost_fields / shows / advancement_items
+-- 3) SECURITY DEFINER tg_audit_* on cost_fields / shows / advancement_items / runs
+-- 4) audit_actor() = auth.uid() OR app.user_id OR app.audit_actor; triggers also NEW.updated_by
+-- 5) Duplicate trg_qf_audit_* dropped
+-- Full trigger SQL: see 20260905_audit_trail_triggers.sql

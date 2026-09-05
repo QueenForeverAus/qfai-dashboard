@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { syncRunDatesFromShows } from '@/lib/run-dates'
 import { normalizeCapacityBands, topBandSeats } from '@/lib/capacity-bands'
 import { NextRequest, NextResponse } from 'next/server'
+import { diffAuditFields, insertAuditRows } from '@/lib/audit-log'
 
 export async function PATCH(
   req: NextRequest,
@@ -39,6 +40,15 @@ export async function PATCH(
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
   }
 
+  const { data: existingShow, error: existingErr } = await supabase
+    .from('shows')
+    .select('*')
+    .eq('id', id)
+    .single()
+  if (existingErr || !existingShow) {
+    return NextResponse.json({ error: 'Show not found' }, { status: 404 })
+  }
+
   updates.updated_by = user.id
 
   // Normalize capacity_bands; keep shows.capacity = top band when bands present.
@@ -58,6 +68,20 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  const auditKeys = Object.keys(updates).filter((k) => k !== 'updated_by')
+  await insertAuditRows(
+    supabase,
+    user.id,
+    diffAuditFields(
+      'shows',
+      id,
+      (data?.run_id as string | null) ?? (existingShow.run_id as string | null) ?? null,
+      existingShow as Record<string, unknown>,
+      data as Record<string, unknown>,
+      auditKeys,
+    ),
+  )
 
   // Keep denormalized runs.start_date / end_date in sync with shows.show_date (SoT)
   if (data?.run_id) {
