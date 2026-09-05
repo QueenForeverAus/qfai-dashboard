@@ -1,4 +1,5 @@
 import { formatDateAU } from '@/lib/dates'
+import type { RunRegion } from '@/lib/types'
 
 type Show = {
   show_order: number
@@ -33,6 +34,7 @@ function entries(f: CostField): Array<{ description?: string }> {
 export function buildSynopsis(
   shows: Show[],
   costFields: CostField[],
+  region?: RunRegion | string | null,
 ): string {
   const numShows = shows.length
   if (numShows === 0) return 'No shows configured yet — add show details to generate a synopsis.'
@@ -59,7 +61,6 @@ export function buildSynopsis(
   const field = (key: string) => costFields.find(f => f.field_key === key)
 
   const hasFlights    = !!(field('flights')?.value)
-  const hasBackline   = !!field('backline_hire')
   const hasBradDriver = !!(field('brad_driver_fee')?.value)
   const hasCrewTDay   = !!(field('crew_travel_day')?.value)
   const gtField       = field('ground_transport')
@@ -112,9 +113,12 @@ export function buildSynopsis(
     parts.push(joined + '.')
   }
 
-  // Backline
-  if (hasBackline) {
+  // Backline copy must follow run.region — G2 often has a $0 backline_hire seed row;
+  // treating row-presence as G3 caused contradictory R01 copy.
+  if (region === 'group3') {
     parts.push('Group 3 run — backline hired locally (drum kit, keys, guitar amps). Own gear stays in Melbourne.')
+  } else if (region === 'group2' && hasVan && hasFlights) {
+    parts.push('Group 2 — fly + van (not local backline hire).')
   }
 
   // Accommodation
