@@ -51,7 +51,7 @@ type AuditRow = {
   new_value: string | null
   changed_at: string
   change_type: string
-  profiles: { full_name: string } | null
+  profiles?: { full_name: string } | null
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -91,11 +91,28 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
 
   if (!run) notFound()
 
-  const [{ data: shows }, { data: costFields }, { data: auditRows }] = await Promise.all([
+  const auditOr = `run_id.eq.${run.id},record_id.eq.${run.id}`
+  const [{ data: shows }, { data: costFields }, auditResult] = await Promise.all([
     supabase.from('shows').select('*').eq('run_id', run.id).order('show_order'),
     supabase.from('cost_fields').select('*').eq('run_id', run.id).order('show_id', { ascending: true, nullsFirst: false }),
-    supabase.from('audit_log').select('*, profiles(full_name)').eq('record_id', run.id).order('changed_at', { ascending: false }).limit(50),
+    (async () => {
+      const joined = await supabase
+        .from('audit_log')
+        .select('*, profiles(full_name)')
+        .or(auditOr)
+        .order('changed_at', { ascending: false })
+        .limit(100)
+      if (!joined.error) return joined
+      // FK embed can fail when changed_by is null — still return the rows.
+      return supabase
+        .from('audit_log')
+        .select('*')
+        .or(auditOr)
+        .order('changed_at', { ascending: false })
+        .limit(100)
+    })(),
   ])
+  const auditRows = auditResult.data
 
   // Auto-seed defaults on first view
   const typedShows = (shows ?? []) as Show[]
