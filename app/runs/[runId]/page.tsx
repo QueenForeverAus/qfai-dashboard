@@ -245,7 +245,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
       {/* Run synopsis — auto-generated, owner-editable */}
       <SynopsisBlock
         runId={run.id}
-        initialText={run.synopsis ?? buildSynopsis(typedShows, typedFields)}
+        initialText={run.synopsis ?? buildSynopsis(typedShows, typedFields, run.region)}
         isOwnerOrAdmin={isOwnerOrAdmin}
       />
 
