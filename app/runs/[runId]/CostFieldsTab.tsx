@@ -29,6 +29,7 @@ import {
 } from '@/lib/cost-fields'
 import {
   NOTES_SOURCE_OF_DATA_LABEL,
+  NOTES_INPUT_LABEL,
   enteredByLabel,
   formatNotesSource,
   staffDisplayName,
@@ -249,8 +250,8 @@ function EntryRow({
           placeholder="Description"
           className="w-full bg-slate-900 border border-amber-400/50 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
         <input value={notes} onChange={e => setNotes(e.target.value)}
-          placeholder={NOTES_SOURCE_OF_DATA_LABEL}
-          aria-label={NOTES_SOURCE_OF_DATA_LABEL}
+          placeholder={NOTES_INPUT_LABEL}
+          aria-label={NOTES_INPUT_LABEL}
           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
         <div className="flex items-center gap-1.5">
           <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
@@ -485,8 +486,8 @@ function EntryPanel({
         <input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description"
           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
         <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
-          placeholder={NOTES_SOURCE_OF_DATA_LABEL}
-          aria-label={NOTES_SOURCE_OF_DATA_LABEL}
+          placeholder={NOTES_INPUT_LABEL}
+          aria-label={NOTES_INPUT_LABEL}
           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
         <div className="flex items-center gap-1.5">
           <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="$0"
@@ -821,10 +822,10 @@ function VenueStaffRow({
                             <button onClick={() => removeItem(idx)} className="text-slate-600 hover:text-red-400 text-sm transition-colors pt-1.5 shrink-0">✕</button>
                           </div>
                           <div className="sm:hidden mb-2">
-                            <div className="text-slate-500 text-xs mb-0.5">{NOTES_SOURCE_OF_DATA_LABEL}</div>
+                            <div className="text-slate-500 text-xs mb-0.5">{NOTES_INPUT_LABEL}</div>
                             <input type="text" value={item.source || ''} onChange={e => updateItem(idx, 'source', e.target.value)}
-                              placeholder={NOTES_SOURCE_OF_DATA_LABEL}
-                              aria-label={NOTES_SOURCE_OF_DATA_LABEL}
+                              placeholder={NOTES_INPUT_LABEL}
+                              aria-label={NOTES_INPUT_LABEL}
                               className="bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-amber-400 w-full" />
                           </div>
                           <div className="grid grid-cols-3 gap-2 sm:hidden">
@@ -851,8 +852,8 @@ function VenueStaffRow({
                             <input type="text" value={item.role} onChange={e => updateItem(idx, 'role', e.target.value)} placeholder="e.g. Usher" autoFocus
                               className="bg-slate-900 border border-amber-400/50 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 min-w-0" />
                             <input type="text" value={item.source || ''} onChange={e => updateItem(idx, 'source', e.target.value)}
-                              placeholder={NOTES_SOURCE_OF_DATA_LABEL}
-                              aria-label={NOTES_SOURCE_OF_DATA_LABEL}
+                              placeholder={NOTES_INPUT_LABEL}
+                              aria-label={NOTES_INPUT_LABEL}
                               className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-amber-400 min-w-0" />
                             <input type="number" value={item.rate || ''} onChange={e => updateItem(idx, 'rate', e.target.value)} placeholder="0"
                               className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 w-full" />
