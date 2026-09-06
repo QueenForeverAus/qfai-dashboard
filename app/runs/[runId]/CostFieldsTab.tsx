@@ -183,16 +183,53 @@ function fmt(n: number | null) {
 
 // ─── Entry / Receipts panel ──────────────────────────────────────────────────
 
+
+const FACTOR_FIELD_KEYS = new Set([
+  'ground_transport',
+  'accommodation',
+  'lighting_hire',
+  'food_basics',
+  'per_diems',
+  'backline_hire',
+  'crew_travel_day',
+  'brad_driver_fee',
+])
+
+/** Notes/Ref cell: prefer entry notes; fall back to field-level source (short). Never merge into description. */
+function formatNotesRef(
+  notes: string | null | undefined,
+  fieldSource?: string | null,
+  fieldKey?: string | null,
+): string {
+  let n = (notes ?? '').trim()
+  if (n) {
+    // Factor-driven lines: keep blurb, append Source: Factors (idempotent) for staging rows seeded before this label.
+    if (fieldKey && FACTOR_FIELD_KEYS.has(fieldKey) && !/Source:\s*Factors/i.test(n) && !/Source:\s*\d{4}\s+remittance/i.test(n)) {
+      n = `${n} — Source: Factors`
+    }
+    return n
+  }
+  const s = (fieldSource ?? '').trim()
+  if (!s) return ''
+  // Prefer a concise lead clause for the column (Staff remittance family).
+  const lead = s.split(/(?<=\.)\s+/)[0] || s
+  return lead.length > 140 ? `${lead.slice(0, 137)}…` : lead
+}
+
 function EntryRow({
   entry,
   onUpdate,
   onRemove,
   canRemove,
+  fieldSource,
+  fieldKey,
 }: {
   entry: Entry
   onUpdate: (updated: Entry) => void
   onRemove: () => void
   canRemove: boolean
+  fieldSource?: string | null
+  fieldKey?: string | null
 }) {
   const [editing, setEditing] = useState(false)
   const [desc, setDesc] = useState(entry.description)
@@ -208,6 +245,8 @@ function EntryRow({
   function toggleConfirmed() {
     onUpdate({ ...entry, confirmed: !entry.confirmed })
   }
+
+  const notesRef = formatNotesRef(entry.notes, fieldSource, fieldKey)
 
   if (editing) {
     return (
@@ -236,8 +275,8 @@ function EntryRow({
 
   return (
     <div className="py-1.5 border-t border-slate-700/30 first:border-0 group">
-      {/* Main row: confirmed toggle + description + amount + gst + actions */}
-      <div className="flex items-center gap-1.5">
+      {/* Desktop: Description | Notes/Ref | Amount | GST | actions — matches header columns */}
+      <div className="hidden sm:flex items-center gap-1.5">
         <button
           onClick={toggleConfirmed}
           title={entry.confirmed ? 'Mark as estimate' : 'Mark as confirmed'}
@@ -246,10 +285,15 @@ function EntryRow({
           }`}>
           {entry.confirmed ? '✓' : '·'}
         </button>
-        <span className={`flex-1 text-xs truncate ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
+        <span className={`flex-1 min-w-0 text-xs truncate ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
           {entry.description || '—'}
         </span>
-        <span className={`flex-shrink-0 text-xs font-medium tabular-nums ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
+        <span
+          title={notesRef || undefined}
+          className="flex-1 min-w-0 text-xs text-slate-500 truncate">
+          {notesRef || '—'}
+        </span>
+        <span className={`flex-shrink-0 w-20 text-right text-xs font-medium tabular-nums ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
           {fmt(entry.amount)}
         </span>
         <span
@@ -258,19 +302,57 @@ function EntryRow({
           {entry.gst_included ? 'inc' : 'ex'}
         </span>
         <button onClick={() => setEditing(true)}
-          className="flex-shrink-0 text-slate-700 hover:text-amber-400 text-xs transition-colors sm:opacity-0 sm:group-hover:opacity-100">
+          title="Edit entry"
+          className="flex-shrink-0 w-4 text-slate-700 hover:text-amber-400 text-xs transition-colors sm:opacity-0 sm:group-hover:opacity-100">
           ✎
         </button>
         <button onClick={onRemove} disabled={!canRemove}
           title={canRemove ? 'Remove entry' : 'Cannot remove the last entry'}
-          className="flex-shrink-0 text-slate-700 hover:text-red-400 text-xs transition-colors sm:opacity-0 sm:group-hover:opacity-100 disabled:opacity-20 disabled:hover:text-slate-700 disabled:cursor-not-allowed">
+          className="flex-shrink-0 w-4 text-slate-700 hover:text-red-400 text-xs transition-colors sm:opacity-0 sm:group-hover:opacity-100 disabled:opacity-20 disabled:hover:text-slate-700 disabled:cursor-not-allowed">
           ✕
         </button>
       </div>
-      {/* Notes line (if any) */}
-      {entry.notes ? (
-        <div className="pl-[26px] text-xs text-slate-600 truncate mt-0.5">{entry.notes}</div>
-      ) : null}
+
+      {/* Mobile: stacked — description clean; Notes/Ref labelled separately */}
+      <div className="sm:hidden space-y-1">
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={toggleConfirmed}
+            title={entry.confirmed ? 'Mark as estimate' : 'Mark as confirmed'}
+            className={`flex-shrink-0 text-xs font-bold w-5 h-5 flex items-center justify-center rounded transition-colors ${
+              entry.confirmed ? 'text-green-400 bg-green-900/40' : 'text-slate-600 bg-slate-800 hover:text-slate-400'
+            }`}>
+            {entry.confirmed ? '✓' : '·'}
+          </button>
+          <span className={`flex-1 min-w-0 text-xs truncate ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
+            {entry.description || '—'}
+          </span>
+          <span className={`flex-shrink-0 text-xs font-medium tabular-nums ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
+            {fmt(entry.amount)}
+          </span>
+          <span
+            title={entry.gst_included ? 'GST included in amount' : 'GST excluded — ex-GST figure'}
+            className={`flex-shrink-0 text-xs w-6 text-center ${entry.gst_included ? 'text-slate-600' : 'text-orange-500/80'}`}>
+            {entry.gst_included ? 'inc' : 'ex'}
+          </span>
+          <button onClick={() => setEditing(true)}
+            title="Edit entry"
+            className="flex-shrink-0 text-slate-700 hover:text-amber-400 text-xs transition-colors">
+            ✎
+          </button>
+          <button onClick={onRemove} disabled={!canRemove}
+            title={canRemove ? 'Remove entry' : 'Cannot remove the last entry'}
+            className="flex-shrink-0 text-slate-700 hover:text-red-400 text-xs transition-colors disabled:opacity-20 disabled:hover:text-slate-700 disabled:cursor-not-allowed">
+            ✕
+          </button>
+        </div>
+        {notesRef ? (
+          <div className="pl-[26px]">
+            <div className="text-[10px] uppercase tracking-wide text-slate-600">Notes / Ref</div>
+            <div className="text-xs text-slate-500 truncate" title={notesRef}>{notesRef}</div>
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -281,12 +363,14 @@ function EntryPanel({
   fieldLabel,
   entries,
   onEntriesUpdated,
+  fieldSource,
 }: {
   fieldId: string
   fieldKey: string
   fieldLabel: string
   entries: Entry[]
   onEntriesUpdated: (entries: Entry[], value: number) => void
+  fieldSource?: string | null
 }) {
   const [desc, setDesc] = useState('')
   const [notes, setNotes] = useState('')
@@ -376,6 +460,8 @@ function EntryPanel({
                 onUpdate={updated => updateEntry(i, updated)}
                 onRemove={() => removeEntry(i)}
                 canRemove={entries.length > 1}
+                fieldSource={fieldSource}
+                fieldKey={fieldKey}
               />
             ))}
           </div>
@@ -554,6 +640,7 @@ function FieldRow({
           fieldKey={fieldDef.key}
           fieldLabel={fieldDef.label}
           entries={entries}
+          fieldSource={existing.source}
           onEntriesUpdated={(updated, value) => onEntriesUpdated(existing.id, updated, value)}
         />
       )}
@@ -579,6 +666,7 @@ function VenueStaffRow({
   const [open, setOpen] = useState(false)
   const [entriesOpen, setEntriesOpen] = useState(false)
   const [items, setItems] = useState<LineItem[]>(existing?.line_items ?? [])
+  const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const [state, setState] = useState<FieldState>((existing?.state as FieldState) ?? 'guess')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -597,11 +685,16 @@ function VenueStaffRow({
   }
 
   function addItem() {
-    setItems(prev => [...prev, { role: '', rate: 0, hours: 1, headcount: 1, source: '' }])
+    setItems(prev => {
+      const next = [...prev, { role: '', rate: 0, hours: 1, headcount: 1, source: '' }]
+      setEditingIdx(next.length - 1)
+      return next
+    })
   }
 
   function removeItem(idx: number) {
     setItems(prev => prev.filter((_, i) => i !== idx))
+    setEditingIdx(prev => (prev == null ? null : prev === idx ? null : prev > idx ? prev - 1 : prev))
   }
 
   async function handleSave() {
@@ -681,64 +774,113 @@ function VenueStaffRow({
           {items.length > 0 ? (
             <div className="mb-3">
               {/* Desktop header row — hidden on mobile */}
-              <div className="hidden sm:grid sm:grid-cols-[1fr_72px_52px_72px_68px_20px] gap-1.5 mb-1.5 text-xs text-slate-500 px-0.5">
+              <div className="hidden sm:grid sm:grid-cols-[1fr_72px_52px_72px_68px_20px_20px] gap-1.5 mb-1.5 text-xs text-slate-500 px-0.5">
                 <span>Role / Description</span>
                 <span>Rate $/hr</span>
                 <span>Hrs</span>
                 <span>Headcount</span>
                 <span className="text-right pr-1">Total</span>
                 <span />
+                <span />
               </div>
               <div className="space-y-3">
                 {items.map((item, idx) => {
                   const rowTotal = (item.rate || 0) * (item.hours || 0) * (item.headcount || 0)
+                  const isEditing = editingIdx === idx
+                  const sourceLabel = (item.source || '').trim()
                   return (
-                    <div key={idx} className="bg-slate-900/40 sm:bg-transparent rounded-lg sm:rounded-none p-2 sm:p-0 border border-slate-700/40 sm:border-0">
-                      {/* Mobile: stacked card */}
-                      <div className="flex items-start gap-2 sm:hidden mb-2">
-                        <input type="text" value={item.role} onChange={e => updateItem(idx, 'role', e.target.value)} placeholder="Role title (e.g. Usher)"
-                          className="flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-amber-400 min-w-0" />
-                        <button onClick={() => removeItem(idx)} className="text-slate-600 hover:text-red-400 text-sm transition-colors pt-1.5 shrink-0">✕</button>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 sm:hidden">
-                        <div>
-                          <div className="text-slate-500 text-xs mb-0.5">Rate $/hr</div>
-                          <input type="number" value={item.rate || ''} onChange={e => updateItem(idx, 'rate', e.target.value)} placeholder="0"
-                            className="bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-amber-400 w-full" />
-                        </div>
-                        <div>
-                          <div className="text-slate-500 text-xs mb-0.5">Hours</div>
-                          <input type="number" value={item.hours || ''} onChange={e => updateItem(idx, 'hours', e.target.value)} placeholder="1"
-                            className="bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-amber-400 w-full" />
-                        </div>
-                        <div>
-                          <div className="text-slate-500 text-xs mb-0.5">Headcount</div>
-                          <input type="number" value={item.headcount || ''} onChange={e => updateItem(idx, 'headcount', e.target.value)} placeholder="1"
-                            className="bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-amber-400 w-full" />
-                        </div>
-                      </div>
-                      {rowTotal > 0 && <div className="text-amber-400/80 text-xs font-medium mt-1.5 sm:hidden">{fmt(rowTotal)}</div>}
+                    <div key={idx} className="bg-slate-900/40 sm:bg-transparent rounded-lg sm:rounded-none p-2 sm:p-0 border border-slate-700/40 sm:border-0 group/role">
+                      {isEditing ? (
+                        <>
+                          {/* Mobile edit card */}
+                          <div className="flex items-start gap-2 sm:hidden mb-2">
+                            <input type="text" value={item.role} onChange={e => updateItem(idx, 'role', e.target.value)} placeholder="Role title (e.g. Usher)" autoFocus
+                              className="flex-1 bg-slate-900 border border-amber-400/50 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-amber-400 min-w-0" />
+                            <button onClick={() => removeItem(idx)} className="text-slate-600 hover:text-red-400 text-sm transition-colors pt-1.5 shrink-0">✕</button>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 sm:hidden">
+                            <div>
+                              <div className="text-slate-500 text-xs mb-0.5">Rate $/hr</div>
+                              <input type="number" value={item.rate || ''} onChange={e => updateItem(idx, 'rate', e.target.value)} placeholder="0"
+                                className="bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-amber-400 w-full" />
+                            </div>
+                            <div>
+                              <div className="text-slate-500 text-xs mb-0.5">Hours</div>
+                              <input type="number" value={item.hours || ''} onChange={e => updateItem(idx, 'hours', e.target.value)} placeholder="1"
+                                className="bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-amber-400 w-full" />
+                            </div>
+                            <div>
+                              <div className="text-slate-500 text-xs mb-0.5">Headcount</div>
+                              <input type="number" value={item.headcount || ''} onChange={e => updateItem(idx, 'headcount', e.target.value)} placeholder="1"
+                                className="bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-amber-400 w-full" />
+                            </div>
+                          </div>
+                          {rowTotal > 0 && <div className="text-amber-400/80 text-xs font-medium mt-1.5 sm:hidden">{fmt(rowTotal)}</div>}
 
-                      {/* Desktop: single row grid */}
-                      <div className="hidden sm:grid sm:grid-cols-[1fr_72px_52px_72px_68px_20px] gap-1.5 items-center">
-                        <input type="text" value={item.role} onChange={e => updateItem(idx, 'role', e.target.value)} placeholder="e.g. Usher"
-                          className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 min-w-0" />
-                        <input type="number" value={item.rate || ''} onChange={e => updateItem(idx, 'rate', e.target.value)} placeholder="0"
-                          className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 w-full" />
-                        <input type="number" value={item.hours || ''} onChange={e => updateItem(idx, 'hours', e.target.value)} placeholder="1"
-                          className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 w-full" />
-                        <input type="number" value={item.headcount || ''} onChange={e => updateItem(idx, 'headcount', e.target.value)} placeholder="1"
-                          className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 w-full" />
-                        <div className="text-right text-slate-300 text-xs font-medium pr-1">{rowTotal > 0 ? fmt(rowTotal) : '—'}</div>
-                        <button onClick={() => removeItem(idx)} className="text-slate-600 hover:text-red-400 text-xs transition-colors text-center">✕</button>
-                      </div>
+                          {/* Desktop edit grid */}
+                          <div className="hidden sm:grid sm:grid-cols-[1fr_72px_52px_72px_68px_20px_20px] gap-1.5 items-center">
+                            <input type="text" value={item.role} onChange={e => updateItem(idx, 'role', e.target.value)} placeholder="e.g. Usher" autoFocus
+                              className="bg-slate-900 border border-amber-400/50 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 min-w-0" />
+                            <input type="number" value={item.rate || ''} onChange={e => updateItem(idx, 'rate', e.target.value)} placeholder="0"
+                              className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 w-full" />
+                            <input type="number" value={item.hours || ''} onChange={e => updateItem(idx, 'hours', e.target.value)} placeholder="1"
+                              className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 w-full" />
+                            <input type="number" value={item.headcount || ''} onChange={e => updateItem(idx, 'headcount', e.target.value)} placeholder="1"
+                              className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 w-full" />
+                            <div className="text-right text-slate-300 text-xs font-medium pr-1">{rowTotal > 0 ? fmt(rowTotal) : '—'}</div>
+                            <button onClick={() => setEditingIdx(null)} title="Done editing title/fields" className="text-amber-400 hover:text-amber-300 text-xs transition-colors text-center">✓</button>
+                            <button onClick={() => removeItem(idx)} className="text-slate-600 hover:text-red-400 text-xs transition-colors text-center">✕</button>
+                          </div>
 
-                      {/* Source field — full width on both */}
-                      <div className="mt-1">
-                        <input type="text" value={item.source || ''} onChange={e => updateItem(idx, 'source', e.target.value)}
-                          placeholder="Source / basis (e.g. Harbour Draft 22, Historical 2024 remittance, Educated guess)"
-                          className="bg-slate-900/60 border border-slate-700/50 rounded px-2 py-0.5 text-slate-500 text-xs focus:outline-none focus:border-amber-400/50 focus:text-slate-300 w-full" />
-                      </div>
+                          <div className="mt-1">
+                            <input type="text" value={item.source || ''} onChange={e => updateItem(idx, 'source', e.target.value)}
+                              placeholder="Source / basis (e.g. Harbour Draft 22, Historical 2024 remittance, Educated guess)"
+                              className="bg-slate-900/60 border border-slate-700/50 rounded px-2 py-0.5 text-slate-500 text-xs focus:outline-none focus:border-amber-400/50 focus:text-slate-300 w-full" />
+                          </div>
+                          <div className="sm:hidden mt-1.5 flex justify-end">
+                            <button onClick={() => setEditingIdx(null)} className="text-amber-400 hover:text-amber-300 text-xs">Done</button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {/* Read-only — pencil required to edit title */}
+                          <div className="flex items-start gap-2 sm:hidden mb-1">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm text-white truncate">{item.role || 'Untitled role'}</div>
+                              {sourceLabel ? (
+                                <div className="text-xs text-slate-500 truncate mt-0.5" title={sourceLabel}>{sourceLabel}</div>
+                              ) : (
+                                <div className="text-xs text-slate-700 mt-0.5">No source set</div>
+                              )}
+                            </div>
+                            <button onClick={() => setEditingIdx(idx)} title="Edit role" className="text-slate-600 hover:text-amber-400 text-sm transition-colors pt-0.5 shrink-0">✎</button>
+                            <button onClick={() => removeItem(idx)} className="text-slate-600 hover:text-red-400 text-sm transition-colors pt-0.5 shrink-0">✕</button>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 sm:hidden text-xs text-slate-400">
+                            <div><span className="text-slate-600">Rate </span>${item.rate || 0}/hr</div>
+                            <div><span className="text-slate-600">Hrs </span>{item.hours || 0}</div>
+                            <div><span className="text-slate-600">HC </span>{item.headcount || 0}</div>
+                          </div>
+                          {rowTotal > 0 && <div className="text-amber-400/80 text-xs font-medium mt-1 sm:hidden">{fmt(rowTotal)}</div>}
+
+                          <div className="hidden sm:grid sm:grid-cols-[1fr_72px_52px_72px_68px_20px_20px] gap-1.5 items-center">
+                            <div className="min-w-0">
+                              <div className="text-xs text-white truncate">{item.role || 'Untitled role'}</div>
+                              {sourceLabel ? (
+                                <div className="text-[11px] text-slate-500 truncate mt-0.5" title={sourceLabel}>{sourceLabel}</div>
+                              ) : (
+                                <div className="text-[11px] text-slate-700 mt-0.5">No source set</div>
+                              )}
+                            </div>
+                            <div className="text-xs text-slate-400 tabular-nums">{item.rate || 0}</div>
+                            <div className="text-xs text-slate-400 tabular-nums">{item.hours || 0}</div>
+                            <div className="text-xs text-slate-400 tabular-nums">{item.headcount || 0}</div>
+                            <div className="text-right text-slate-300 text-xs font-medium pr-1">{rowTotal > 0 ? fmt(rowTotal) : '—'}</div>
+                            <button onClick={() => setEditingIdx(idx)} title="Edit role" className="text-slate-600 hover:text-amber-400 text-xs transition-colors text-center opacity-0 group-hover/role:opacity-100">✎</button>
+                            <button onClick={() => removeItem(idx)} className="text-slate-600 hover:text-red-400 text-xs transition-colors text-center opacity-0 group-hover/role:opacity-100">✕</button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   )
                 })}
@@ -783,6 +925,7 @@ function VenueStaffRow({
                     fieldKey="venue_staff"
                     fieldLabel="Venue Staff / On-costs"
                     entries={entries}
+                    fieldSource={existing.source}
                     onEntriesUpdated={(updated, value) => onEntriesUpdated(existing.id, updated, value)}
                   />
                 </div>
