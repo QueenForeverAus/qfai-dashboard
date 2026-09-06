@@ -27,6 +27,12 @@ import {
   canEditCostFields,
   productionCanEditFieldKey,
 } from '@/lib/cost-fields'
+import {
+  NOTES_SOURCE_OF_DATA_LABEL,
+  enteredByLabel,
+  formatNotesSource,
+  staffDisplayName,
+} from '@/lib/cost-entry-source'
 
 type FieldState = 'known' | 'estimated' | 'guess' | 'pending' | 'auto_calc'
 
@@ -75,6 +81,7 @@ type CostFieldRow = {
   value: number | null
   state: string
   source: string | null
+  updated_by?: string | null
   line_items: LineItem[] | null
   entries: Entry[] | null
 }
@@ -184,36 +191,16 @@ function fmt(n: number | null) {
 // ─── Entry / Receipts panel ──────────────────────────────────────────────────
 
 
-const FACTOR_FIELD_KEYS = new Set([
-  'ground_transport',
-  'accommodation',
-  'lighting_hire',
-  'food_basics',
-  'per_diems',
-  'backline_hire',
-  'crew_travel_day',
-  'brad_driver_fee',
-])
-
-/** Notes/Ref cell: prefer entry notes; fall back to field-level source (short). Never merge into description. */
-function formatNotesRef(
-  notes: string | null | undefined,
-  fieldSource?: string | null,
-  fieldKey?: string | null,
-): string {
-  let n = (notes ?? '').trim()
-  if (n) {
-    // Factor-driven lines: keep blurb, append Source: Factors (idempotent) for staging rows seeded before this label.
-    if (fieldKey && FACTOR_FIELD_KEYS.has(fieldKey) && !/Source:\s*Factors/i.test(n) && !/Source:\s*\d{4}\s+remittance/i.test(n)) {
-      n = `${n} — Source: Factors`
-    }
-    return n
+function editorNameForField(
+  field: CostFieldRow | undefined,
+  names: Record<string, string>,
+  profile: { id: string; full_name: string } | null,
+): string | null {
+  if (field?.updated_by && profile?.id === field.updated_by) {
+    return staffDisplayName(profile.full_name)
   }
-  const s = (fieldSource ?? '').trim()
-  if (!s) return ''
-  // Prefer a concise lead clause for the column (Staff remittance family).
-  const lead = s.split(/(?<=\.)\s+/)[0] || s
-  return lead.length > 140 ? `${lead.slice(0, 137)}…` : lead
+  if (field?.id && names[field.id]) return names[field.id]
+  return null
 }
 
 function EntryRow({
@@ -223,6 +210,7 @@ function EntryRow({
   canRemove,
   fieldSource,
   fieldKey,
+  editorDisplayName,
 }: {
   entry: Entry
   onUpdate: (updated: Entry) => void
@@ -230,6 +218,7 @@ function EntryRow({
   canRemove: boolean
   fieldSource?: string | null
   fieldKey?: string | null
+  editorDisplayName?: string | null
 }) {
   const [editing, setEditing] = useState(false)
   const [desc, setDesc] = useState(entry.description)
@@ -246,7 +235,12 @@ function EntryRow({
     onUpdate({ ...entry, confirmed: !entry.confirmed })
   }
 
-  const notesRef = formatNotesRef(entry.notes, fieldSource, fieldKey)
+  const notesRef = formatNotesSource({
+    notes: entry.notes,
+    fieldSource,
+    fieldKey,
+    editorDisplayName,
+  })
 
   if (editing) {
     return (
@@ -255,7 +249,8 @@ function EntryRow({
           placeholder="Description"
           className="w-full bg-slate-900 border border-amber-400/50 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
         <input value={notes} onChange={e => setNotes(e.target.value)}
-          placeholder="Notes / Ref"
+          placeholder={NOTES_SOURCE_OF_DATA_LABEL}
+          aria-label={NOTES_SOURCE_OF_DATA_LABEL}
           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
         <div className="flex items-center gap-1.5">
           <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
@@ -275,7 +270,7 @@ function EntryRow({
 
   return (
     <div className="py-1.5 border-t border-slate-700/30 first:border-0 group">
-      {/* Desktop: Description | Notes/Ref | Amount | GST | actions — matches header columns */}
+      {/* Desktop: Description | Notes / Source of Data | Amount | GST | actions — matches header columns */}
       <div className="hidden sm:flex items-center gap-1.5">
         <button
           onClick={toggleConfirmed}
@@ -313,7 +308,7 @@ function EntryRow({
         </button>
       </div>
 
-      {/* Mobile: stacked — description clean; Notes/Ref labelled separately */}
+      {/* Mobile: stacked — description clean; Notes / Source of Data labelled separately */}
       <div className="sm:hidden space-y-1">
         <div className="flex items-center gap-1.5">
           <button
@@ -348,7 +343,7 @@ function EntryRow({
         </div>
         {notesRef ? (
           <div className="pl-[26px]">
-            <div className="text-[10px] uppercase tracking-wide text-slate-600">Notes / Ref</div>
+            <div className="text-[10px] uppercase tracking-wide text-slate-600">{NOTES_SOURCE_OF_DATA_LABEL}</div>
             <div className="text-xs text-slate-500 truncate" title={notesRef}>{notesRef}</div>
           </div>
         ) : null}
@@ -364,6 +359,7 @@ function EntryPanel({
   entries,
   onEntriesUpdated,
   fieldSource,
+  editorDisplayName,
 }: {
   fieldId: string
   fieldKey: string
@@ -371,7 +367,9 @@ function EntryPanel({
   entries: Entry[]
   onEntriesUpdated: (entries: Entry[], value: number) => void
   fieldSource?: string | null
+  editorDisplayName?: string | null
 }) {
+  const { profile } = useProfile()
   const [desc, setDesc] = useState('')
   const [notes, setNotes] = useState('')
   const [amount, setAmount] = useState('')
@@ -420,10 +418,11 @@ function EntryPanel({
 
   async function addEntry() {
     if (!amount) return
+    const trimmedNotes = notes.trim()
     const newEntry: Entry = {
       id: crypto.randomUUID(),
       description: desc || fieldLabel || 'Estimate',
-      notes,
+      notes: trimmedNotes || enteredByLabel(profile?.full_name) || '',
       amount: parseFloat(amount),
       gst_included: gst,
       confirmed: false,
@@ -447,7 +446,7 @@ function EntryPanel({
           <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-600 mb-0.5">
             <span className="w-5" />
             <span className="flex-1">Description</span>
-            <span className="flex-1">Notes / Ref</span>
+            <span className="flex-1">{NOTES_SOURCE_OF_DATA_LABEL}</span>
             <span className="w-20 text-right">Amount</span>
             <span className="w-6 text-center">GST</span>
             <span className="w-4" /><span className="w-4" />
@@ -462,6 +461,7 @@ function EntryPanel({
                 canRemove={entries.length > 1}
                 fieldSource={fieldSource}
                 fieldKey={fieldKey}
+                editorDisplayName={editorDisplayName}
               />
             ))}
           </div>
@@ -484,7 +484,9 @@ function EntryPanel({
       <div className="space-y-1.5">
         <input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description"
           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
-        <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes / Ref #"
+        <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
+          placeholder={NOTES_SOURCE_OF_DATA_LABEL}
+          aria-label={NOTES_SOURCE_OF_DATA_LABEL}
           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
         <div className="flex items-center gap-1.5">
           <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="$0"
@@ -511,6 +513,7 @@ function FieldRow({
   existing,
   onSaved,
   onEntriesUpdated,
+  editorDisplayName,
 }: {
   runId: string
   showId: string | null
@@ -518,6 +521,7 @@ function FieldRow({
   existing: CostFieldRow | undefined
   onSaved: (updated: CostFieldRow) => void
   onEntriesUpdated: (fieldId: string, entries: Entry[], value: number) => void
+  editorDisplayName?: string | null
 }) {
   const [isEditing, setIsEditing] = useState(false)
   const [state, setState] = useState<FieldState>((existing?.state as FieldState) ?? fieldDef.defaultState)
@@ -641,12 +645,15 @@ function FieldRow({
           fieldLabel={fieldDef.label}
           entries={entries}
           fieldSource={existing.source}
+          editorDisplayName={editorDisplayName}
           onEntriesUpdated={(updated, value) => onEntriesUpdated(existing.id, updated, value)}
         />
       )}
     </div>
   )
 }
+
+const STAFF_GRID = 'sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1.2fr)_64px_44px_56px_56px_18px_18px]'
 
 // ─── Venue staff line-items row ──────────────────────────────────────────────
 
@@ -656,13 +663,16 @@ function VenueStaffRow({
   existing,
   onSaved,
   onEntriesUpdated,
+  editorDisplayName,
 }: {
   runId: string
   showId: string
   existing: CostFieldRow | undefined
   onSaved: (updated: CostFieldRow) => void
   onEntriesUpdated: (fieldId: string, entries: Entry[], value: number) => void
+  editorDisplayName?: string | null
 }) {
+  const { profile } = useProfile()
   const [open, setOpen] = useState(false)
   const [entriesOpen, setEntriesOpen] = useState(false)
   const [items, setItems] = useState<LineItem[]>(existing?.line_items ?? [])
@@ -686,7 +696,13 @@ function VenueStaffRow({
 
   function addItem() {
     setItems(prev => {
-      const next = [...prev, { role: '', rate: 0, hours: 1, headcount: 1, source: '' }]
+      const next = [...prev, {
+        role: '',
+        rate: 0,
+        hours: 1,
+        headcount: 1,
+        source: enteredByLabel(profile?.full_name) ?? '',
+      }]
       setEditingIdx(next.length - 1)
       return next
     })
@@ -773,9 +789,10 @@ function VenueStaffRow({
         <div className="border-t border-slate-700/60 px-3 pt-2.5 pb-3">
           {items.length > 0 ? (
             <div className="mb-3">
-              {/* Desktop header row — hidden on mobile */}
-              <div className="hidden sm:grid sm:grid-cols-[1fr_72px_52px_72px_68px_20px_20px] gap-1.5 mb-1.5 text-xs text-slate-500 px-0.5">
+              {/* Desktop header — Role | Notes / Source of Data | rates (EntryRow-style notes column) */}
+              <div className={`hidden sm:grid ${STAFF_GRID} gap-1.5 mb-1.5 text-xs text-slate-500 px-0.5`}>
                 <span>Role / Description</span>
+                <span>{NOTES_SOURCE_OF_DATA_LABEL}</span>
                 <span>Rate $/hr</span>
                 <span>Hrs</span>
                 <span>Headcount</span>
@@ -787,7 +804,12 @@ function VenueStaffRow({
                 {items.map((item, idx) => {
                   const rowTotal = (item.rate || 0) * (item.hours || 0) * (item.headcount || 0)
                   const isEditing = editingIdx === idx
-                  const sourceLabel = (item.source || '').trim()
+                  const sourceLabel = formatNotesSource({
+                    notes: item.source,
+                    fieldKey: 'venue_staff',
+                    editorDisplayName,
+                    allowFieldSourceFallback: false,
+                  })
                   return (
                     <div key={idx} className="bg-slate-900/40 sm:bg-transparent rounded-lg sm:rounded-none p-2 sm:p-0 border border-slate-700/40 sm:border-0 group/role">
                       {isEditing ? (
@@ -797,6 +819,13 @@ function VenueStaffRow({
                             <input type="text" value={item.role} onChange={e => updateItem(idx, 'role', e.target.value)} placeholder="Role title (e.g. Usher)" autoFocus
                               className="flex-1 bg-slate-900 border border-amber-400/50 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-amber-400 min-w-0" />
                             <button onClick={() => removeItem(idx)} className="text-slate-600 hover:text-red-400 text-sm transition-colors pt-1.5 shrink-0">✕</button>
+                          </div>
+                          <div className="sm:hidden mb-2">
+                            <div className="text-slate-500 text-xs mb-0.5">{NOTES_SOURCE_OF_DATA_LABEL}</div>
+                            <input type="text" value={item.source || ''} onChange={e => updateItem(idx, 'source', e.target.value)}
+                              placeholder={NOTES_SOURCE_OF_DATA_LABEL}
+                              aria-label={NOTES_SOURCE_OF_DATA_LABEL}
+                              className="bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-amber-400 w-full" />
                           </div>
                           <div className="grid grid-cols-3 gap-2 sm:hidden">
                             <div>
@@ -818,9 +847,13 @@ function VenueStaffRow({
                           {rowTotal > 0 && <div className="text-amber-400/80 text-xs font-medium mt-1.5 sm:hidden">{fmt(rowTotal)}</div>}
 
                           {/* Desktop edit grid */}
-                          <div className="hidden sm:grid sm:grid-cols-[1fr_72px_52px_72px_68px_20px_20px] gap-1.5 items-center">
+                          <div className={`hidden sm:grid ${STAFF_GRID} gap-1.5 items-center`}>
                             <input type="text" value={item.role} onChange={e => updateItem(idx, 'role', e.target.value)} placeholder="e.g. Usher" autoFocus
                               className="bg-slate-900 border border-amber-400/50 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 min-w-0" />
+                            <input type="text" value={item.source || ''} onChange={e => updateItem(idx, 'source', e.target.value)}
+                              placeholder={NOTES_SOURCE_OF_DATA_LABEL}
+                              aria-label={NOTES_SOURCE_OF_DATA_LABEL}
+                              className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-amber-400 min-w-0" />
                             <input type="number" value={item.rate || ''} onChange={e => updateItem(idx, 'rate', e.target.value)} placeholder="0"
                               className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 w-full" />
                             <input type="number" value={item.hours || ''} onChange={e => updateItem(idx, 'hours', e.target.value)} placeholder="1"
@@ -830,12 +863,6 @@ function VenueStaffRow({
                             <div className="text-right text-slate-300 text-xs font-medium pr-1">{rowTotal > 0 ? fmt(rowTotal) : '—'}</div>
                             <button onClick={() => setEditingIdx(null)} title="Done editing title/fields" className="text-amber-400 hover:text-amber-300 text-xs transition-colors text-center">✓</button>
                             <button onClick={() => removeItem(idx)} className="text-slate-600 hover:text-red-400 text-xs transition-colors text-center">✕</button>
-                          </div>
-
-                          <div className="mt-1">
-                            <input type="text" value={item.source || ''} onChange={e => updateItem(idx, 'source', e.target.value)}
-                              placeholder="Source / basis (e.g. Harbour Draft 22, Historical 2024 remittance, Educated guess)"
-                              className="bg-slate-900/60 border border-slate-700/50 rounded px-2 py-0.5 text-slate-500 text-xs focus:outline-none focus:border-amber-400/50 focus:text-slate-300 w-full" />
                           </div>
                           <div className="sm:hidden mt-1.5 flex justify-end">
                             <button onClick={() => setEditingIdx(null)} className="text-amber-400 hover:text-amber-300 text-xs">Done</button>
@@ -847,15 +874,16 @@ function VenueStaffRow({
                           <div className="flex items-start gap-2 sm:hidden mb-1">
                             <div className="flex-1 min-w-0">
                               <div className="text-sm text-white truncate">{item.role || 'Untitled role'}</div>
-                              {sourceLabel ? (
-                                <div className="text-xs text-slate-500 truncate mt-0.5" title={sourceLabel}>{sourceLabel}</div>
-                              ) : (
-                                <div className="text-xs text-slate-700 mt-0.5">No source set</div>
-                              )}
                             </div>
                             <button onClick={() => setEditingIdx(idx)} title="Edit role" className="text-slate-600 hover:text-amber-400 text-sm transition-colors pt-0.5 shrink-0">✎</button>
                             <button onClick={() => removeItem(idx)} className="text-slate-600 hover:text-red-400 text-sm transition-colors pt-0.5 shrink-0">✕</button>
                           </div>
+                          {sourceLabel ? (
+                            <div className="sm:hidden mb-1.5">
+                              <div className="text-[10px] uppercase tracking-wide text-slate-600">{NOTES_SOURCE_OF_DATA_LABEL}</div>
+                              <div className="text-xs text-slate-500 truncate" title={sourceLabel}>{sourceLabel}</div>
+                            </div>
+                          ) : null}
                           <div className="grid grid-cols-3 gap-2 sm:hidden text-xs text-slate-400">
                             <div><span className="text-slate-600">Rate </span>${item.rate || 0}/hr</div>
                             <div><span className="text-slate-600">Hrs </span>{item.hours || 0}</div>
@@ -863,15 +891,9 @@ function VenueStaffRow({
                           </div>
                           {rowTotal > 0 && <div className="text-amber-400/80 text-xs font-medium mt-1 sm:hidden">{fmt(rowTotal)}</div>}
 
-                          <div className="hidden sm:grid sm:grid-cols-[1fr_72px_52px_72px_68px_20px_20px] gap-1.5 items-center">
-                            <div className="min-w-0">
-                              <div className="text-xs text-white truncate">{item.role || 'Untitled role'}</div>
-                              {sourceLabel ? (
-                                <div className="text-[11px] text-slate-500 truncate mt-0.5" title={sourceLabel}>{sourceLabel}</div>
-                              ) : (
-                                <div className="text-[11px] text-slate-700 mt-0.5">No source set</div>
-                              )}
-                            </div>
+                          <div className={`hidden sm:grid ${STAFF_GRID} gap-1.5 items-center`}>
+                            <div className="text-xs text-white truncate">{item.role || 'Untitled role'}</div>
+                            <div className="text-xs text-slate-500 truncate" title={sourceLabel || undefined}>{sourceLabel || '—'}</div>
                             <div className="text-xs text-slate-400 tabular-nums">{item.rate || 0}</div>
                             <div className="text-xs text-slate-400 tabular-nums">{item.hours || 0}</div>
                             <div className="text-xs text-slate-400 tabular-nums">{item.headcount || 0}</div>
@@ -926,6 +948,7 @@ function VenueStaffRow({
                     fieldLabel="Venue Staff / On-costs"
                     entries={entries}
                     fieldSource={existing.source}
+                    editorDisplayName={editorDisplayName}
                     onEntriesUpdated={(updated, value) => onEntriesUpdated(existing.id, updated, value)}
                   />
                 </div>
@@ -1093,6 +1116,7 @@ export default function CostFieldsTab({
   auditRows,
   isOwnerOrAdmin = false,
   ticketOutlookSummary = null,
+  editorDisplayNameByFieldId = {},
 }: {
   runId: string
   runCode: string
@@ -1106,8 +1130,9 @@ export default function CostFieldsTab({
   auditRows: AuditEntry[]
   isOwnerOrAdmin?: boolean
   ticketOutlookSummary?: string | null
+  editorDisplayNameByFieldId?: Record<string, string>
 }) {
-  const { effectiveRole } = useProfile()
+  const { effectiveRole, profile } = useProfile()
   const hasTabAccess = canAccessTab(effectiveRole, 'costs')
   const hasAdvancement = canAccessTab(effectiveRole, 'advancement')
   const hasShowPack = canAccessTab(effectiveRole, 'show_pack')
@@ -1683,6 +1708,11 @@ export default function CostFieldsTab({
                             existing={fieldMap.get(showFieldKey(show.id, fieldDef.key))}
                             onSaved={handleSaved}
                             onEntriesUpdated={handleEntriesUpdated}
+                            editorDisplayName={editorNameForField(
+                              fieldMap.get(showFieldKey(show.id, fieldDef.key)),
+                              editorDisplayNameByFieldId,
+                              profile,
+                            )}
                           />
                         ) : (
                           <FieldRow
@@ -1693,6 +1723,11 @@ export default function CostFieldsTab({
                             existing={fieldMap.get(showFieldKey(show.id, fieldDef.key))}
                             onSaved={handleSaved}
                             onEntriesUpdated={handleEntriesUpdated}
+                            editorDisplayName={editorNameForField(
+                              fieldMap.get(showFieldKey(show.id, fieldDef.key)),
+                              editorDisplayNameByFieldId,
+                              profile,
+                            )}
                           />
                         )
                       )}
@@ -1730,6 +1765,11 @@ export default function CostFieldsTab({
                       existing={fieldMap.get(runFieldKey(fieldDef.key))}
                       onSaved={handleSaved}
                       onEntriesUpdated={handleEntriesUpdated}
+                      editorDisplayName={editorNameForField(
+                        fieldMap.get(runFieldKey(fieldDef.key)),
+                        editorDisplayNameByFieldId,
+                        profile,
+                      )}
                     />
                   ))}
                 </div>
