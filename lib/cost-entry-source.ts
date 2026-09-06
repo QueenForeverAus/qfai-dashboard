@@ -2,6 +2,9 @@
 
 export const NOTES_SOURCE_OF_DATA_LABEL = 'Notes / Source of Data'
 
+/** Add/edit form only — typed notes, not source attribution. */
+export const NOTES_INPUT_LABEL = 'Notes'
+
 /** Fields whose seed blurbs are Factors-driven (same set as generate-entries). */
 export const FACTOR_FIELD_KEYS = new Set([
   'ground_transport',
