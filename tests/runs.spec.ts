@@ -9,18 +9,18 @@ test('runs list page loads', async ({ page }) => {
   await page.goto('/runs')
   await expect(page).not.toHaveURL(/login/)
   // Page title or heading
-  await expect(page.getByRole('heading', { name: /runs/i })).toBeVisible({ timeout: 5000 })
+  await expect(page.getByRole('heading', { name: /tour desk/i })).toBeVisible({ timeout: 5000 })
 })
 
 test('sidebar navigation is visible', async ({ page }) => {
   await page.goto('/runs')
   await expect(page.getByRole('link', { name: /mission control/i })).toBeVisible()
-  await expect(page.getByRole('link', { name: /runs/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /tour desk/i })).toBeVisible()
 })
 
-test('shows SHOWS / RUNS heading and tabs', async ({ page }) => {
+test('shows Tour Desk heading and tabs', async ({ page }) => {
   await page.goto('/runs')
-  await expect(page.getByRole('heading', { name: /shows \/ runs/i })).toBeVisible({ timeout: 5000 })
+  await expect(page.getByRole('heading', { name: /tour desk/i })).toBeVisible({ timeout: 5000 })
   await expect(page.getByRole('button', { name: /ALL/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /PROPOSED/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /CONFIRMED/i })).toBeVisible()

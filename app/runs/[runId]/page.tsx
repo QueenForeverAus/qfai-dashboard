@@ -247,7 +247,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
   return (
     <div className="p-4 sm:p-6">
       <div className="mb-1">
-        <Link href="/runs" className="text-slate-500 text-sm hover:text-slate-300 transition-colors">← Runs</Link>
+        <Link href="/runs" className="text-slate-500 text-sm hover:text-slate-300 transition-colors">← Tour Desk</Link>
       </div>
 
       <div className="flex items-start justify-between mb-6">

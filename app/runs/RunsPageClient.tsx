@@ -327,7 +327,7 @@ export default function RunsPageClient({
     <div className="p-4 sm:p-6">
       {/* Header */}
       <div className="mb-5">
-        <h1 className="text-white text-2xl font-bold tracking-wide mb-2">SHOWS / RUNS</h1>
+        <h1 className="text-white text-2xl font-bold tracking-wide mb-2">Tour Desk</h1>
         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6">
           <div>
             <span className="text-white font-bold mr-2">RUNS: {upcomingRuns.length}</span>
