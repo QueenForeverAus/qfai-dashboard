@@ -9,6 +9,7 @@ import { formatDateAU, formatDateTimeAU } from '@/lib/dates'
 import { runDateRangeFromShows } from '@/lib/run-dates'
 import { computeCompletionPct } from '@/lib/completion'
 import { formatBookingStatus } from '@/lib/format-booking-status'
+import { resolveEditorDisplayNames } from '@/lib/cost-entry-source'
 
 type Show = {
   id: string
@@ -38,6 +39,7 @@ type CostFieldRow = {
   value: number | null
   state: string
   source: string | null
+  updated_by?: string | null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   line_items: any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -46,6 +48,7 @@ type CostFieldRow = {
 
 type AuditRow = {
   id: string
+  record_id?: string | null
   field_name: string | null
   old_value: string | null
   new_value: string | null
@@ -217,6 +220,24 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
 
   const typedAudit = (auditRows ?? []) as AuditRow[]
 
+  const editorIds = [...new Set(
+    typedFields
+      .map(f => f.updated_by)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0),
+  )]
+  const { data: editorProfiles } = editorIds.length > 0
+    ? await supabase.from('profiles').select('id, full_name').in('id', editorIds)
+    : { data: [] as Array<{ id: string; full_name: string | null }> }
+
+  const editorDisplayNameByFieldId = resolveEditorDisplayNames({
+    fields: typedFields,
+    profiles: editorProfiles ?? [],
+    auditActors: typedAudit.map(r => ({
+      record_id: r.record_id,
+      full_name: r.profiles?.full_name ?? null,
+    })),
+  })
+
   const completionPct = computeCompletionPct(typedFields)
   // Prefer derived range from shows.show_date (SoT) over denormalized run columns
   const dateRange = runDateRangeFromShows(typedShows)
@@ -279,6 +300,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
         initialFields={typedFields}
         isOwnerOrAdmin={isOwnerOrAdmin}
         ticketOutlookSummary={run.ticket_outlook_summary ?? null}
+        editorDisplayNameByFieldId={editorDisplayNameByFieldId}
         auditRows={typedAudit.map(r => ({
           id: r.id,
           field_name: r.field_name,
