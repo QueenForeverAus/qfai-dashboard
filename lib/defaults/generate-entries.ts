@@ -34,6 +34,15 @@ const CREW_BREAKDOWN = [
   { name: 'Danny Oakhill — Keys',               rate: 600, gst: false },
 ]
 
+
+/** Append Source: Factors to blurbs (idempotent). */
+function withFactorsSource(notes: string): string {
+  const n = (notes ?? '').trim()
+  if (!n) return 'Source: Factors'
+  if (/Source:\s*Factors/i.test(n)) return n
+  return `${n} — Source: Factors`
+}
+
 function uid() {
   return typeof crypto !== 'undefined'
     ? crypto.randomUUID()
@@ -78,7 +87,7 @@ export function generateEntries(
         entries.push({
           id: uid(),
           description: `${city} — Pre-show night`,
-          notes: '7 rooms',
+          notes: withFactorsSource('7 rooms'),
           amount: perNight,
           gst_included: true,
           confirmed,
@@ -88,7 +97,7 @@ export function generateEntries(
         entries.push({
           id: uid(),
           description: `${show.venue_city} — Night ${travelNights + i + 1}`,
-          notes: `${fmtDate(show.show_date)} — 7 rooms`,
+          notes: withFactorsSource(`${fmtDate(show.show_date)} — 7 rooms`),
           amount: perNight,
           gst_included: true,
           confirmed,
@@ -104,8 +113,8 @@ export function generateEntries(
       const perPerson = dailyRate * days
       const confirmed = defaults.perDiems.state === 'known'
       return [
-        { id: uid(), description: 'Darryn McLaughlin', notes: `$${dailyRate}/day × ${days} day${days !== 1 ? 's' : ''}`, amount: perPerson, gst_included: false, confirmed },
-        { id: uid(), description: 'Danny Oakhill',     notes: `$${dailyRate}/day × ${days} day${days !== 1 ? 's' : ''}`, amount: perPerson, gst_included: false, confirmed },
+        { id: uid(), description: 'Darryn McLaughlin', notes: withFactorsSource(`$${dailyRate}/day × ${days} day${days !== 1 ? 's' : ''}`), amount: perPerson, gst_included: false, confirmed },
+        { id: uid(), description: 'Danny Oakhill',     notes: withFactorsSource(`$${dailyRate}/day × ${days} day${days !== 1 ? 's' : ''}`), amount: perPerson, gst_included: false, confirmed },
       ]
     }
 
@@ -126,15 +135,15 @@ export function generateEntries(
       const confirmed = defaults.crewTravelDay.state === 'known'
       if (defaults.crewTravelDayItems?.length && !factors?.crew_travel_day_adam && !factors?.crew_travel_day_michael) {
         return defaults.crewTravelDayItems.map(item => ({
-          id: uid(), description: item.description, notes: item.notes,
+          id: uid(), description: item.description, notes: withFactorsSource(item.notes),
           amount: item.amount, gst_included: true, confirmed,
         }))
       }
       const adamRate = factors?.crew_travel_day_adam ?? Math.round(defaults.crewTravelDay.value / 2)
       const michaelRate = factors?.crew_travel_day_michael ?? Math.round(defaults.crewTravelDay.value / 2)
       return [
-        { id: uid(), description: 'Adam Dahl',          notes: 'Non-performance travel day', amount: adamRate, gst_included: true, confirmed },
-        { id: uid(), description: 'Michael Richardson', notes: 'Non-performance travel day', amount: michaelRate, gst_included: true, confirmed },
+        { id: uid(), description: 'Adam Dahl',          notes: withFactorsSource('Non-performance travel day'), amount: adamRate, gst_included: true, confirmed },
+        { id: uid(), description: 'Michael Richardson', notes: withFactorsSource('Non-performance travel day'), amount: michaelRate, gst_included: true, confirmed },
       ]
     }
 
@@ -155,7 +164,7 @@ export function generateEntries(
       const confirmed = defaults.groundTransport.state === 'known'
       if (defaults.groundTransportItems?.length) {
         return defaults.groundTransportItems.map(item => ({
-          id: uid(), description: item.description, notes: item.notes,
+          id: uid(), description: item.description, notes: withFactorsSource(item.notes),
           amount: item.amount, gst_included: true, confirmed,
         }))
       }
@@ -174,7 +183,7 @@ export function generateEntries(
       return [{
         id: uid(),
         description: 'Lighting equipment hire — full run',
-        notes: 'Michael Richardson standard per-run rate',
+        notes: withFactorsSource('Michael Richardson standard per-run rate'),
         amount: rate,
         gst_included: true,
         confirmed: false,
@@ -186,7 +195,7 @@ export function generateEntries(
       return shows.map((show, i) => ({
         id: uid(),
         description: `${show.venue_city} — Show ${i + 1}`,
-        notes: 'Catering + drinks rider',
+        notes: withFactorsSource('Catering + drinks rider'),
         amount: rate,
         gst_included: true,
         confirmed: false,
@@ -199,7 +208,7 @@ export function generateEntries(
       return [{
         id: uid(),
         description: 'Backline hire (local)',
-        notes: 'Group 3 run — own gear cannot be freighted; drum kit, keys, guitar amps hired locally',
+        notes: withFactorsSource('Group 3 run — own gear cannot be freighted; drum kit, keys, guitar amps hired locally'),
         amount: rate,
         gst_included: true,
         confirmed: defaults.backlineHire.state === 'known',
