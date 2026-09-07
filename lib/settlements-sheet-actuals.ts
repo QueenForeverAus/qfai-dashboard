@@ -18,9 +18,15 @@ import {
   type SheetLine,
   type SheetLineGroup,
 } from './settlements-sheet.ts'
+import {
+  groupActualsForExpected,
+  sheetMatchToComparisonRow,
+  type SheetMatchChild,
+  type SheetMatchKind,
+} from './settlements-sheet-match.ts'
 
 export const COL3_ACTUALS_NOTE =
-  'Venue settlement figures enter as confirmed. Challenge drafts a Harbour email (never auto-sent). Band costs copy from Advancing and stay editable until PAID.'
+  'Venue settlement figures enter as confirmed. Challenge drafts a Harbour email (never auto-sent). Band costs copy from Advancing and stay editable until PAID. One Expected bucket can roll up many Actuals (EDM + banner + FB).'
 
 export const VENUE_CONFIRMED_LABEL = 'Confirmed'
 export const VENUE_CHALLENGED_LABEL = 'Challenged'
@@ -83,23 +89,35 @@ export type SheetActualDecor = {
   quoteNote: string | null
   variance: number | null
   varianceSeverity: VarianceSeverity | null
+  match?: SheetMatchKind | null
+  matchConfidence?: number | null
+  matchChildren?: SheetMatchChild[]
 }
 
 export type DecoratedSheetLine = SheetLine & SheetActualDecor
 
 /** Harbour fixture keyed by venue name — no OCR. Staging smoke / manual ingest. */
-export const HARBOUR_FIXTURE_BY_VENUE: Record<string, Record<string, number>> = {
-  'Geelong Performing Arts Centre': {
-    tickets_sold: 400,
-    'show:venue_hire': 3100,
-    'show:venue_staff': 4150,
-    'show:venue_marketing': 250,
-    'show:production_costs': 0,
-  },
-  "Her Majesty's Theatre Ballarat": {
-    'show:venue_hire': 2900,
-    'show:venue_staff': 3750,
-  },
+export type HarbourFixtureLine = {
+  line_key: string
+  amount: number
+  notes?: string
+}
+
+/** Harbour fixture keyed by venue — Phase 5 marketing is children under Venue Marketing. */
+export const HARBOUR_FIXTURE_BY_VENUE: Record<string, HarbourFixtureLine[]> = {
+  'Geelong Performing Arts Centre': [
+    { line_key: 'tickets_sold', amount: 400 },
+    { line_key: 'show:venue_hire', amount: 3100 },
+    { line_key: 'show:venue_staff', amount: 4150 },
+    { line_key: 'show:venue_marketing::edm', amount: 80, notes: 'EDM' },
+    { line_key: 'show:venue_marketing::banner', amount: 100, notes: 'Banner' },
+    { line_key: 'show:venue_marketing::fb', amount: 70, notes: 'FB' },
+    { line_key: 'show:production_costs', amount: 0 },
+  ],
+  "Her Majesty's Theatre Ballarat": [
+    { line_key: 'show:venue_hire', amount: 2900 },
+    { line_key: 'show:venue_staff', amount: 3750 },
+  ],
 }
 
 export function isSettlementActualKind(value: unknown): value is SettlementActualKind {
@@ -216,6 +234,9 @@ function emptyDecor(kind: SheetLineActualKind | null): SheetActualDecor {
     quoteNote: null,
     variance: null,
     varianceSeverity: null,
+    match: null,
+    matchConfidence: null,
+    matchChildren: [],
   }
 }
 
@@ -233,6 +254,9 @@ function fromStored(row: SettlementActualLine, line: SheetLine): SheetActualDeco
     quoteNote: row.quote_note,
     variance: varianceOf(line.expected, actual),
     varianceSeverity: flag?.severity ?? null,
+    match: 'one',
+    matchConfidence: 1,
+    matchChildren: [],
   }
 }
 
@@ -262,6 +286,9 @@ function decorateLine(
       quoteNote: null,
       variance: varianceOf(line.expected, actual),
       varianceSeverity: flag?.severity ?? null,
+      match: 'one',
+      matchConfidence: 1,
+      matchChildren: [],
     }
   }
   // Venue settlement: tickets + computed revenue use the Col2 actual-ticket math
@@ -281,6 +308,9 @@ function decorateLine(
       quoteNote: null,
       variance: varianceOf(line.expected, actual),
       varianceSeverity: flag?.severity ?? null,
+      match: 'one',
+      matchConfidence: 1,
+      matchChildren: [],
     }
   }
   return { ...line, ...emptyDecor('venue_settlement') }
@@ -332,9 +362,37 @@ export function applyCol3Actuals(opts: {
   showId: string | null
 }): DecoratedSheetLine[] {
   const index = indexActuals(opts.actuals)
-  const decorated = opts.lines.map(line =>
-    decorateLine(line, findStoredActual(index, opts.showId, line.key)),
-  )
+  const claimed = new Set<string>()
+  const decorated = opts.lines.map(line => {
+    const base = decorateLine(line, findStoredActual(index, opts.showId, line.key))
+    if (line.group !== 'venue_costs' && line.group !== 'run_costs') return base
+    const grouped = groupActualsForExpected({
+      expected: line,
+      actuals: opts.actuals,
+      showId: opts.showId,
+      claimedIds: claimed,
+    })
+    if (grouped.match === 'unmatched') return base
+    const flag = sheetVarianceFlag({ expected: line.expected, actual: grouped.actual, kind: line.kind })
+    const anyChallenged = grouped.children.some(c => c.status === 'challenged')
+    const allPaid = grouped.children.length > 0 && grouped.children.every(c => c.paid)
+    const primary = opts.actuals.find(a => a.id === grouped.children[0]?.id)
+    const actualStatus: DecoratedSheetLine['actualStatus'] = anyChallenged ? 'challenged' : 'confirmed'
+    return {
+      ...base,
+      actual: grouped.actual,
+      actualStatus,
+      actualSource: (primary?.source as DecoratedSheetLine['actualSource']) ?? base.actualSource,
+      actualPaid: lineKindForGroup(line.group) === 'band_cost' ? allPaid : base.actualPaid,
+      actualId: grouped.children.length === 1 ? grouped.children[0]!.id : null,
+      challengeId: grouped.children.find(c => c.challengeId)?.challengeId ?? null,
+      variance: varianceOf(line.expected, grouped.actual),
+      varianceSeverity: flag?.severity ?? null,
+      match: grouped.match,
+      matchConfidence: grouped.confidence,
+      matchChildren: grouped.children,
+    }
+  })
   return fillActualPnl(decorated)
 }
 
@@ -364,10 +422,8 @@ export function applyCol3ToRunSheet(opts: {
   return { sections, runLines, actualSummary }
 }
 
-export function harbourFixtureLinesForVenue(venueName: string): Array<{ line_key: string; amount: number }> {
-  const map = HARBOUR_FIXTURE_BY_VENUE[venueName]
-  if (!map) return []
-  return Object.entries(map).map(([line_key, amount]) => ({ line_key, amount }))
+export function harbourFixtureLinesForVenue(venueName: string): HarbourFixtureLine[] {
+  return HARBOUR_FIXTURE_BY_VENUE[venueName] ?? []
 }
 
 export function operatorChallengeFlag(): VarianceFlag {
@@ -383,35 +439,18 @@ export function sheetLineToComparisonRow(opts: {
   line: DecoratedSheetLine
   showId: string | null
 }): ComparisonRow {
-  const flag = sheetVarianceFlag({
+  return sheetMatchToComparisonRow({
+    key: opts.line.key,
+    label: opts.line.label,
     expected: opts.line.expected,
     actual: opts.line.actual,
-    kind: opts.line.kind,
-  })
-  const flags = flag ? [flag] : [operatorChallengeFlag()]
-  return {
-    id: `sheet:${opts.showId ?? 'run'}:${opts.line.key}`,
-    show_id: opts.showId,
-    label: opts.line.label,
-    proposed: opts.line.expected,
-    paid: opts.line.actual,
     variance: opts.line.variance,
-    proposedHours: null,
-    paidHours: null,
-    proposedRate: null,
-    paidRate: null,
-    confidence: 1,
-    match: 'one',
-    fedBy: [{
-      id: opts.line.key,
-      label: 'Expected (Advancing)',
-      amount: opts.line.expected ?? 0,
-      source: 'snapshot',
-    }],
-    remittanceLineIds: [],
-    flags,
-    lineType: 'payment',
-  }
+    actualStatus: opts.line.actualStatus,
+    match: opts.line.match,
+    matchConfidence: opts.line.matchConfidence,
+    matchChildren: opts.line.matchChildren,
+    showId: opts.showId,
+  })
 }
 
 export function formatSheetActualAuditCopy(opts: {

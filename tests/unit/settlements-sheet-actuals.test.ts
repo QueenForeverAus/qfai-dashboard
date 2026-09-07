@@ -204,6 +204,9 @@ test('Challenge draft reuses Wave 1 path and never auto-sends', () => {
 test('Harbour fixture is venue-keyed manual ingest, not OCR', () => {
   const geelong = harbourFixtureLinesForVenue('Geelong Performing Arts Centre')
   assert.ok(geelong.some(l => l.line_key === 'show:venue_hire' && l.amount === 3100))
+  assert.ok(geelong.some(l => l.line_key === 'show:venue_marketing::edm' && l.amount === 80))
+  assert.ok(geelong.some(l => l.line_key === 'show:venue_marketing::banner' && l.amount === 100))
+  assert.ok(geelong.some(l => l.line_key === 'show:venue_marketing::fb' && l.amount === 70))
   assert.equal(HARBOUR_FIXTURE_BY_VENUE['Missing Venue'], undefined)
   assert.equal(harbourFixtureLinesForVenue('R12 future').length, 0)
 })

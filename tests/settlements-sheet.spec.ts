@@ -70,6 +70,67 @@ test('post-show TCOMP1 Sheet fills Col3 actuals, confirm, challenge (not sent), 
   await page.getByTestId('sheet-band-paid-btn-run:accommodation').first().click()
   await expect(page.getByTestId('sheet-band-paid-run:accommodation').first()).toHaveText(/PAID/, { timeout: 15000 })
   await expect(page.getByTestId('sheet-band-input-run:accommodation').first()).toBeDisabled()
+
+  await expect(page.getByTestId('sheet-rollup-show:venue_marketing').first()).toBeVisible()
+  await expect(page.getByTestId('sheet-rollup-child-show:venue_marketing::edm').first()).toContainText(/EDM/i)
+  await expect(page.getByTestId('sheet-rollup-child-show:venue_marketing::banner').first()).toContainText(/Banner/i)
+  await expect(page.getByTestId('sheet-rollup-child-show:venue_marketing::fb').first()).toContainText(/FB/i)
+
+  await expect(page.getByTestId('settlements-sheet-expected-pnl').first()).toBeVisible()
+  await expect(page.getByTestId('settlements-sheet-actual-pnl').first()).toBeVisible()
+  await expect(page.getByTestId('settlements-sheet-expected-pnl').first()).toContainText(/Expected P&L \(Col2\)/)
+  await expect(page.getByTestId('settlements-sheet-actual-pnl').first()).toContainText(/Actual \/ true P&L \(Col3\)/)
+  await expect(page.getByTestId('settlements-sheet-expected-pnl').first()).toContainText(/Pre-Distribution Margin/)
+
+  await expect(page.getByTestId('distribute-gate').first()).toBeVisible()
+  await expect(page.getByTestId('distribute-gate-rule').first()).toContainText(/confirm-tick/)
+  await expect(page.getByTestId('distribute-gate-rule').first()).toContainText(/Figure-accuracy Confirmed \(known\) is not enough/)
+  await expect(page.getByTestId('distribute-funds').first()).toBeDisabled()
+  await expect(page.getByTestId('distribute-gate').first()).toHaveAttribute('data-ready', 'false')
+})
+
+test('Wave 1 Band Costs shows HARD distribute gate blocked (does not replace close-gate)', async ({ page }) => {
+  await page.goto('/settlements/tcomp1')
+  if (!page.url().match(/\/settlements\/tcomp1/i)) {
+    test.skip(true, 'TCOMP1 workspace not available')
+    return
+  }
+  await expect(page.getByTestId('close-gate-summary')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByTestId('distribute-gate')).toBeVisible()
+  await expect(page.getByTestId('distribute-gate-rule')).toContainText(/confirm-tick/)
+  await expect(page.getByTestId('distribute-funds')).toBeDisabled()
+  const res = await page.request.post('/api/settlements/tcomp1/distribute')
+  expect(res.status()).toBe(409)
+  const body = await res.json()
+  expect(body.distributed).toBe(false)
+  expect(String(body.error || '')).toMatch(/blocked|confirm-tick|PAID/i)
+})
+
+test('distribute gate unblocked when evaluate reports ready (API contract)', async ({ page }) => {
+  await page.goto('/settlements/tcomp1/sheet')
+  if (!page.url().match(/\/settlements\/tcomp1\/sheet/i)) {
+    test.skip(true, 'TCOMP1 sheet not available')
+    return
+  }
+  const status = await page.request.get('/api/settlements/tcomp1/distribute')
+  if (!status.ok()) {
+    test.skip(true, 'distribute GET not available')
+    return
+  }
+  const json = await status.json()
+  if (json.gate?.ready === true) {
+    await expect(page.getByTestId('distribute-funds').first()).toBeEnabled()
+    const post = await page.request.post('/api/settlements/tcomp1/distribute')
+    expect(post.status()).toBe(200)
+    const body = await post.json()
+    expect(body.stub).toBe(true)
+    expect(body.distributed).toBe(false)
+    expect(String(body.message || body.note || '')).toMatch(/stub|no funds moved/i)
+  } else {
+    expect(json.gate?.ready).toBe(false)
+    expect(json.gate?.rule || '').toMatch(/Figure-accuracy Confirmed \(known\) is not enough/)
+    await expect(page.getByTestId('distribute-funds').first()).toBeDisabled()
+  }
 })
 
 test('Wave 1 Settlement and Remittance tabs still work beside the Sheet', async ({ page }) => {
@@ -81,7 +142,7 @@ test('Wave 1 Settlement and Remittance tabs still work beside the Sheet', async 
   await expect(page.getByTestId('tab-sheet')).toBeVisible({ timeout: 8000 })
   await expect(page.getByTestId('settlements-left-pane')).toBeVisible()
   await expect(page.getByTestId('settlements-right-pane')).toBeVisible()
-  await expect(page.getByText('Band Costs')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Band Costs' })).toBeVisible()
   await page.getByTestId('tab-remittance').click()
   await page.waitForURL(/\/settlements\/r12\/remittance/i)
   await expect(page.getByTestId('remittance-compare')).toBeVisible()

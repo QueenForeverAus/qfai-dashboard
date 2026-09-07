@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatDateAU, formatDateShortAU } from '@/lib/dates'
-import { SETTLEMENTS_MODULE_LABEL, formatSettlementsMoney } from '@/lib/settlements'
+import { SETTLEMENTS_MODULE_LABEL, formatSettlementsMoney, type BandCostLine } from '@/lib/settlements'
 import type { CostingSnapshotField } from '@/lib/settlements'
 import type { SettlementShow } from '@/lib/settlements-load'
 import type { RemittanceChallenge } from '@/lib/remittance'
@@ -24,6 +24,20 @@ import {
   showHasOccurred,
 } from '@/lib/settlements-sheet'
 import {
+  ROLLUP_LABEL,
+  SMART_MATCH_NOTE,
+  buildDualPnlFooters,
+  pnlFromSheetSides,
+} from '@/lib/settlements-sheet-match'
+import {
+  DISTRIBUTE_BLOCKED_NOTE,
+  DISTRIBUTE_CONTROL_LABEL,
+  DISTRIBUTE_GATE_LABEL,
+  DISTRIBUTE_GATE_RULE,
+  DISTRIBUTE_STUB_NOTE,
+  distributeGateFromSources,
+} from '@/lib/settlements-distribute-gate'
+import {
   CHALLENGE_BUTTON_LABEL,
   COL3_ACTUALS_NOTE,
   HARBOUR_FIXTURE_BUTTON_LABEL,
@@ -42,13 +56,141 @@ import {
   type DecoratedSheetLine,
   type SettlementActualLine,
 } from '@/lib/settlements-sheet-actuals'
-import type { InsideFactorValues, KnownInsideLine } from '@/lib/pnl-run-costing'
+import type { InsideFactorValues, KnownInsideLine, PnlSummary } from '@/lib/pnl-run-costing'
 import SettlementsTabBar from './SettlementsTabBar'
 
 function fmtMoneyOrDash(value: number | null | undefined, kind: DecoratedSheetLine['kind']): string {
   if (value == null) return '—'
   if (kind === 'count') return value.toLocaleString('en-AU')
   return formatSettlementsMoney(value)
+}
+
+function DualPnlBlock({
+  expected,
+  actual,
+}: {
+  expected: PnlSummary | null
+  actual: PnlSummary | null
+}) {
+  const footer = buildDualPnlFooters({ expected, actual })
+  return (
+    <section className="bg-slate-800 rounded-xl border border-amber-900/40 p-4" data-testid="settlements-sheet-pnl">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div data-testid="settlements-sheet-expected-pnl">
+          <h2 className="text-amber-400 font-semibold text-sm mb-2">{footer.expectedLabel}</h2>
+          {footer.expected ? (
+            <PnlRows summary={footer.expected} accent="expected" />
+          ) : (
+            <p className="text-slate-500 text-sm">Enter tickets sold on each occurred show to compute expected P&amp;L.</p>
+          )}
+        </div>
+        <div data-testid="settlements-sheet-actual-pnl">
+          <h2 className="text-teal-300 font-semibold text-sm mb-2">{footer.actualLabel}</h2>
+          {footer.actual ? (
+            <PnlRows summary={footer.actual} accent="actual" />
+          ) : (
+            <p className="text-slate-500 text-sm">Col3 sums confirmed actuals (including roll-ups) once tickets sold is entered.</p>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function PnlRows({ summary, accent }: { summary: PnlSummary; accent: 'expected' | 'actual' }) {
+  const strong = accent === 'expected' ? 'text-amber-400' : 'text-teal-300'
+  return (
+    <div className="space-y-1.5 text-sm">
+      <div className="flex justify-between">
+        <span className="text-slate-400">Net revenue</span>
+        <span className="text-white tabular-nums">{formatSettlementsMoney(summary.netRevenue)}</span>
+      </div>
+      <div className="flex justify-between">
+        <span className="text-slate-400">Total costs</span>
+        <span className="text-white tabular-nums">{formatSettlementsMoney(summary.totalCosts)}</span>
+      </div>
+      <div className="flex justify-between">
+        <span className="text-slate-400">Net Profit / (Loss)</span>
+        <span className={`tabular-nums ${summary.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          {formatSettlementsMoney(summary.netProfit)}
+        </span>
+      </div>
+      <div className="flex justify-between text-slate-400">
+        <span>− 20% Reserve</span>
+        <span className="tabular-nums">{formatSettlementsMoney(summary.reserve)}</span>
+      </div>
+      <div className="flex justify-between font-bold border-t border-slate-700 pt-2">
+        <span className={strong}>Pre-Distribution Margin</span>
+        <span className={`tabular-nums ${summary.preDistMargin >= 0 ? strong : 'text-red-400'}`}>
+          {formatSettlementsMoney(summary.preDistMargin)}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function DistributeGateBlock({
+  runId,
+  gate,
+  busy,
+  onBusy,
+  onError,
+}: {
+  runId: string
+  gate: ReturnType<typeof distributeGateFromSources>
+  busy: boolean
+  onBusy: (v: boolean) => void
+  onError: (msg: string | null) => void
+}) {
+  const [result, setResult] = useState<string | null>(null)
+  async function distribute() {
+    onBusy(true)
+    onError(null)
+    setResult(null)
+    try {
+      const res = await fetch(`/api/settlements/${runId}/distribute`, { method: 'POST' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || DISTRIBUTE_BLOCKED_NOTE)
+      setResult(body.message || DISTRIBUTE_STUB_NOTE)
+    } catch (err) {
+      onError(err instanceof Error ? err.message : DISTRIBUTE_BLOCKED_NOTE)
+    } finally {
+      onBusy(false)
+    }
+  }
+  return (
+    <section
+      className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-2"
+      data-testid="distribute-gate"
+      data-ready={gate.ready ? 'true' : 'false'}
+    >
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">{DISTRIBUTE_GATE_LABEL}</div>
+      <p className="text-slate-300 text-sm" data-testid="distribute-gate-rule">{DISTRIBUTE_GATE_RULE}</p>
+      <p
+        data-testid="distribute-gate-summary"
+        className={`text-xs ${gate.ready ? 'text-teal-300' : 'text-orange-300'}`}
+      >
+        {gate.ready ? '✓' : '○'} {gate.summary}
+      </p>
+      {gate.blockers.slice(0, 6).map(b => (
+        <p key={b.id} className="text-[11px] text-slate-500" data-testid="distribute-gate-blocker">
+          {b.label} — {b.reason}
+        </p>
+      ))}
+      <button
+        type="button"
+        disabled={busy || !gate.ready}
+        data-testid="distribute-funds"
+        onClick={() => void distribute()}
+        className="text-xs font-semibold px-3 py-1.5 rounded bg-amber-400 text-slate-900 hover:bg-amber-300 disabled:opacity-40"
+      >
+        {DISTRIBUTE_CONTROL_LABEL}
+      </button>
+      {result && (
+        <p className="text-teal-300 text-xs" data-testid="distribute-stub-note">{result}</p>
+      )}
+    </section>
+  )
 }
 
 function Col3Cell({
@@ -147,6 +289,17 @@ function Col3Cell({
             data-testid={`sheet-variance-${line.key}`}
           >
             Δ {varianceLabel}
+          </div>
+        ) : null}
+        {line.match === 'rollup' && (line.matchChildren?.length ?? 0) > 0 ? (
+          <div className="text-left mt-1 space-y-0.5" data-testid={`sheet-rollup-${line.key}`}>
+            <div className="text-[10px] uppercase tracking-wide text-slate-500">{ROLLUP_LABEL}</div>
+            {line.matchChildren!.map(child => (
+              <div key={child.id} className="text-[11px] text-slate-400 flex justify-between gap-2" data-testid={`sheet-rollup-child-${child.lineKey}`}>
+                <span>{child.label}</span>
+                <span className="tabular-nums text-slate-200">{formatSettlementsMoney(child.amount)}</span>
+              </div>
+            ))}
           </div>
         ) : null}
       </div>
@@ -299,6 +452,7 @@ export default function SettlementSheetClient({
   remittanceKnownLines,
   actuals,
   challenges,
+  bandCosts = [],
 }: {
   run: { id: string; code: string; name: string; status: string; start_date: string | null; end_date: string | null }
   shows: SettlementShow[]
@@ -308,6 +462,7 @@ export default function SettlementSheetClient({
   remittanceKnownLines: KnownInsideLine[]
   actuals: SettlementActualLine[]
   challenges: RemittanceChallenge[]
+  bandCosts?: BandCostLine[]
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
@@ -340,6 +495,16 @@ export default function SettlementSheetClient({
       actuals,
     }),
     [runModel, actuals],
+  )
+  const distributeGate = useMemo(
+    () => distributeGateFromSources({
+      fields: liveFields,
+      wave1BandCosts: bandCosts,
+      sheetBandActuals: actuals
+        .filter(a => a.line_kind === 'band_cost')
+        .map(a => ({ id: a.id, line_key: a.line_key, paid: a.paid, notes: a.notes })),
+    }),
+    [liveFields, bandCosts, actuals],
   )
 
   const focusedBlocked = focusedShow ? !showHasOccurred(focusedShow.show_date) : runModel.blocked
@@ -568,6 +733,7 @@ export default function SettlementSheetClient({
           </div>
           <p className="text-[11px] text-slate-600">{HARBOUR_FIXTURE_HELP}</p>
           <p className="text-[11px] text-slate-600">{SHEET_BAND_PAID_HELP}</p>
+          <p className="text-[11px] text-slate-600" data-testid="sheet-smart-match-note">{SMART_MATCH_NOTE}</p>
 
           {(focusedShow ? [focusedShow] : runModel.occurred).map(show => {
             const resolved = resolveTicketsSold({ entered: show.tickets_sold })
@@ -584,6 +750,12 @@ export default function SettlementSheetClient({
               : runModel.sections.find(sec => sec.show.id === show.id)!
             const rawLines = focusedShow ? built.lines : built.lines.filter(l => l.group !== 'run_costs' || l.key === 'run:social_ads_var')
             const lines = applyCol3Actuals({ lines: rawLines, actuals, showId: show.id })
+            const showExpected = pnlFromSheetSides({
+              netRevenueExpected: lines.find(l => l.key === 'net_revenue')?.expected ?? null,
+              netRevenueActual: lines.find(l => l.key === 'net_revenue')?.actual ?? null,
+              totalCostsExpected: lines.find(l => l.key === 'total_costs')?.expected ?? null,
+              totalCostsActual: lines.find(l => l.key === 'total_costs')?.actual ?? null,
+            })
             return (
               <section key={show.id} className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -662,6 +834,9 @@ export default function SettlementSheetClient({
                     })
                   }}
                 />
+                {focusedShow && (
+                  <DualPnlBlock expected={showExpected.expected} actual={showExpected.actual} />
+                )}
               </section>
             )
           })}
@@ -693,55 +868,16 @@ export default function SettlementSheetClient({
           )}
 
           {!focusedShow && (
-            <section className="bg-slate-800 rounded-xl border border-amber-900/40 p-4" data-testid="settlements-sheet-pnl">
-              <h2 className="text-amber-400 font-semibold text-sm mb-2">Expected P&amp;L</h2>
-              {runModel.summary ? (
-                <div className="space-y-1.5 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Net Profit / (Loss)</span>
-                    <span className={runModel.summary.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}>
-                      {formatSettlementsMoney(runModel.summary.netProfit)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-slate-400">
-                    <span>− 20% Reserve</span>
-                    <span>{formatSettlementsMoney(runModel.summary.reserve)}</span>
-                  </div>
-                  <div className="flex justify-between font-bold border-t border-slate-700 pt-2">
-                    <span className="text-amber-400">Pre-Distribution Margin</span>
-                    <span className={runModel.summary.preDistMargin >= 0 ? 'text-amber-400' : 'text-red-400'}>
-                      {formatSettlementsMoney(runModel.summary.preDistMargin)}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-slate-500 text-sm">Enter tickets sold on each occurred show to compute expected P&amp;L.</p>
-              )}
-              <h2 className="text-teal-300 font-semibold text-sm mt-4 mb-2" data-testid="settlements-sheet-actual-pnl">Actuals P&amp;L</h2>
-              {col3Run.actualSummary ? (
-                <div className="space-y-1.5 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Net Profit / (Loss)</span>
-                    <span className={col3Run.actualSummary.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}>
-                      {formatSettlementsMoney(col3Run.actualSummary.netProfit)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-slate-400">
-                    <span>− 20% Reserve</span>
-                    <span>{formatSettlementsMoney(col3Run.actualSummary.reserve)}</span>
-                  </div>
-                  <div className="flex justify-between font-bold border-t border-slate-700 pt-2">
-                    <span className="text-teal-300">Pre-Distribution Margin</span>
-                    <span className={col3Run.actualSummary.preDistMargin >= 0 ? 'text-teal-300' : 'text-red-400'}>
-                      {formatSettlementsMoney(col3Run.actualSummary.preDistMargin)}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-slate-500 text-sm">Col3 sums confirmed actuals once tickets sold is entered.</p>
-              )}
-            </section>
+            <DualPnlBlock expected={runModel.summary} actual={col3Run.actualSummary} />
           )}
+
+          <DistributeGateBlock
+            runId={run.id}
+            gate={distributeGate}
+            busy={busy}
+            onBusy={setBusy}
+            onError={setError}
+          />
 
           {challengeLine && (
             <section className="bg-slate-800 rounded-xl border border-amber-800/50 p-4 space-y-3" data-testid="sheet-challenge-panel">

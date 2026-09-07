@@ -99,6 +99,9 @@ const APRA_RE = /\b(apra|one\s*music|performing\s*rights|ppca|music\s*licen[cs]e
 const USHER_RE = /\b(usher|ushers|foh staff|foh usher|front of house)\b/i
 const SECURITY_RE = /\b(security|guard)\b/i
 const TECH_RE = /\b(technician|tech staff|lx\b|audio tech|lighting tech|duty technician)\b/i
+const MARKETING_RE = /\b(edm|banner|facebook|\bfb\b|flyer|poster|brochure|promo|advert|campaign|venue marketing|marketing levy)\b/i
+
+export type LabelBucket = 'usher' | 'security' | 'tech' | 'marketing' | null
 
 export function looksLikeApra(text: string | null | undefined): boolean {
   return APRA_RE.test(String(text ?? ''))
@@ -184,16 +187,27 @@ function tokenScore(a: string, b: string): number {
   return Math.max(jaccard, coverage * 0.9)
 }
 
+/** Public Wave 1 token score — reused by Settlements Sheet smart match. */
+export function labelMatchScore(a: string, b: string): number {
+  return tokenScore(a, b)
+}
+
 export function sameShow(a: string | null | undefined, b: string | null | undefined): boolean {
   if (!a || !b) return !a && !b
   return a === b
 }
 
-function bucketOf(label: string): 'usher' | 'security' | 'tech' | null {
+function bucketOf(label: string): LabelBucket {
   if (USHER_RE.test(label)) return 'usher'
   if (SECURITY_RE.test(label)) return 'security'
   if (TECH_RE.test(label)) return 'tech'
+  if (MARKETING_RE.test(label)) return 'marketing'
   return null
+}
+
+/** Public Wave 1 labour / marketing bucket — reused by Settlements Sheet roll-up. */
+export function labelBucket(label: string): LabelBucket {
+  return bucketOf(label)
 }
 
 function labourDollarFlags(our: number, theirs: number, t = REMITTANCE_VARIANCE_THRESHOLDS): VarianceFlag | null {

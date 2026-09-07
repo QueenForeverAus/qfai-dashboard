@@ -35,7 +35,7 @@ test('Settlements lists runs with nested shows and two-pane workspace', async ({
   await expect(page.getByTestId('settlements-left-pane')).toBeVisible()
   await expect(page.getByTestId('settlements-right-pane')).toBeVisible()
   await expect(page.getByText('Agent Settlement')).toBeVisible()
-  await expect(page.getByText('Band Costs')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Band Costs' })).toBeVisible()
   await expect(page.getByTestId('close-gate-summary')).toBeVisible()
   await expect(page.getByTestId('new-band-cost-quote-note')).toBeVisible()
   await expect(page.getByTestId('new-band-cost-attach')).toBeVisible()

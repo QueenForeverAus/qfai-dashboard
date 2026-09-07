@@ -172,5 +172,6 @@ test('Col3 copy is Phase 4 actuals, not a placeholder-only note', () => {
   assert.match(COL3_PLACEHOLDER_NOTE, /confirmed/)
   assert.match(COL3_PLACEHOLDER_NOTE, /Challenge/)
   assert.match(COL3_PLACEHOLDER_NOTE, /PAID/)
+  assert.match(COL3_PLACEHOLDER_NOTE, /roll up/)
   assert.equal(COL3_CELL, '—')
 })
