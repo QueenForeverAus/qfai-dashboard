@@ -2,8 +2,9 @@ import { NextRequest } from 'next/server'
 import { handleAdvancingApplyPost } from '@/lib/advancing-apply-http'
 
 /**
- * POST /api/runs/[runId]/apply-advancing
- * Alias of /api/runs/[runId]/advancing-extract (advancing-packet-v1).
+ * POST /api/runs/[runId]/advancing-extract
+ * Body: advancing-packet-v1 (single packet or { packets: [...] }).
+ * Untrusted packet text is never executed — figures only.
  */
 export async function POST(
   req: NextRequest,

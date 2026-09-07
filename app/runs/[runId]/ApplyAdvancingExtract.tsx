@@ -27,9 +27,10 @@ export default function ApplyAdvancingExtract({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<AdvancingApplyResult | null>(null)
+  const [softFlags, setSoftFlags] = useState<string[]>([])
 
   const fixtureHint = useMemo(
-    () => 'Smoke fixture: Civic high-confidence packet. Hire + lighting stay put; lone FOH queues unless force-apply.',
+    () => 'Smoke fixture: advancing-packet-v1 Civic batch. crew_over_target + lighting_330_keep_separate still apply; other soft_flags 422 unless force.',
     [],
   )
 
@@ -37,6 +38,7 @@ export default function ApplyAdvancingExtract({
     setBusy(true)
     setError(null)
     setResult(null)
+    setSoftFlags([])
     let packet: unknown
     try {
       packet = JSON.parse(packetText)
@@ -45,18 +47,25 @@ export default function ApplyAdvancingExtract({
       setError('Packet JSON is invalid')
       return
     }
+    const envelope = packet && typeof packet === 'object' && !Array.isArray(packet)
+      ? { ...(packet as Record<string, unknown>) }
+      : {}
     try {
-      const res = await fetch(`/api/runs/${runId}/apply-advancing`, {
+      const res = await fetch(`/api/runs/${runId}/advancing-extract`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          ...envelope,
           show_id: showId,
-          packet,
-          force_apply: canForce && forceApply,
+          run_id: runId,
+          force: canForce && forceApply,
         }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || `Apply failed (${res.status})`)
+      if (!res.ok) {
+        if (Array.isArray(data.soft_flags)) setSoftFlags(data.soft_flags)
+        throw new Error(data.error || `Apply failed (${res.status})`)
+      }
       const next = data as AdvancingApplyResult
       setResult(next)
       if (Array.isArray(next.fields) && next.fields.length) {
@@ -78,7 +87,7 @@ export default function ApplyAdvancingExtract({
         <div>
           <div className="text-slate-200 text-sm font-medium">Apply advancing extract</div>
           <p className="text-slate-500 text-xs mt-0.5">
-            Michael advancing email → figure-accuracy CONFIRMED. Does not tick lines or mark PAID.
+            advancing-packet-v1 → figure-accuracy CONFIRMED. Does not tick lines or mark PAID.
           </p>
         </div>
         <button
@@ -133,7 +142,7 @@ export default function ApplyAdvancingExtract({
                   onChange={e => setForceApply(e.target.checked)}
                   className="accent-amber-400"
                 />
-                Force-apply flagged / medium-low
+                Force (admin override)
               </label>
             )}
             <button
@@ -155,7 +164,12 @@ export default function ApplyAdvancingExtract({
             className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-300 font-mono focus:outline-none focus:border-amber-400"
           />
           {error && (
-            <div className="text-red-400 text-xs" role="alert">{error}</div>
+            <div className="text-red-400 text-xs" role="alert">
+              {error}
+              {softFlags.length > 0 && (
+                <span className="text-slate-400"> — soft_flags: {softFlags.join(', ')}</span>
+              )}
+            </div>
           )}
           {result && (
             <div
@@ -182,6 +196,13 @@ export default function ApplyAdvancingExtract({
                 <div className="text-slate-400">
                   Skipped {result.skipped.length}: {result.skipped.map(s => s.description).join(', ')}
                 </div>
+              )}
+              {result.audit?.length > 0 && (
+                <ul data-testid="apply-advancing-audit" className="text-slate-400 list-disc pl-4 space-y-0.5">
+                  {result.audit.map(sentence => (
+                    <li key={sentence}>{sentence}</li>
+                  ))}
+                </ul>
               )}
               {result.soft_flags.length > 0 && (
                 <div className="text-slate-500">Soft flags: {result.soft_flags.join(', ')}</div>

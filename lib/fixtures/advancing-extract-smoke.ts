@@ -1,62 +1,79 @@
 /**
- * Smoke fixture — Michael advancing extract (Portal slice A).
- * High-confidence Civic packet: AV package, crew roles, rider-as-staff,
- * plus lines that must NOT auto-write (hire, lighting, lone FOH).
+ * Smoke fixture — advancing-packet-v1 (Comms-locked contract).
+ * High-confidence Civic batch: AV, crew (incl. over-target), rider-as-staff, backline.
+ * Hire + lighting stay put; lone FOH is planner-skipped (no blocking inbound flag).
  */
-export const SMOKE_ADVANCING_EXTRACT = {
-  version: 'michael-advancing-email-costings-v1',
+
+const PACKET_BASE = {
+  schema: 'advancing-packet-v1' as const,
+  apply_env: 'staging' as const,
+  action: 'apply' as const,
+  confidence: 'high' as const,
   venue_short_name: 'Civic',
   email_date: '07/09/26',
   message_id: '<smoke-michael-civic-20260907@queenforever.test>',
   thread_ref: 'thread-smoke-civic-advancing',
-  confidence: 'high',
   evidence_snippet: 'Michael confirmed tech package $1,100, 2 ushers + 1 duty tech, rider as staff $180.',
-  hire_renegotiated: false,
-  lighting_replaced_by_venue_package: false,
-  run_group: 'group1',
-  soft_flags: [],
-  lines: [
+}
+
+export const SMOKE_ADVANCING_EXTRACT = {
+  schema: 'advancing-packet-v1' as const,
+  apply_env: 'staging' as const,
+  action: 'apply' as const,
+  force: false,
+  packets: [
     {
+      ...PACKET_BASE,
       id: 'av-package',
-      kind: 'production_av',
+      category: 'production_av',
       description: 'Venue tech / AV package',
       amount: 1100,
       gst_included: true,
-      confidence: 'high',
+      soft_flags: [] as string[],
     },
     {
+      ...PACKET_BASE,
       id: 'ushers',
-      kind: 'venue_staff',
+      category: 'venue_staff',
       description: 'Ushers',
       role: 'Ushers',
       rate: 56.5,
       hours: 4,
       headcount: 2,
-      confidence: 'high',
+      amount: 452,
+      gst_included: true,
+      soft_flags: [] as string[],
     },
     {
+      ...PACKET_BASE,
       id: 'duty-tech',
-      kind: 'venue_staff',
+      category: 'venue_staff',
       description: 'Duty technician',
       role: 'Duty technician',
       rate: 78,
       hours: 8,
       headcount: 1,
-      confidence: 'high',
+      amount: 624,
+      gst_included: true,
+      soft_flags: [] as string[],
     },
     {
+      ...PACKET_BASE,
       id: 'extra-ushers',
-      kind: 'venue_staff',
+      category: 'venue_staff',
       description: 'FOH ushers (agreed count)',
       role: 'FOH ushers',
       rate: 56.5,
       hours: 3,
       headcount: 4,
-      confidence: 'high',
+      amount: 678,
+      gst_included: true,
+      soft_flags: ['crew_over_target'],
     },
     {
+      ...PACKET_BASE,
       id: 'rider',
-      kind: 'catering',
+      category: 'catering',
       description: 'Band rider (venue staff)',
       role: 'Rider (as staff)',
       amount: 180,
@@ -64,53 +81,83 @@ export const SMOKE_ADVANCING_EXTRACT = {
       hours: 1,
       headcount: 1,
       rider_as_staff: true,
-      confidence: 'high',
+      gst_included: true,
+      soft_flags: [] as string[],
     },
     {
+      ...PACKET_BASE,
       id: 'backline',
-      kind: 'backline',
+      category: 'backline',
       description: 'House backline / drum riser',
       amount: 220,
       gst_included: true,
       band_side: false,
-      confidence: 'high',
+      soft_flags: [] as string[],
     },
     {
+      ...PACKET_BASE,
       id: 'hire-skip',
-      kind: 'venue_hire',
+      category: 'venue_hire',
       description: 'Venue hire (Harbour deal)',
       amount: 1560,
-      confidence: 'high',
+      hire_renegotiated: false,
+      gst_included: true,
+      soft_flags: [] as string[],
     },
     {
+      ...PACKET_BASE,
       id: 'lighting-skip',
-      kind: 'lighting',
+      category: 'lighting',
       description: 'Lighting equipment hire',
       amount: 0,
-      confidence: 'high',
+      lighting_replaced_by_venue_package: false,
+      gst_included: true,
+      soft_flags: ['lighting_330_keep_separate'],
     },
     {
+      ...PACKET_BASE,
       id: 'lone-foh',
-      kind: 'venue_staff',
+      category: 'venue_staff',
       description: 'FOH',
       role: 'FOH',
       rate: 66,
       hours: 4,
       headcount: 1,
-      confidence: 'high',
+      amount: 264,
+      gst_included: true,
+      // No inbound blocking flag — planner still skips lone FOH.
+      soft_flags: [] as string[],
     },
   ],
-} as const
+}
 
 /** Second apply — newer figures for supersede smoke. */
 export const SMOKE_ADVANCING_EXTRACT_SUPERSEDE = {
   ...SMOKE_ADVANCING_EXTRACT,
-  email_date: '08/09/26',
-  message_id: '<smoke-michael-civic-20260908@queenforever.test>',
-  evidence_snippet: 'Michael revised AV package to $1,250 and ushers to 2 × 4h @ $60.',
-  lines: SMOKE_ADVANCING_EXTRACT.lines.map(line => {
-    if (line.id === 'av-package') return { ...line, amount: 1250 }
-    if (line.id === 'ushers') return { ...line, rate: 60 }
-    return line
+  packets: SMOKE_ADVANCING_EXTRACT.packets.map(packet => {
+    if (packet.id === 'av-package') {
+      return {
+        ...packet,
+        email_date: '08/09/26',
+        message_id: '<smoke-michael-civic-20260908@queenforever.test>',
+        evidence_snippet: 'Michael revised AV package to $1,250 and ushers to 2 × 4h @ $60.',
+        amount: 1250,
+      }
+    }
+    if (packet.id === 'ushers') {
+      return {
+        ...packet,
+        email_date: '08/09/26',
+        message_id: '<smoke-michael-civic-20260908@queenforever.test>',
+        evidence_snippet: 'Michael revised AV package to $1,250 and ushers to 2 × 4h @ $60.',
+        rate: 60,
+        amount: 480,
+      }
+    }
+    return {
+      ...packet,
+      email_date: '08/09/26',
+      message_id: '<smoke-michael-civic-20260908@queenforever.test>',
+    }
   }),
 }

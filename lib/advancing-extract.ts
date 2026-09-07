@@ -1,6 +1,7 @@
 /**
  * Michael advancing-email extract → Run Costing apply (Portal staging slice A).
  *
+ * Inbound contract: advancing-packet-v1 (see lib/advancing-packet-v1.ts).
  * Untrusted inbound: only known figure fields are read. Packet prose, evidence
  * snippets, and any instruction-like keys are never executed.
  *
@@ -39,8 +40,12 @@ export const ADVANCING_SOFT_FLAG = {
   cateringRiderVsFb: 'catering_rider_vs_fb',
   g3BacklineBandVsVenue: 'g3_backline_band_vs_venue',
   crewHeadcountOverTarget: 'crew_headcount_over_target',
+  /** advancing-packet-v1 allowlisted alias — still writes actual headcount. */
+  crewOverTarget: 'crew_over_target',
   hireNotRenegotiated: 'hire_not_renegotiated',
   lightingDefaultKept: 'lighting_default_kept',
+  /** advancing-packet-v1 allowlisted alias — keep $330 unless replace. */
+  lighting330KeepSeparate: 'lighting_330_keep_separate',
 } as const
 
 export type AdvancingSoftFlagCode = (typeof ADVANCING_SOFT_FLAG)[keyof typeof ADVANCING_SOFT_FLAG]
@@ -206,6 +211,8 @@ export type AdvancingApplyResult = {
   applied: Array<{ field_key: string; description: string; amount: number; mode: string }>
   skipped: PlannedAdvancingSkip[]
   superseded: Array<{ field_key: string; description: string; old_amount: number; new_amount: number }>
+  /** Audit Trail sentences (apply + each supersede). */
+  audit: string[]
   soft_flags: string[]
   queue_reason?: string
   fields: Array<Record<string, unknown>>
@@ -448,6 +455,7 @@ function resolveFieldKey(line: ParsedAdvancingLine, packet: ParsedAdvancingPacke
 
   if (fieldKey === 'venue_staff' && line.headcount > ADVANCING_CREW_HEADCOUNT_TARGET) {
     flags.push(ADVANCING_SOFT_FLAG.crewHeadcountOverTarget)
+    flags.push(ADVANCING_SOFT_FLAG.crewOverTarget)
   }
 
   if (!fieldKey) {
@@ -519,6 +527,7 @@ export function planAdvancingApply(
           softFlags: [...resolvedLine.flags, ADVANCING_SOFT_FLAG.hireNotRenegotiated],
         })
         allFlags.push(ADVANCING_SOFT_FLAG.hireNotRenegotiated)
+        // force cannot bypass — never write venue_hire without explicit renegotiation
         continue
       }
     }
@@ -529,9 +538,14 @@ export function planAdvancingApply(
         fieldKey,
         description: line.description,
         reason: `Lighting hire stays $${LIGHTING_HIRE_PER_RUN}/run unless Michael says the venue package replaces it`,
-        softFlags: [...resolvedLine.flags, ADVANCING_SOFT_FLAG.lightingDefaultKept],
+        softFlags: [
+          ...resolvedLine.flags,
+          ADVANCING_SOFT_FLAG.lightingDefaultKept,
+          ADVANCING_SOFT_FLAG.lighting330KeepSeparate,
+        ],
       })
       allFlags.push(ADVANCING_SOFT_FLAG.lightingDefaultKept)
+      allFlags.push(ADVANCING_SOFT_FLAG.lighting330KeepSeparate)
       continue
     }
 
@@ -630,6 +644,35 @@ export function formatAdvancingSupersedeAuditCopy(opts: {
   }
 }
 
+export function advancingResultAuditSentences(opts: {
+  actorName: string
+  venueName: string
+  sourceNote: string
+  appliedCount: number
+  superseded: Array<{ description: string; old_amount: number; new_amount: number }>
+}): string[] {
+  const sentences: string[] = []
+  if (opts.appliedCount > 0) {
+    sentences.push(formatAdvancingApplyAuditCopy({
+      actorName: opts.actorName,
+      venueName: opts.venueName,
+      sourceNote: opts.sourceNote,
+      appliedCount: opts.appliedCount,
+      supersededCount: opts.superseded.length,
+    }).newValue)
+  }
+  for (const item of opts.superseded) {
+    sentences.push(formatAdvancingSupersedeAuditCopy({
+      actorName: opts.actorName,
+      lineLabel: item.description,
+      oldAmount: item.old_amount,
+      newAmount: item.new_amount,
+      sourceNote: opts.sourceNote,
+    }).newValue)
+  }
+  return sentences
+}
+
 function advancingMeta(write: PlannedAdvancingWrite): Record<string, unknown> {
   return {
     advancing_source: ADVANCING_SOURCE_KIND,
@@ -711,6 +754,7 @@ export async function applyAdvancingPlan(opts: {
     applied: [],
     skipped: plan.skipped,
     superseded: [],
+    audit: [],
     soft_flags: plan.softFlags,
     queue_reason: plan.queueReason,
     fields: [],
@@ -957,6 +1001,13 @@ export async function applyAdvancingPlan(opts: {
     applied,
     skipped: plan.skipped,
     superseded,
+    audit: advancingResultAuditSentences({
+      actorName,
+      venueName,
+      sourceNote: plan.sourceNote,
+      appliedCount: applied.length,
+      superseded,
+    }),
     soft_flags: plan.softFlags,
     queue_reason: status === 'queued' ? 'No lines were auto-written' : undefined,
     fields: updatedFields,
@@ -1105,6 +1156,7 @@ async function insertApplyRow(
       confidence: opts.plan.packetConfidence,
       evidence_snippet: opts.plan.evidenceSnippet,
       packet: {
+        schema: 'advancing-packet-v1',
         version: ADVANCING_PACKET_VERSION,
         venue_short_name: opts.packet.venueShortName,
         email_date: opts.packet.emailDate,
@@ -1130,6 +1182,7 @@ async function insertApplyRow(
         applied: opts.result.applied,
         skipped: opts.result.skipped,
         superseded: opts.result.superseded,
+        audit: opts.result.audit,
         soft_flags: opts.result.soft_flags,
         queue_reason: opts.result.queue_reason ?? null,
       },

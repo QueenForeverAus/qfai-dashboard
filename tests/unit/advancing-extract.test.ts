@@ -5,6 +5,7 @@ import {
   ADVANCING_SOFT_FLAG,
   AUDIT_FIELD_ADVANCING_APPLY,
   AUDIT_FIELD_ADVANCING_SUPERSEDE,
+  advancingResultAuditSentences,
   confidenceAllowsAutoWrite,
   formatAdvancingApplyAuditCopy,
   formatAdvancingEmailDate,
@@ -16,6 +17,11 @@ import {
   planAdvancingApply,
 } from '../../lib/advancing-extract.ts'
 import { SMOKE_ADVANCING_EXTRACT } from '../../lib/fixtures/advancing-extract-smoke.ts'
+import {
+  envelopeToParsedPacket,
+  gateAdvancingEnvelope,
+  parseAdvancingEnvelope,
+} from '../../lib/advancing-packet-v1.ts'
 import { formatAuditEvent } from '../../lib/audit-trail-format.ts'
 import { hasPreservedSource } from '../../lib/cost-entry-source.ts'
 
@@ -62,8 +68,10 @@ test('silence-as-accept queues medium/low/missing confidence', () => {
 
   for (const confidence of [null, 'medium', 'low'] as const) {
     const parsed = parseAdvancingPacket({
-      ...SMOKE_ADVANCING_EXTRACT,
+      venue_short_name: 'Civic',
+      email_date: '07/09/26',
       confidence,
+      lines: [{ kind: 'production_av', description: 'Venue tech package', amount: 1100, confidence }],
     })
     const plan = planAdvancingApply(parsed)
     assert.equal(plan.status, 'queued')
@@ -73,7 +81,10 @@ test('silence-as-accept queues medium/low/missing confidence', () => {
 })
 
 test('high-confidence smoke fixture writes Staff/AV and flags residuals', () => {
-  const parsed = parseAdvancingPacket(SMOKE_ADVANCING_EXTRACT)
+  const envelope = parseAdvancingEnvelope(SMOKE_ADVANCING_EXTRACT)
+  const gate = gateAdvancingEnvelope(envelope, { runId: 'run-1', showId: 'show-1' })
+  assert.equal(gate.ok, true)
+  const parsed = envelopeToParsedPacket(envelope, { runId: 'run-1', showId: 'show-1', runGroup: 'group1' })
   const plan = planAdvancingApply(parsed, { runGroup: 'group1' })
   assert.equal(plan.status, 'apply')
   assert.equal(plan.sourceNote, 'Michael email w/Civic 07/09/26')
@@ -255,4 +266,15 @@ test('Audit Trail sentences name Michael advancing email and old→new supersede
   assert.ok(formatted)
   assert.match(formatted!.sentence, /applied Michael advancing email/)
   assert.equal(formatted!.kind, 'narrative-advancing-apply')
+
+  const audit = advancingResultAuditSentences({
+    actorName: 'Alex',
+    venueName: 'Broken Hill Civic',
+    sourceNote: 'Michael email w/Civic 07/09/26',
+    appliedCount: 3,
+    superseded: [{ description: 'Ushers', old_amount: 452, new_amount: 480 }],
+  })
+  assert.equal(audit.length, 2)
+  assert.match(audit[0], /Alex applied Michael advancing email/)
+  assert.match(audit[1], /superseded the advancing figure on Ushers/)
 })
