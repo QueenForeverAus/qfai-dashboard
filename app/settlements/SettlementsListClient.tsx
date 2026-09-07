@@ -4,11 +4,10 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { formatDateAU, formatDateShortAU } from '@/lib/dates'
 import {
-  REMITTANCE_STUB_LABEL,
-  REMITTANCE_STUB_NOTE,
   SETTLEMENT_PROPOSED_NOTE,
   SETTLEMENTS_MODULE_LABEL,
 } from '@/lib/settlements'
+import { REMITTANCE_CASH_NOTE, REMITTANCE_TAB_LABEL } from '@/lib/remittance'
 
 export type SettlementListShow = {
   id: string
@@ -67,14 +66,12 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
       <div className="mb-5">
         <div className="flex flex-wrap items-center gap-2 mb-2">
           <h1 className="text-white text-2xl font-bold tracking-wide">{SETTLEMENTS_MODULE_LABEL}</h1>
-          <span
-            className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed"
-            title={REMITTANCE_STUB_NOTE}
-          >
-            {REMITTANCE_STUB_LABEL} · W1.4
+          <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-teal-900/40 text-teal-300 border border-teal-800">
+            {REMITTANCE_TAB_LABEL}
           </span>
         </div>
         <p className="text-slate-400 text-sm">{SETTLEMENT_PROPOSED_NOTE}</p>
+        <p className="text-slate-500 text-xs mt-1">{REMITTANCE_CASH_NOTE}</p>
         <p className="text-slate-500 text-xs mt-1">Post-show close. Tour Desk stays the pre-show costing workspace.</p>
       </div>
 

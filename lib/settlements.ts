@@ -2,7 +2,7 @@
  * Settlements W1.3 — shell types, snapshot, close-gate, terminology.
  *
  * HARD copy: Settlement = proposed payment (not cash).
- * Remittance (cash received) is W1.4 and is not built here.
+ * Remittance (cash received) is W1.4 — see lib/remittance.ts.
  */
 
 import {
@@ -20,7 +20,8 @@ export const SETTLEMENT_PROPOSED_NOTE =
   'Settlement is a proposed payment from the agent statement — not cash received.'
 
 export const REMITTANCE_STUB_LABEL = 'Remittance'
-export const REMITTANCE_STUB_NOTE = 'Remittance (cash received) is W1.4 and is not built yet.'
+/** @deprecated W1.4 — Remittance is a real tab. Kept so old copy imports still typecheck. */
+export const REMITTANCE_STUB_NOTE = 'Remittance is cash received — open the Remittance tab.'
 
 export const FINALISE_CONTROL_LABEL = 'Finalise Costing'
 export const FINALISE_LOCK_NOTE =
@@ -106,6 +107,9 @@ export type RunSettlementRow = {
   costing_finalised_by: string | null
   costing_snapshot: CostingSnapshot | null
   nudge_due_at: string | null
+  remittance_status?: 'open' | 'accepted' | 'rectify_awaiting'
+  remittance_accepted_at?: string | null
+  remittance_accepted_by?: string | null
 }
 
 export type CloseGateStatus = {
