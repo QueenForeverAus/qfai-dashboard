@@ -48,6 +48,7 @@ export async function POST(
     description?: string
     amount?: number | string
     notes?: string
+    quote_note?: string
     show_id?: string | null
   }
 
@@ -79,6 +80,7 @@ export async function POST(
       description,
       amount,
       notes: (body.notes ?? '').trim() || null,
+      quote_note: (body.quote_note ?? '').trim() || null,
       source: actor.fullName ? `Entered by ${actor.fullName.split(/\s+/)[0]}` : null,
       created_by: actor.userId,
     })

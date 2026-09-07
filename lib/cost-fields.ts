@@ -28,6 +28,14 @@ export type CostEntry = PayableLine & {
   notes: string
   amount: number
   gst_included: boolean
+  /** W1.5 stub store id/path. Optional — does not lock or close-gate. */
+  attachment_path?: string | null
+  attachment_filename?: string | null
+  attachment_mime?: string | null
+  /** W1.5 stub note. UI label: Link quote/invoice later. */
+  quote_note?: string | null
+  /** Wave 2 Payables document FK — unused in W1.5 UI. */
+  payables_document_id?: string | null
 }
 
 /**
@@ -772,6 +780,11 @@ export function ensureMinimumEntry(
     confirmed: false,
     paid: false,
     paid_at: null,
+    attachment_path: null,
+    attachment_filename: null,
+    attachment_mime: null,
+    quote_note: '',
+    payables_document_id: null,
   }]
 }
 
@@ -820,6 +833,13 @@ export function normalizeEntries(raw: unknown): CostEntry[] | null {
       paid,
       paid_at: paid ? parsePaidAt(row.paid_at) : null,
       paid_snapshot: parsePaidSnapshot(row.paid_snapshot),
+      attachment_path: row.attachment_path != null && String(row.attachment_path) ? String(row.attachment_path) : null,
+      attachment_filename: row.attachment_filename != null && String(row.attachment_filename) ? String(row.attachment_filename) : null,
+      attachment_mime: row.attachment_mime != null && String(row.attachment_mime) ? String(row.attachment_mime) : null,
+      quote_note: String(row.quote_note ?? ''),
+      payables_document_id: row.payables_document_id != null && String(row.payables_document_id)
+        ? String(row.payables_document_id)
+        : null,
     }
   })
 }

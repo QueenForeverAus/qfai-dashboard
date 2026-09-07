@@ -99,6 +99,11 @@ export type BandCostLine = {
   paid_at: string | null
   created_by: string | null
   created_at: string
+  attachment_path?: string | null
+  attachment_filename?: string | null
+  attachment_mime?: string | null
+  quote_note?: string | null
+  payables_document_id?: string | null
 }
 
 export type RunSettlementRow = {

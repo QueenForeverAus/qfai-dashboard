@@ -21,6 +21,10 @@ import {
   AUDIT_FIELD_FINALISE_COSTING,
 } from './settlements.ts'
 import {
+  AUDIT_FIELD_QUOTE_ATTACHMENT,
+  AUDIT_FIELD_QUOTE_NOTE,
+} from './quote-invoice-stub.ts'
+import {
   AUDIT_FIELD_CHALLENGE_DRAFT,
   AUDIT_FIELD_REMITTANCE_ACCEPTED,
   AUDIT_FIELD_REMITTANCE_ADDED,
@@ -165,6 +169,8 @@ const NARRATIVE_FIELDS = new Set([
   AUDIT_FIELD_REMITTANCE_RECTIFY,
   AUDIT_FIELD_CHALLENGE_DRAFT,
   AUDIT_FIELD_RIGHTS_PAYER,
+  AUDIT_FIELD_QUOTE_NOTE,
+  AUDIT_FIELD_QUOTE_ATTACHMENT,
 ])
 
 export function formatAuditMoney(value: unknown): string {
@@ -234,7 +240,7 @@ function looksLikeSentence(text: string | null | undefined): boolean {
   if (t.startsWith('{') || t.startsWith('[')) return false
   if (t.includes(' → ') && t.length < 40) return false
   return (
-    /^(Someone|\S+) (marked|restored|edited|confirmed|renamed|changed|added|removed|moved|updated|set|published|returned|unmarked|confirm-ticked|finalised|waived|entered|accepted|created)\b/i.test(t)
+    /^(Someone|\S+) (marked|restored|edited|confirmed|renamed|changed|added|removed|moved|updated|set|published|returned|unmarked|confirm-ticked|finalised|waived|entered|accepted|created|cleared|attached)\b/i.test(t)
     || (t.endsWith('.') && /[a-zA-Z]{3,} .+ /.test(t) && t.split(' ').length >= 5)
   )
 }
@@ -425,6 +431,19 @@ function meaningfulEntryChange(prev: Record<string, unknown>, next: Record<strin
   }
   if (String(prev.notes ?? '') !== String(next.notes ?? '')) {
     changes.push(`updated Notes on ${label} from ${quoteLabel(truncateAuditText(String(prev.notes ?? '')))} to ${quoteLabel(truncateAuditText(String(next.notes ?? '')))}`)
+  }
+  if (String(prev.quote_note ?? '') !== String(next.quote_note ?? '')) {
+    const nextNote = String(next.quote_note ?? '').trim()
+    changes.push(nextNote
+      ? `updated the quote/invoice note on ${label}`
+      : `cleared the quote/invoice note on ${label}`)
+  }
+  if (String(prev.attachment_filename ?? '') !== String(next.attachment_filename ?? '')) {
+    const nextFile = String(next.attachment_filename ?? '').trim()
+    const prevFile = String(prev.attachment_filename ?? '').trim()
+    changes.push(nextFile
+      ? `added a quote/invoice file ${nextFile} on ${label}`
+      : `removed the quote/invoice file ${prevFile || 'attachment'} from ${label}`)
   }
   if (Boolean(prev.gst_included) !== Boolean(next.gst_included)) {
     changes.push(`set GST on ${label} to ${next.gst_included ? 'included' : 'excluded'} (was ${prev.gst_included ? 'included' : 'excluded'})`)
@@ -703,6 +722,8 @@ export function formatAuditEvent(
           : fieldName === AUDIT_FIELD_FINALISE_COSTING ? 'narrative-finalise'
           : fieldName === AUDIT_FIELD_BAND_COST_ADDED ? 'narrative-band-cost'
           : fieldName === AUDIT_FIELD_BAND_COST_STATUS ? 'narrative-band-cost-status'
+          : fieldName === AUDIT_FIELD_QUOTE_NOTE ? 'narrative-quote-note'
+          : fieldName === AUDIT_FIELD_QUOTE_ATTACHMENT ? 'narrative-quote-attachment'
           : 'narrative',
         record_id: recordId,
       }
@@ -809,6 +830,27 @@ export function formatAuditEvent(
         id: row.id, changed_at: row.changed_at, changed_by_name: actor,
         sentence: finish(sentence(actor, `updated Notes on ${line} from ${quoteLabel(truncateAuditText(row.old_value))} to ${quoteLabel(truncateAuditText(row.new_value))}`)),
         kind: 'entry-notes', record_id: recordId,
+      }
+    }
+    if (entryField === 'quote_note') {
+      const nextNote = (row.new_value ?? '').trim()
+      return {
+        id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+        sentence: finish(sentence(actor, nextNote
+          ? `updated the quote/invoice note on ${line}`
+          : `cleared the quote/invoice note on ${line}`)),
+        kind: 'entry-quote-note', record_id: recordId,
+      }
+    }
+    if (entryField === 'attachment_filename') {
+      const nextFile = (row.new_value ?? '').trim()
+      const prevFile = (row.old_value ?? '').trim()
+      return {
+        id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+        sentence: finish(sentence(actor, nextFile
+          ? `added a quote/invoice file ${nextFile} on ${line}`
+          : `removed the quote/invoice file ${prevFile || 'attachment'} from ${line}`)),
+        kind: 'entry-quote-attachment', record_id: recordId,
       }
     }
     if (entryField === 'gst_included') {

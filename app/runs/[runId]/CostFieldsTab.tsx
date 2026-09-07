@@ -53,6 +53,7 @@ import {
   formatNotesSource,
   staffDisplayName,
 } from '@/lib/cost-entry-source'
+import QuoteInvoiceStub from '@/components/QuoteInvoiceStub'
 
 type FieldState = CostFieldState
 
@@ -271,6 +272,9 @@ function EntryRow({
   fieldSource,
   fieldKey,
   editorDisplayName,
+  onStubUpdate,
+  onAttachFile,
+  stubBusy,
 }: {
   entry: Entry
   onUpdate: (updated: Entry) => void
@@ -279,6 +283,9 @@ function EntryRow({
   fieldSource?: string | null
   fieldKey?: string | null
   editorDisplayName?: string | null
+  onStubUpdate: (updated: Entry) => void
+  onAttachFile: (file: File) => void
+  stubBusy?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [desc, setDesc] = useState(entry.description)
@@ -339,6 +346,20 @@ function EntryRow({
           </button>
           <button onClick={() => setEditing(false)} className="text-slate-600 hover:text-slate-300 text-xs transition-colors px-1">✕</button>
         </div>
+        <QuoteInvoiceStub
+          filename={entry.attachment_filename}
+          quoteNote={entry.quote_note}
+          busy={stubBusy}
+          testIdPrefix={`cost-entry-${entry.id}`}
+          onNoteCommit={note => onStubUpdate({ ...entry, quote_note: note })}
+          onAttach={onAttachFile}
+          onRemove={() => onStubUpdate({
+            ...entry,
+            attachment_path: null,
+            attachment_filename: null,
+            attachment_mime: null,
+          })}
+        />
       </div>
     )
   }
@@ -491,6 +512,20 @@ function EntryRow({
           </div>
         ) : null}
       </div>
+      <QuoteInvoiceStub
+        filename={entry.attachment_filename}
+        quoteNote={entry.quote_note}
+        busy={stubBusy}
+        testIdPrefix={`cost-entry-${entry.id}`}
+        onNoteCommit={note => onStubUpdate({ ...entry, quote_note: note })}
+        onAttach={onAttachFile}
+        onRemove={() => onStubUpdate({
+          ...entry,
+          attachment_path: null,
+          attachment_filename: null,
+          attachment_mime: null,
+        })}
+      />
     </div>
   )
 }
@@ -503,6 +538,7 @@ function EntryPanel({
   onEntriesUpdated,
   fieldSource,
   editorDisplayName,
+  runId,
 }: {
   fieldId: string
   fieldKey: string
@@ -511,6 +547,7 @@ function EntryPanel({
   onEntriesUpdated: (updated: CostFieldRow) => void
   fieldSource?: string | null
   editorDisplayName?: string | null
+  runId: string
 }) {
   const { profile } = useProfile()
   const [desc, setDesc] = useState('')
@@ -551,6 +588,30 @@ function EntryPanel({
     persist(next)
   }
 
+  async function attachEntryFile(idx: number, file: File) {
+    setError(null)
+    setSaving(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('run_id', runId)
+      const res = await fetch('/api/quote-invoice-stubs', { method: 'POST', body: form })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || 'Could not attach file')
+      const next = [...entries]
+      next[idx] = {
+        ...next[idx],
+        attachment_path: body.path,
+        attachment_filename: body.filename,
+        attachment_mime: body.mime,
+      }
+      await persist(next)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not attach file')
+      setSaving(false)
+    }
+  }
+
   function removeEntry(idx: number) {
     if (entries[idx] && entryIsPaidLocked(entries[idx])) {
       setError('Paid line is locked — un-pay before removing')
@@ -575,6 +636,11 @@ function EntryPanel({
       confirmed: false,
       paid: false,
       paid_at: null,
+      attachment_path: null,
+      attachment_filename: null,
+      attachment_mime: null,
+      quote_note: '',
+      payables_document_id: null,
     }
     await persist([...entries, newEntry])
     setDesc('')
@@ -612,6 +678,9 @@ function EntryPanel({
                 fieldSource={fieldSource}
                 fieldKey={fieldKey}
                 editorDisplayName={editorDisplayName}
+                onStubUpdate={updated => updateEntry(i, updated)}
+                onAttachFile={file => { void attachEntryFile(i, file) }}
+                stubBusy={saving}
               />
             ))}
           </div>
@@ -827,6 +896,7 @@ function FieldRow({
           fieldSource={existing.source}
           editorDisplayName={editorDisplayName}
           onEntriesUpdated={onEntriesUpdated}
+          runId={runId}
         />
       )}
     </div>
@@ -1325,6 +1395,7 @@ function VenueStaffRow({
                     fieldSource={existing.source}
                     editorDisplayName={editorDisplayName}
                     onEntriesUpdated={onEntriesUpdated}
+                    runId={runId}
                   />
                 </div>
               )}
