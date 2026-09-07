@@ -6,7 +6,7 @@ const links = [
   { href: '/', label: 'Mission Control' },
   { href: '/calculator', label: 'Run Calculator' },
   { href: '/emails', label: 'Email Drafts' },
-  { href: '/settlement', label: 'Settlement Checker' },
+  { href: '/settlements', label: 'Settlements' },
 ]
 
 export default function Nav() {

@@ -528,3 +528,28 @@ test('auditEntryDiffs writes per-line amount / GST / paid / add', () => {
   assert.ok(names.includes('entries[line-new]'))
   assert.ok(!names.includes('entries'))
 })
+
+test('Finalise Costing narrative is a plain sentence', () => {
+  assert.equal(
+    sentence({
+      table_name: 'run_settlements',
+      record_id: 'run-1',
+      field_name: 'Finalise Costing',
+      old_value: 'live Run Costing',
+      new_value: 'Gareth finalised Run Costing for R12 (snapshot locked, 12 sections). Early Finalise — snapshot still locked.',
+    }),
+    'Gareth finalised Run Costing for R12 (snapshot locked, 12 sections). Early Finalise — snapshot still locked.',
+  )
+})
+
+test('Band Cost added narrative is a plain sentence', () => {
+  assert.equal(
+    sentence({
+      table_name: 'band_cost_lines',
+      record_id: 'bc-1',
+      field_name: 'Band Cost added',
+      new_value: 'Gareth added band cost Uber $45.00 on Concourse (run R12).',
+    }),
+    'Gareth added band cost Uber $45.00 on Concourse (run R12).',
+  )
+})
