@@ -50,6 +50,13 @@ test('TCOMP1 detail page loads and shows cost fields', async ({ page }) => {
   await expect(page.getByText(/KNOWN|ESTIMATED/i).first()).toBeVisible()
 })
 
+test('legacy /runs/:runId/pnl redirects to Run Costing', async ({ page }) => {
+  await page.goto('/runs/r12/pnl')
+  await expect(page).toHaveURL(/\/runs\/r12\/?$/i)
+  await expect(page.getByRole('button', { name: /p&l calculator/i })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /run costing/i })).toBeVisible({ timeout: 10000 })
+})
+
 test('Drafts menu item is not visible', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('link', { name: /drafts/i })).not.toBeVisible()
