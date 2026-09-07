@@ -16,6 +16,7 @@ import {
   SETTLEMENT_PROPOSED_NOTE,
   SETTLEMENTS_MODULE_LABEL,
   bandCostCloseGate,
+  shouldShowAgentSettlementEmptyCopy,
   fieldsForShow,
   formatSettlementsMoney,
   isCostingFinalised,
@@ -372,8 +373,10 @@ export default function SettlementWorkspaceClient({
         <div className="space-y-4" data-testid="settlements-right-pane">
           <section className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-3">
             <h2 className="text-white font-semibold">Agent Settlement</h2>
-            <p className="text-slate-500 text-xs mt-1">{AGENT_SETTLEMENT_EMPTY_NOTE}</p>
-            {agentLines.length === 0 ? (
+            {shouldShowAgentSettlementEmptyCopy(agentLines) && (
+              <p data-testid="agent-settlement-empty" className="text-slate-500 text-xs mt-1">{AGENT_SETTLEMENT_EMPTY_NOTE}</p>
+            )}
+            {shouldShowAgentSettlementEmptyCopy(agentLines) ? (
               <div className="rounded-lg border border-dashed border-slate-600 bg-slate-900/40 px-3 py-4 text-center">
                 <p className="text-slate-400 text-sm">Proposed payment</p>
                 <p className="text-slate-600 text-xs mt-1">No agent statement lines yet. Enter proposed figures (not cash).</p>
