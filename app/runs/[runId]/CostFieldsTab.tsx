@@ -94,12 +94,9 @@ type CostFieldRow = {
 
 type AuditEntry = {
   id: string
-  field_name: string | null
-  old_value: string | null
-  new_value: string | null
   changed_at: string
-  change_type: string
-  changed_by_name: string
+  changed_by_name: string | null
+  sentence: string
 }
 
 const STATE_STYLES: Record<string, { bg: string; text: string; border: string; label: string }> = {
@@ -1980,29 +1977,25 @@ export default function CostFieldsTab({
           {auditRows.length === 0 ? (
             <div className="p-6 text-center">
               <p className="text-slate-500 text-sm">No changes recorded yet.</p>
-              <p className="text-slate-600 text-xs mt-1">Every field edit will appear here.</p>
+              <p className="text-slate-600 text-xs mt-1">Consequential edits appear here as plain-language sentences.</p>
             </div>
           ) : (
             <table data-testid="audit-trail-table" className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-700">
                   <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">When</th>
-                  <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Field</th>
-                  <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">Change</th>
+                  <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">What happened</th>
                   <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">By</th>
                 </tr>
               </thead>
               <tbody>
                 {auditRows.map((row, i) => (
                   <tr key={row.id} className={`border-b border-slate-700/50 ${i === auditRows.length - 1 ? 'border-0' : ''}`}>
-                    <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{row.changed_at}</td>
-                    <td className="px-4 py-2.5 text-slate-300 text-xs whitespace-nowrap">{row.field_name ?? row.change_type}</td>
-                    <td className="px-4 py-2.5 text-xs max-w-xl">
-                      <span className="text-red-400 break-words">{row.old_value ?? '—'}</span>
-                      <span className="text-slate-600 mx-1">→</span>
-                      <span className="text-green-400 break-words">{row.new_value ?? '—'}</span>
+                    <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap align-top">{row.changed_at}</td>
+                    <td className="px-4 py-2.5 text-slate-200 text-sm leading-snug max-w-2xl">
+                      <span data-testid="audit-trail-sentence">{row.sentence}</span>
                     </td>
-                    <td className="px-4 py-2.5 text-slate-400 text-xs whitespace-nowrap">{row.changed_by_name}</td>
+                    <td className="px-4 py-2.5 text-slate-400 text-xs whitespace-nowrap align-top">{row.changed_by_name ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>

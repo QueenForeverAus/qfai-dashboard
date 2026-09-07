@@ -289,6 +289,10 @@ export function shouldSkipConfirmRollup(opts: {
 export const AUDIT_FIELD_BULK_PAID = 'MARK ALL AS PAID'
 /** Portal Audit Trail `field_name` for undo / leaving bulk-PAID (paid-flag restore). */
 export const AUDIT_FIELD_PAID_RESTORE = 'PAID snapshot restore'
+/** Portal Audit Trail `field_name` when confirm ticks roll a section up to KNOWN. */
+export const AUDIT_FIELD_SECTION_CONFIRMED = 'section confirmed'
+/** Portal Audit Trail `field_name` when a line is classifier-moved between sections. */
+export const AUDIT_FIELD_LINE_MOVED = 'line moved'
 
 export function entryAuditLabel(entry: Pick<CostEntry, 'id' | 'description'>): string {
   const title = (entry.description ?? '').trim()
@@ -379,6 +383,26 @@ export function formatPaidRestoreAuditCopy(opts: {
     fieldName: AUDIT_FIELD_PAID_RESTORE,
     oldValue: 'Section was bulk-PAID',
     newValue: sentence,
+  }
+}
+
+/**
+ * Plain-language Audit Trail copy when every line is confirm-ticked
+ * and the section rolls up to KNOWN. Confirm ≠ PAID ≠ figure-source KNOWN
+ * stay distinct: this sentence is the attestation roll-up.
+ */
+export function formatSectionConfirmedAuditCopy(opts: {
+  actorName: string
+  sectionLabel: string
+  lineCount: number
+}): SectionPaymentAuditCopy {
+  const actor = opts.actorName.trim() || 'Someone'
+  const n = opts.lineCount
+  const lines = `${n} ${n === 1 ? 'line' : 'lines'}`
+  return {
+    fieldName: AUDIT_FIELD_SECTION_CONFIRMED,
+    oldValue: 'Section was not fully confirm-ticked',
+    newValue: `${actor} confirmed the ${opts.sectionLabel} section (all ${lines} ticked).`,
   }
 }
 

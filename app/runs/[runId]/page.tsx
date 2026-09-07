@@ -10,6 +10,8 @@ import { runDateRangeFromShows } from '@/lib/run-dates'
 import { computeCompletionPct } from '@/lib/completion'
 import { formatBookingStatus } from '@/lib/format-booking-status'
 import { resolveEditorDisplayNames } from '@/lib/cost-entry-source'
+import { formatAuditTrailEvents } from '@/lib/audit-trail-format'
+import { ADVANCEMENT_CHECKLIST } from '@/lib/advancement-checklist'
 
 type Show = {
   id: string
@@ -48,6 +50,7 @@ type CostFieldRow = {
 
 type AuditRow = {
   id: string
+  table_name?: string | null
   record_id?: string | null
   field_name: string | null
   old_value: string | null
@@ -95,7 +98,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
   if (!run) notFound()
 
   const auditOr = `run_id.eq.${run.id},record_id.eq.${run.id}`
-  const [{ data: shows }, { data: costFields }, auditResult] = await Promise.all([
+  const [{ data: shows }, { data: costFields }, auditResult, { data: advancementRows }] = await Promise.all([
     supabase.from('shows').select('*').eq('run_id', run.id).order('show_order'),
     supabase.from('cost_fields').select('*').eq('run_id', run.id).order('show_id', { ascending: true, nullsFirst: false }),
     (async () => {
@@ -114,6 +117,9 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
         .order('changed_at', { ascending: false })
         .limit(100)
     })(),
+    supabase.from('advancement_items').select('id, label, item_key').eq('run_id', run.id).then(res => (
+      res.error ? { data: [] as Array<{ id: string; label: string | null; item_key: string | null }> } : res
+    )),
   ])
   const auditRows = auditResult.data
 
@@ -301,14 +307,35 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
         isOwnerOrAdmin={isOwnerOrAdmin}
         ticketOutlookSummary={run.ticket_outlook_summary ?? null}
         editorDisplayNameByFieldId={editorDisplayNameByFieldId}
-        auditRows={typedAudit.map(r => ({
+        auditRows={formatAuditTrailEvents(
+          typedAudit.map(r => ({
+            id: r.id,
+            table_name: r.table_name,
+            record_id: r.record_id ?? null,
+            field_name: r.field_name,
+            old_value: r.old_value,
+            new_value: r.new_value,
+            change_type: r.change_type,
+            changed_at: r.changed_at,
+            changed_by_name: r.profiles?.full_name ?? null,
+          })),
+          {
+            costFields: typedFields,
+            shows: typedShows,
+            advancement: [
+              ...((advancementRows ?? []) as Array<{ id: string; label?: string | null; item_key?: string | null }>),
+              ...ADVANCEMENT_CHECKLIST.map(item => ({
+                id: `key:${item.item_key}`,
+                label: item.label,
+                item_key: item.item_key,
+              })),
+            ],
+          },
+        ).map(r => ({
           id: r.id,
-          field_name: r.field_name,
-          old_value: r.old_value,
-          new_value: r.new_value,
           changed_at: formatDateTimeAU(r.changed_at),
-          change_type: r.change_type,
-          changed_by_name: r.profiles?.full_name ?? 'System',
+          changed_by_name: r.changed_by_name,
+          sentence: r.sentence,
         }))}
       />
     </div>

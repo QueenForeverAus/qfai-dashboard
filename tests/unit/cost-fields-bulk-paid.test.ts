@@ -6,6 +6,8 @@ import {
   AUDIT_FIELD_PAID_RESTORE,
   formatBulkPaidAuditCopy,
   formatPaidRestoreAuditCopy,
+  formatSectionConfirmedAuditCopy,
+  AUDIT_FIELD_SECTION_CONFIRMED,
   hasBulkPaidSnapshot,
   normalizeEntries,
   preservePaidSnapshots,
@@ -165,4 +167,15 @@ test('restore audit copy lists lines that became unpaid again', () => {
   assert.match(copy.newValue, /1 line unpaid again/)
   assert.match(copy.newValue, /Rider/)
   assert.doesNotMatch(copy.newValue, /known|estimated|guess|figures/i)
+})
+
+test('section confirm roll-up audit copy is distinct from PAID and KNOWN', () => {
+  const copy = formatSectionConfirmedAuditCopy({
+    actorName: 'Gareth',
+    sectionLabel: 'Venue Staff',
+    lineCount: 8,
+  })
+  assert.equal(copy.fieldName, AUDIT_FIELD_SECTION_CONFIRMED)
+  assert.equal(copy.newValue, 'Gareth confirmed the Venue Staff section (all 8 lines ticked).')
+  assert.doesNotMatch(copy.newValue, /PAID|KNOWN|ESTIMATE/)
 })

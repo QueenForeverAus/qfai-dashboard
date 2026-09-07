@@ -11,6 +11,7 @@ import {
   ENTRY_EXEMPT_FIELD_KEYS,
   formatBulkPaidAuditCopy,
   formatPaidRestoreAuditCopy,
+  formatSectionConfirmedAuditCopy,
   hasBulkPaidSnapshot,
   isNonConfirmedFieldState,
   isUnconfirmedEntriesSeed,
@@ -30,7 +31,8 @@ import {
   type SectionPaymentAuditCopy,
 } from '@/lib/cost-fields'
 import {
-  COST_FIELD_AUDIT_FIELDS,
+  COST_FIELD_SCALAR_AUDIT_FIELDS,
+  auditEntryDiffs,
   auditFieldDiffs,
   setAuditActor,
   writeAuditLog,
@@ -334,19 +336,39 @@ export async function PATCH(
     })
   }
 
-  // Prefer the plain-language row over a cryptic entries JSON dump for bulk pay / restore.
-  const diffFields = (bulkPaidApplied || snapshotRestored)
-    ? COST_FIELD_AUDIT_FIELDS.filter(field => field !== 'entries')
-    : COST_FIELD_AUDIT_FIELDS
+  const rolledToConfirmed = Boolean(
+    rolledEntries
+    && !skipRollup
+    && String(updates.state ?? '') === CONFIRMED_FIELD_STATE
+    && String(existing.state ?? '') !== CONFIRMED_FIELD_STATE
+    && allEntriesConfirmed(rolledEntries),
+  )
+  if (!narrative && rolledToConfirmed && rolledEntries) {
+    narrative = formatSectionConfirmedAuditCopy({
+      actorName,
+      sectionLabel,
+      lineCount: rolledEntries.length,
+    })
+  }
 
+  // Prefer the plain-language row over a cryptic entries JSON dump for bulk pay / restore.
   const auditRows = auditFieldDiffs(
     'cost_fields',
     id,
     runId,
     existing as Record<string, unknown>,
     (data ?? {}) as Record<string, unknown>,
-    diffFields,
+    COST_FIELD_SCALAR_AUDIT_FIELDS,
   )
+  if (!bulkPaidApplied && !snapshotRestored) {
+    auditRows.push(...auditEntryDiffs(
+      'cost_fields',
+      id,
+      runId,
+      normalizeEntries(existing.entries),
+      normalizeEntries((data as { entries?: unknown } | null)?.entries ?? updates.entries),
+    ))
+  }
   if (narrative) {
     auditRows.unshift({
       table_name: 'cost_fields',

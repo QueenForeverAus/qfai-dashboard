@@ -19,6 +19,23 @@ export const COST_FIELD_AUDIT_FIELDS = [
   'label',
 ] as const
 
+/** Scalar cost_fields columns — entries are expanded via auditEntryDiffs. */
+export const COST_FIELD_SCALAR_AUDIT_FIELDS = COST_FIELD_AUDIT_FIELDS.filter(
+  field => field !== 'entries',
+)
+
+export type AuditEntryLike = {
+  id: string
+  description?: string | null
+  notes?: string | null
+  amount?: number | null
+  gst_included?: boolean | null
+  confirmed?: boolean | null
+  paid?: boolean | null
+}
+
+const ENTRY_AUDIT_KEYS = ['amount', 'description', 'notes', 'gst_included', 'confirmed', 'paid'] as const
+
 export const ADVANCEMENT_AUDIT_FIELDS = [
   'status',
   'notes',
@@ -103,6 +120,71 @@ export function auditFieldDiffs(
       change_type: 'update',
     })
   }
+  return rows
+}
+
+/**
+ * Per-line entry diffs so Audit Trail can say “edited Ushers from $1,200 to $1,450”
+ * instead of dumping the whole entries JSON. Add/remove write the entry object.
+ */
+export function auditEntryDiffs(
+  table: string,
+  recordId: string,
+  runId: string | null,
+  before: AuditEntryLike[] | null | undefined,
+  after: AuditEntryLike[] | null | undefined,
+): AuditLogWriteRow[] {
+  const prev = Array.isArray(before) ? before : []
+  const next = Array.isArray(after) ? after : []
+  if (prev.length === 0 && next.length === 0) return []
+
+  const prevById = new Map(prev.map(row => [row.id, row]))
+  const nextById = new Map(next.map(row => [row.id, row]))
+  const rows: AuditLogWriteRow[] = []
+
+  for (const oldRow of prev) {
+    if (nextById.has(oldRow.id)) continue
+    rows.push({
+      table_name: table,
+      record_id: recordId,
+      run_id: runId,
+      field_name: `entries[${oldRow.id}]`,
+      old_value: auditStringify(oldRow),
+      new_value: null,
+      change_type: 'update',
+    })
+  }
+
+  for (const newRow of next) {
+    const oldRow = prevById.get(newRow.id)
+    if (!oldRow) {
+      rows.push({
+        table_name: table,
+        record_id: recordId,
+        run_id: runId,
+        field_name: `entries[${newRow.id}]`,
+        old_value: null,
+        new_value: auditStringify(newRow),
+        change_type: 'update',
+      })
+      continue
+    }
+    for (const key of ENTRY_AUDIT_KEYS) {
+      const oldVal = oldRow[key]
+      const newVal = newRow[key]
+      if (valuesEqual(oldVal, newVal)) continue
+      rows.push({
+        table_name: table,
+        record_id: recordId,
+        run_id: runId,
+        field_name: `entries[${newRow.id}].${key}`,
+        old_value: auditStringify(oldVal),
+        new_value: auditStringify(newVal),
+        change_type: 'update',
+      })
+    }
+  }
+
   return rows
 }
 
