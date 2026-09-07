@@ -52,7 +52,7 @@ import {
   staffDisplayName,
 } from '@/lib/cost-entry-source'
 import QuoteInvoiceStub from '@/components/QuoteInvoiceStub'
-import { PnlRevenueBlock, PnlSummaryBlock, venuePnl } from './PnlOwnerChrome'
+import { PnlRevenueBlock, PnlSummaryBlock, venuePnl, type PnlShow } from './PnlOwnerChrome'
 import {
   canSeeOwnerPnl,
   computePnlSummary,
@@ -1596,9 +1596,7 @@ export default function CostFieldsTab({
   const hasShowPack = canAccessTab(effectiveRole, 'show_pack')
   const hasOutlook = canAccessTab(effectiveRole, 'outlook')
   const defaultTab = hasTabAccess ? 'costs' : hasOutlook ? 'outlook' : hasAdvancement ? 'advancement' : hasShowPack ? 'show_pack' : 'costs'
-  const [activeTab, setActiveTab] = useState<'costs' | 'outlook' | 'audit' | 'advancement' | 'show_pack'>(
-    defaultTab === 'overview' ? 'costs' : defaultTab as 'costs' | 'outlook' | 'audit' | 'advancement' | 'show_pack',
-  )
+  const [activeTab, setActiveTab] = useState<'costs' | 'outlook' | 'audit' | 'advancement' | 'show_pack'>(defaultTab)
   const showOwnerPnl = canSeeOwnerPnl(effectiveRole)
   const isProduction = effectiveRole === 'production'
   // Which per-show fields production can see (no revenue, no venue hire)
@@ -1692,7 +1690,11 @@ export default function CostFieldsTab({
   }, [runId, hasTabAccess, effectiveRole])
 
   function handleShowUpdated(updated: Show) {
-    setShowsState(prev => prev.map(s => s.id === updated.id ? updated : s))
+    setShowsState(prev => prev.map(s => s.id === updated.id ? { ...s, ...updated } : s))
+  }
+
+  function handlePnlShowUpdated(updated: PnlShow) {
+    setShowsState(prev => prev.map(s => s.id === updated.id ? { ...s, ...updated } : s))
   }
 
   function handleSaved(updated: CostFieldRow) {
@@ -1771,6 +1773,7 @@ export default function CostFieldsTab({
     .filter(line => !pnlSlidersUnlocked([line]).unlocked)
     .map(line => line.label)
   const isDataComplete = slidersUnlocked
+  const COMPLETENESS_EXCLUDED = new Set(['social_ads_var', 'gross_box_office'])
   const ownerVenuePnls = showsState.map(show =>
     venuePnl({
       show,
@@ -1926,7 +1929,7 @@ export default function CostFieldsTab({
               factors={mergedFactors}
               remittanceLines={remittanceLines}
               onSellThrough={updateSellThrough}
-              onShowUpdated={handleShowUpdated}
+              onShowUpdated={handlePnlShowUpdated}
             />
           )}
 

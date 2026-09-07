@@ -9,7 +9,6 @@ import {
 } from '@/lib/capacity-bands'
 import {
   HARBOUR_COMMISSION_RATE,
-  computePnlSummary,
   computeVenueWaterfall,
   knownInsideForShow,
   remittanceHasCcSplit,
@@ -20,7 +19,7 @@ import {
   type PnlVenueWaterfall,
 } from '@/lib/pnl-run-costing'
 
-type Show = {
+export type PnlShow = {
   id: string
   venue_name: string
   venue_city: string
@@ -32,6 +31,8 @@ type Show = {
   booking_fee_per_payer?: number | null
   cc_fee_pct?: number | null
 }
+
+type Show = PnlShow
 
 function fmt(n: number | null) {
   if (n === null) return '—'
@@ -99,7 +100,7 @@ export function PnlRevenueBlock({
   factors: InsideFactorValues
   remittanceLines: KnownInsideLine[]
   onSellThrough: (showId: string, pct: number) => void
-  onShowUpdated: (updated: Show) => void
+  onShowUpdated: (updated: PnlShow) => void
 }) {
   const perVenue = shows.map(show => {
     const pct = sellThrough[show.id] ?? 75
@@ -289,7 +290,7 @@ function VenueOverrideRow({
   onUpdated,
 }: {
   show: Show
-  onUpdated: (updated: Show) => void
+  onUpdated: (updated: PnlShow) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [booking, setBooking] = useState(show.booking_fee_per_payer?.toString() ?? '')
