@@ -107,6 +107,7 @@ const SHOW_FIELD_LABELS: Record<string, string> = {
   capacity: 'capacity',
   capacity_bands: 'capacity bands',
   ticket_price: 'ticket price',
+  tickets_sold: 'tickets sold',
   ticket_outlook: 'Ticket Outlook',
   ticket_outlook_status: 'Ticket Outlook status',
   ticket_outlook_level: 'Ticket Outlook level',

@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { REMITTANCE_TAB_LABEL } from '@/lib/remittance'
+import { SHEET_TAB_LABEL, settlementSheetHref, wave1SettlementHref } from '@/lib/settlements-sheet'
 
 export default function SettlementsTabBar({
   runCode,
@@ -10,10 +11,11 @@ export default function SettlementsTabBar({
 }: {
   runCode: string
   showId: string | null
-  active: 'settlement' | 'remittance'
+  active: 'sheet' | 'settlement' | 'remittance'
 }) {
-  const base = `/settlements/${runCode.toLowerCase()}`
-  const show = showId ? `/${showId}` : ''
+  const remittance = showId
+    ? `${wave1SettlementHref(runCode, showId)}/remittance`
+    : `${wave1SettlementHref(runCode)}/remittance`
   const tab = (href: string, label: string, on: boolean, testId: string) => (
     <Link
       href={href}
@@ -30,8 +32,9 @@ export default function SettlementsTabBar({
 
   return (
     <div className="flex flex-wrap gap-1.5 mb-4" data-testid="settlements-tabs">
-      {tab(`${base}${show}`, 'Settlement', active === 'settlement', 'tab-settlement')}
-      {tab(`${base}${show}/remittance`, REMITTANCE_TAB_LABEL, active === 'remittance', 'tab-remittance')}
+      {tab(settlementSheetHref(runCode, showId), SHEET_TAB_LABEL, active === 'sheet', 'tab-sheet')}
+      {tab(wave1SettlementHref(runCode, showId), 'Settlement', active === 'settlement', 'tab-settlement')}
+      {tab(remittance, REMITTANCE_TAB_LABEL, active === 'remittance', 'tab-remittance')}
     </div>
   )
 }
