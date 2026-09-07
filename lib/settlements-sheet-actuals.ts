@@ -1,0 +1,456 @@
+/**
+ * Settlements Phase 4 — Col3 Actuals (staging).
+ *
+ * Venue settlement figures enter as confirmed and can be Challenged
+ * (Wave 1 remittance draft, never auto-sent). Band costs copy from
+ * Advancing / Run Costing and stay editable until PAID.
+ */
+
+import { CHALLENGE_NEVER_SEND_NOTE } from './remittance.ts'
+import {
+  type ComparisonRow,
+  type VarianceFlag,
+  type VarianceSeverity,
+} from './remittance-variance.ts'
+import { computePnlSummary, roundMoney } from './pnl-run-costing.ts'
+import { QUOTE_INVOICE_NOTE_LABEL } from './quote-invoice-stub.ts'
+import {
+  type SheetLine,
+  type SheetLineGroup,
+} from './settlements-sheet.ts'
+
+export const COL3_ACTUALS_NOTE =
+  'Venue settlement figures enter as confirmed. Challenge drafts a Harbour email (never auto-sent). Band costs copy from Advancing and stay editable until PAID.'
+
+export const VENUE_CONFIRMED_LABEL = 'Confirmed'
+export const VENUE_CHALLENGED_LABEL = 'Challenged'
+export const CHALLENGE_BUTTON_LABEL = 'Challenge'
+export const SHEET_CHALLENGE_NEVER_SEND_NOTE = CHALLENGE_NEVER_SEND_NOTE
+export const HARBOUR_FIXTURE_BUTTON_LABEL = 'Load Harbour fixture'
+export const HARBOUR_FIXTURE_HELP =
+  'Manual / fixture ingest for Harbour settlement docs. Email OCR is later. Figures land as confirmed.'
+
+export const SHEET_BAND_PAID_LOCK =
+  'Paid line is locked — un-pay before editing amount, description, notes, or confirm'
+
+export const SHEET_BAND_PAID_HELP =
+  'Copied from Advancing / Run Costing. Editable until PAID — same lock as Wave 1 cost fields.'
+
+export const AUDIT_FIELD_SHEET_ACTUAL = 'Sheet actual'
+export const AUDIT_FIELD_SHEET_BAND_PAID = 'Sheet band cost PAID'
+export const AUDIT_FIELD_SHEET_CHALLENGE = 'Sheet challenge draft created'
+
+export const SETTLEMENT_ACTUAL_KINDS = ['venue_settlement', 'band_cost'] as const
+export type SettlementActualKind = (typeof SETTLEMENT_ACTUAL_KINDS)[number]
+
+export const SETTLEMENT_ACTUAL_STATUSES = ['confirmed', 'challenged'] as const
+export type SettlementActualStatus = (typeof SETTLEMENT_ACTUAL_STATUSES)[number]
+
+export const SETTLEMENT_ACTUAL_SOURCES = ['manual', 'harbour_fixture', 'advancing_copy'] as const
+export type SettlementActualSource = (typeof SETTLEMENT_ACTUAL_SOURCES)[number]
+
+export type SheetActualSource = SettlementActualSource | 'tickets_sold' | 'computed'
+
+export type SheetLineActualKind = SettlementActualKind | 'derived'
+
+export type SettlementActualLine = {
+  id: string
+  run_id: string
+  show_id: string | null
+  line_key: string
+  line_kind: SettlementActualKind
+  amount: number
+  status: SettlementActualStatus
+  source: SettlementActualSource
+  notes: string | null
+  challenge_id: string | null
+  paid: boolean
+  paid_at: string | null
+  quote_note: string | null
+  attachment_path: string | null
+  attachment_filename: string | null
+  attachment_mime: string | null
+}
+
+export type SheetActualDecor = {
+  actual: number | null
+  actualKind: SheetLineActualKind
+  actualStatus: SettlementActualStatus | null
+  actualSource: SheetActualSource | null
+  actualPaid: boolean
+  actualId: string | null
+  challengeId: string | null
+  quoteNote: string | null
+  variance: number | null
+  varianceSeverity: VarianceSeverity | null
+}
+
+export type DecoratedSheetLine = SheetLine & SheetActualDecor
+
+/** Harbour fixture keyed by venue name — no OCR. Staging smoke / manual ingest. */
+export const HARBOUR_FIXTURE_BY_VENUE: Record<string, Record<string, number>> = {
+  'Geelong Performing Arts Centre': {
+    tickets_sold: 400,
+    'show:venue_hire': 3100,
+    'show:venue_staff': 4150,
+    'show:venue_marketing': 250,
+    'show:production_costs': 0,
+  },
+  "Her Majesty's Theatre Ballarat": {
+    'show:venue_hire': 2900,
+    'show:venue_staff': 3750,
+  },
+}
+
+export function isSettlementActualKind(value: unknown): value is SettlementActualKind {
+  return value === 'venue_settlement' || value === 'band_cost'
+}
+
+export function isSettlementActualStatus(value: unknown): value is SettlementActualStatus {
+  return value === 'confirmed' || value === 'challenged'
+}
+
+export function actualLookupKey(showId: string | null | undefined, lineKey: string): string {
+  return `${showId ?? 'run'}::${lineKey}`
+}
+
+export function indexActuals(rows: SettlementActualLine[]): Map<string, SettlementActualLine> {
+  const index = new Map<string, SettlementActualLine>()
+  for (const row of rows) {
+    index.set(actualLookupKey(row.show_id, row.line_key), row)
+  }
+  return index
+}
+
+export function lineKindForGroup(group: SheetLineGroup): SheetLineActualKind | null {
+  if (group === 'tickets' || group === 'revenue' || group === 'venue_costs') return 'venue_settlement'
+  if (group === 'run_costs') return 'band_cost'
+  if (group === 'pnl') return 'derived'
+  return null
+}
+
+export function isVenueSettlementLine(line: Pick<SheetLine, 'group'>): boolean {
+  return lineKindForGroup(line.group) === 'venue_settlement'
+}
+
+export function isBandCostLine(line: Pick<SheetLine, 'group'>): boolean {
+  return lineKindForGroup(line.group) === 'band_cost'
+}
+
+export function canEditSheetBandActual(paid: boolean | null | undefined): boolean {
+  return !paid
+}
+
+export function sheetBandPaidLockViolation(opts: {
+  existingPaid: boolean
+  nextPaid: boolean
+  amountChanged: boolean
+  quoteNoteChanged?: boolean
+}): string | null {
+  if (opts.existingPaid && opts.nextPaid && (opts.amountChanged || opts.quoteNoteChanged)) {
+    return SHEET_BAND_PAID_LOCK
+  }
+  return null
+}
+
+export function findStoredActual(
+  index: Map<string, SettlementActualLine>,
+  showId: string | null | undefined,
+  lineKey: string,
+): SettlementActualLine | undefined {
+  return index.get(actualLookupKey(showId, lineKey))
+}
+
+function moneyOrNull(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(Number(value))) return null
+  return roundMoney(Number(value))
+}
+
+export function varianceOf(expected: number | null | undefined, actual: number | null | undefined): number | null {
+  if (expected == null || actual == null) return null
+  return roundMoney(Number(actual) - Number(expected))
+}
+
+/** Exact-dollar flag reused from remittance thresholds. Count lines skip money flags. */
+export function sheetVarianceFlag(opts: {
+  expected: number | null
+  actual: number | null
+  kind: SheetLine['kind']
+}): VarianceFlag | null {
+  if (opts.kind === 'count') {
+    if (opts.expected == null || opts.actual == null) return null
+    if (opts.expected === opts.actual) return null
+    return {
+      code: 'count-mismatch',
+      severity: 'soft',
+      kind: 'exact',
+      message: `Count drifted ${opts.actual - opts.expected} vs Expected (Advancing).`,
+    }
+  }
+  return exactAbsFlag(opts.expected, opts.actual)
+}
+
+function exactAbsFlag(expected: number | null, actual: number | null): VarianceFlag | null {
+  if (expected == null || actual == null) return null
+  const delta = roundMoney(Math.abs(actual - expected))
+  if (delta < 1) return null
+  const signed = roundMoney(actual - expected)
+  const sign = signed > 0 ? '+' : ''
+  return {
+    code: 'exact-dollar',
+    severity: 'hard',
+    kind: 'exact',
+    message: `Exact $ field off by ${sign}${signed.toFixed(2)} (flag ≥ $1.00).`,
+  }
+}
+
+function emptyDecor(kind: SheetLineActualKind | null): SheetActualDecor {
+  return {
+    actual: null,
+    actualKind: kind ?? 'derived',
+    actualStatus: null,
+    actualSource: null,
+    actualPaid: false,
+    actualId: null,
+    challengeId: null,
+    quoteNote: null,
+    variance: null,
+    varianceSeverity: null,
+  }
+}
+
+function fromStored(row: SettlementActualLine, line: SheetLine): SheetActualDecor {
+  const actual = line.kind === 'count' ? Math.round(Number(row.amount) || 0) : moneyOrNull(row.amount)
+  const flag = sheetVarianceFlag({ expected: line.expected, actual, kind: line.kind })
+  return {
+    actual,
+    actualKind: row.line_kind,
+    actualStatus: row.status,
+    actualSource: row.source,
+    actualPaid: Boolean(row.paid),
+    actualId: row.id,
+    challengeId: row.challenge_id,
+    quoteNote: row.quote_note,
+    variance: varianceOf(line.expected, actual),
+    varianceSeverity: flag?.severity ?? null,
+  }
+}
+
+function decorateLine(
+  line: SheetLine,
+  stored: SettlementActualLine | undefined,
+): DecoratedSheetLine {
+  const kind = lineKindForGroup(line.group)
+  if (kind === 'derived' || !kind) {
+    return { ...line, ...emptyDecor('derived') }
+  }
+  if (stored) {
+    return { ...line, ...fromStored(stored, line) }
+  }
+  if (kind === 'band_cost') {
+    const actual = line.expected
+    const flag = sheetVarianceFlag({ expected: line.expected, actual, kind: line.kind })
+    return {
+      ...line,
+      actual,
+      actualKind: 'band_cost',
+      actualStatus: actual == null ? null : 'confirmed',
+      actualSource: actual == null ? null : 'advancing_copy',
+      actualPaid: false,
+      actualId: null,
+      challengeId: null,
+      quoteNote: null,
+      variance: varianceOf(line.expected, actual),
+      varianceSeverity: flag?.severity ?? null,
+    }
+  }
+  // Venue settlement: tickets + computed revenue use the Col2 actual-ticket math
+  // until a Harbour/manual override is stored. Venue cost lines stay empty.
+  if (line.group === 'tickets' || line.group === 'revenue') {
+    const actual = line.expected
+    const flag = sheetVarianceFlag({ expected: line.expected, actual, kind: line.kind })
+    return {
+      ...line,
+      actual,
+      actualKind: 'venue_settlement',
+      actualStatus: actual == null ? null : 'confirmed',
+      actualSource: line.group === 'tickets' ? 'tickets_sold' : 'computed',
+      actualPaid: false,
+      actualId: null,
+      challengeId: null,
+      quoteNote: null,
+      variance: varianceOf(line.expected, actual),
+      varianceSeverity: flag?.severity ?? null,
+    }
+  }
+  return { ...line, ...emptyDecor('venue_settlement') }
+}
+
+function sumGroupActual(lines: DecoratedSheetLine[], group: SheetLineGroup): number {
+  return roundMoney(
+    lines.filter(l => l.group === group).reduce((n, l) => n + (l.actual ?? 0), 0),
+  )
+}
+
+function fillActualPnl(lines: DecoratedSheetLine[]): DecoratedSheetLine[] {
+  const netRevenue = lines.find(l => l.key === 'net_revenue')?.actual ?? null
+  const totalCosts = roundMoney(sumGroupActual(lines, 'venue_costs') + sumGroupActual(lines, 'run_costs'))
+  const anyCost = lines.some(l => (l.group === 'venue_costs' || l.group === 'run_costs') && l.actual != null)
+  const summary = netRevenue != null && anyCost
+    ? computePnlSummary({ netRevenue, totalCosts })
+    : netRevenue != null
+      ? computePnlSummary({ netRevenue, totalCosts })
+      : null
+
+  return lines.map(line => {
+    if (line.group !== 'pnl') return line
+    const actual =
+      line.key === 'total_costs' ? (summary ? summary.totalCosts : anyCost ? totalCosts : null)
+        : line.key === 'net_profit' ? (summary?.netProfit ?? null)
+          : line.key === 'reserve' ? (summary?.reserve ?? null)
+            : line.key === 'pre_dist_margin' ? (summary?.preDistMargin ?? null)
+              : null
+    return {
+      ...line,
+      actual,
+      actualKind: 'derived' as const,
+      actualStatus: actual == null ? null : 'confirmed',
+      actualSource: actual == null ? null : 'computed',
+      actualPaid: false,
+      actualId: null,
+      challengeId: null,
+      quoteNote: null,
+      variance: varianceOf(line.expected, actual),
+      varianceSeverity: sheetVarianceFlag({ expected: line.expected, actual, kind: line.kind })?.severity ?? null,
+    }
+  })
+}
+
+export function applyCol3Actuals(opts: {
+  lines: SheetLine[]
+  actuals: SettlementActualLine[]
+  showId: string | null
+}): DecoratedSheetLine[] {
+  const index = indexActuals(opts.actuals)
+  const decorated = opts.lines.map(line =>
+    decorateLine(line, findStoredActual(index, opts.showId, line.key)),
+  )
+  return fillActualPnl(decorated)
+}
+
+export function applyCol3ToRunSheet(opts: {
+  sections: Array<{ show: { id: string }; lines: SheetLine[] }>
+  runLines: SheetLine[]
+  actuals: SettlementActualLine[]
+}): {
+  sections: Array<{ lines: DecoratedSheetLine[] }>
+  runLines: DecoratedSheetLine[]
+  actualSummary: ReturnType<typeof computePnlSummary> | null
+} {
+  const sections = opts.sections.map(sec => ({
+    lines: applyCol3Actuals({ lines: sec.lines, actuals: opts.actuals, showId: sec.show.id }),
+  }))
+  const runLines = applyCol3Actuals({ lines: opts.runLines, actuals: opts.actuals, showId: null })
+  const netRevenue = sections.reduce((n, sec) => {
+    const row = sec.lines.find(l => l.key === 'net_revenue')
+    return n + (row?.actual ?? 0)
+  }, 0)
+  const venueCosts = sections.reduce((n, sec) => n + sumGroupActual(sec.lines, 'venue_costs'), 0)
+  const runCosts = sumGroupActual(runLines, 'run_costs')
+  const anyTickets = sections.some(sec => sec.lines.some(l => l.key === 'tickets_sold' && l.actual != null))
+  const actualSummary = anyTickets
+    ? computePnlSummary({ netRevenue, totalCosts: roundMoney(venueCosts + runCosts) })
+    : null
+  return { sections, runLines, actualSummary }
+}
+
+export function harbourFixtureLinesForVenue(venueName: string): Array<{ line_key: string; amount: number }> {
+  const map = HARBOUR_FIXTURE_BY_VENUE[venueName]
+  if (!map) return []
+  return Object.entries(map).map(([line_key, amount]) => ({ line_key, amount }))
+}
+
+export function operatorChallengeFlag(): VarianceFlag {
+  return {
+    code: 'sheet-challenge',
+    severity: 'soft',
+    kind: 'exact',
+    message: 'Operator challenged this confirmed venue settlement line.',
+  }
+}
+
+export function sheetLineToComparisonRow(opts: {
+  line: DecoratedSheetLine
+  showId: string | null
+}): ComparisonRow {
+  const flag = sheetVarianceFlag({
+    expected: opts.line.expected,
+    actual: opts.line.actual,
+    kind: opts.line.kind,
+  })
+  const flags = flag ? [flag] : [operatorChallengeFlag()]
+  return {
+    id: `sheet:${opts.showId ?? 'run'}:${opts.line.key}`,
+    show_id: opts.showId,
+    label: opts.line.label,
+    proposed: opts.line.expected,
+    paid: opts.line.actual,
+    variance: opts.line.variance,
+    proposedHours: null,
+    paidHours: null,
+    proposedRate: null,
+    paidRate: null,
+    confidence: 1,
+    match: 'one',
+    fedBy: [{
+      id: opts.line.key,
+      label: 'Expected (Advancing)',
+      amount: opts.line.expected ?? 0,
+      source: 'snapshot',
+    }],
+    remittanceLineIds: [],
+    flags,
+    lineType: 'payment',
+  }
+}
+
+export function formatSheetActualAuditCopy(opts: {
+  actorName: string
+  runCode: string
+  label: string
+  amount: number
+  source: SettlementActualSource
+  showLabel?: string | null
+}): { fieldName: string; oldValue: string | null; newValue: string } {
+  const actor = opts.actorName.trim() || 'Someone'
+  const where = (opts.showLabel ?? '').trim() ? ` on ${opts.showLabel!.trim()}` : ''
+  const via = opts.source === 'harbour_fixture' ? ' from Harbour fixture' : opts.source === 'advancing_copy' ? ' (copied from Advancing)' : ''
+  return {
+    fieldName: AUDIT_FIELD_SHEET_ACTUAL,
+    oldValue: null,
+    newValue: `${actor} entered confirmed sheet actual ${opts.label} ${formatAud(opts.amount)}${via}${where} (run ${opts.runCode}).`,
+  }
+}
+
+export function formatSheetBandPaidAuditCopy(opts: {
+  actorName: string
+  runCode: string
+  label: string
+  status: 'paid' | 'open'
+}): { fieldName: string; oldValue: string; newValue: string } {
+  const actor = opts.actorName.trim() || 'Someone'
+  const verb = opts.status === 'paid' ? 'marked sheet band cost as PAID' : 'reopened sheet band cost'
+  return {
+    fieldName: AUDIT_FIELD_SHEET_BAND_PAID,
+    oldValue: opts.label,
+    newValue: `${actor} ${verb} ${opts.label} (run ${opts.runCode}).`,
+  }
+}
+
+function formatAud(n: number): string {
+  return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n)
+}
+
+export function quoteInvoiceStubLabel(): string {
+  return QUOTE_INVOICE_NOTE_LABEL
+}

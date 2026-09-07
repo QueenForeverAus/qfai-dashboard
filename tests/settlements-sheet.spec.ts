@@ -5,7 +5,7 @@ test.beforeEach(async ({ page }) => {
   await login(page)
 })
 
-test('pre-show Settlements Sheet is hard-blocked', async ({ page }) => {
+test('pre-show Settlements Sheet is still hard-blocked', async ({ page }) => {
   await page.goto('/settlements/r12/sheet')
   if (!page.url().match(/\/settlements\/r12\/sheet/i)) {
     test.skip(true, 'R12 sheet not available')
@@ -15,12 +15,13 @@ test('pre-show Settlements Sheet is hard-blocked', async ({ page }) => {
   await expect(page.getByText('Data not yet available — check back when the show has occurred.')).toBeVisible()
   await expect(page.getByText('Stakeholders use Advancing, not Settlements.')).toBeVisible()
   await expect(page.getByTestId('settlements-sheet')).toHaveCount(0)
+  await expect(page.getByTestId('sheet-harbour-fixture')).toHaveCount(0)
   await expect(page.locator('input[type="range"]')).toHaveCount(0)
   await expect(page.getByTestId('tab-settlement')).toBeVisible()
   await expect(page.getByTestId('tab-remittance')).toBeVisible()
 })
 
-test('post-show TCOMP1 Sheet shows 3-col live expected + Col3 placeholder', async ({ page }) => {
+test('post-show TCOMP1 Sheet fills Col3 actuals, confirm, challenge (not sent), band edit until PAID', async ({ page }) => {
   await page.goto('/settlements/tcomp1/sheet')
   if (!page.url().match(/\/settlements\/tcomp1\/sheet/i)) {
     test.skip(true, 'TCOMP1 sheet not available')
@@ -31,12 +32,44 @@ test('post-show TCOMP1 Sheet shows 3-col live expected + Col3 placeholder', asyn
   await expect(page.getByTestId('settlements-sheet-col1').first()).toHaveText(/line/i)
   await expect(page.getByTestId('settlements-sheet-col2').first()).toHaveText(/expected \(advancing\)/i)
   await expect(page.getByTestId('settlements-sheet-col3').first()).toHaveText(/actuals/i)
-  await expect(page.getByTestId('settlements-sheet-col3-note')).toContainText(/Phase 4/)
+  await expect(page.getByTestId('settlements-sheet-col3-note')).toContainText(/confirmed/i)
+  await expect(page.getByTestId('settlements-sheet-col3-note')).toContainText(/Challenge/)
   await expect(page.getByText('Tickets sold (actual count)').first()).toBeVisible()
   await expect(page.getByTestId('sheet-row-harbour_commission').first()).toBeVisible()
   await expect(page.getByText('Venue Hire').first()).toBeVisible()
   await expect(page.locator('input[type="range"]')).toHaveCount(0)
   await expect(page.getByTestId('pnl-owner-revenue')).toHaveCount(0)
+
+  await page.getByTestId('sheet-harbour-fixture').click()
+  await expect(page.getByTestId('sheet-harbour-fixture')).toBeEnabled({ timeout: 15000 })
+  await page.reload()
+  await expect(page.getByTestId('settlements-sheet')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByTestId('sheet-actual-show:venue_hire').first()).toBeVisible({ timeout: 8000 })
+  await expect(page.getByTestId('sheet-challenge-show:venue_hire').first()).toBeVisible({ timeout: 8000 })
+  await expect(page.getByTestId('sheet-actual-status-show:venue_hire').first()).toContainText(/confirmed|challenged/i)
+  await expect(page.getByTestId('sheet-variance-show:venue_hire').first()).toBeVisible()
+
+  await page.getByTestId('sheet-challenge-show:venue_hire').first().click()
+  await expect(page.getByTestId('sheet-challenge-panel')).toBeVisible()
+  await page.getByTestId('sheet-challenge-reason').fill('Harbour hire is $3,100 not the advancing $3,200')
+  await page.getByTestId('sheet-create-challenge-draft').click()
+  await expect(page.getByTestId('sheet-challenge-draft-preview')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByTestId('sheet-challenge-draft-preview')).toContainText(/Draft only — not sent/)
+  await expect(page.getByTestId('sheet-challenge-draft-preview')).toContainText(/never auto-sends/)
+
+  const bandInput = page.getByTestId('sheet-band-input-run:accommodation').first()
+  await expect(bandInput).toBeVisible()
+  if (await page.getByTestId('sheet-band-reopen-run:accommodation').first().isVisible().catch(() => false)) {
+    await page.getByTestId('sheet-band-reopen-run:accommodation').first().click()
+    await expect(bandInput).toBeEnabled({ timeout: 8000 })
+  }
+  await expect(bandInput).toBeEnabled()
+  await bandInput.fill('2700')
+  await page.getByTestId('sheet-band-save-run:accommodation').first().click()
+  await expect(page.getByTestId('sheet-band-save-run:accommodation').first()).toBeEnabled({ timeout: 15000 })
+  await page.getByTestId('sheet-band-paid-btn-run:accommodation').first().click()
+  await expect(page.getByTestId('sheet-band-paid-run:accommodation').first()).toHaveText(/PAID/, { timeout: 15000 })
+  await expect(page.getByTestId('sheet-band-input-run:accommodation').first()).toBeDisabled()
 })
 
 test('Wave 1 Settlement and Remittance tabs still work beside the Sheet', async ({ page }) => {

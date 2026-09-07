@@ -33,6 +33,8 @@ export default async function SettlementShowSheetPage({
       focusedShowId={showId}
       insideFactors={data.insideFactors}
       remittanceKnownLines={data.remittanceKnownLines}
+      actuals={data.actuals}
+      challenges={data.challenges}
     />
   )
 }

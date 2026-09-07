@@ -32,6 +32,11 @@ import {
   AUDIT_FIELD_REMITTANCE_RECTIFY,
   AUDIT_FIELD_RIGHTS_PAYER,
 } from './remittance.ts'
+import {
+  AUDIT_FIELD_SHEET_ACTUAL,
+  AUDIT_FIELD_SHEET_BAND_PAID,
+  AUDIT_FIELD_SHEET_CHALLENGE,
+} from './settlements-sheet-actuals.ts'
 import { staffDisplayName } from './cost-entry-source.ts'
 import { formatBookingStatus } from './format-booking-status.ts'
 import { formatDateAU } from './dates.ts'
@@ -177,6 +182,9 @@ const NARRATIVE_FIELDS = new Set([
   AUDIT_FIELD_RIGHTS_PAYER,
   AUDIT_FIELD_QUOTE_NOTE,
   AUDIT_FIELD_QUOTE_ATTACHMENT,
+  AUDIT_FIELD_SHEET_ACTUAL,
+  AUDIT_FIELD_SHEET_BAND_PAID,
+  AUDIT_FIELD_SHEET_CHALLENGE,
 ])
 
 export function formatAuditMoney(value: unknown): string {

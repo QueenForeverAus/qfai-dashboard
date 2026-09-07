@@ -8,6 +8,8 @@ import {
 } from '@/lib/settlements'
 import type { AgentSettlementLine, RemittanceChallenge, RemittanceChallengeItem, RemittanceLine, RemittanceStatus } from '@/lib/remittance'
 import { isRightsPayer } from '@/lib/remittance'
+import type { SettlementActualLine } from '@/lib/settlements-sheet-actuals'
+import { isSettlementActualKind, isSettlementActualStatus } from '@/lib/settlements-sheet-actuals'
 import type { RightsPayer } from '@/lib/remittance-variance'
 import { insideFactorsFromRows, type InsideFactorValues, type KnownInsideLine } from '@/lib/pnl-run-costing'
 
@@ -42,6 +44,7 @@ export type SettlementWorkspaceData = {
   remittanceLines: RemittanceLine[]
   agentSettlementLines: AgentSettlementLine[]
   challenges: RemittanceChallenge[]
+  actuals: SettlementActualLine[]
   insideFactors: InsideFactorValues
   remittanceKnownLines: KnownInsideLine[]
 }
@@ -77,6 +80,7 @@ export async function loadSettlementWorkspace(runCode: string): Promise<Settleme
     { data: remittanceLines },
     { data: agentLines },
     { data: challenges },
+    { data: actualRows },
     { data: factorRows },
   ] = await Promise.all([
     admin.from('shows').select('id, venue_name, venue_city, show_date, show_order, rights_payer, capacity, capacity_bands, ticket_price, tickets_sold, booking_fee_per_payer, cc_fee_pct').eq('run_id', run.id).order('show_order'),
@@ -86,6 +90,7 @@ export async function loadSettlementWorkspace(runCode: string): Promise<Settleme
     admin.from('remittance_lines').select('*').eq('run_id', run.id).order('created_at', { ascending: true }),
     admin.from('agent_settlement_lines').select('*').eq('run_id', run.id).order('created_at', { ascending: true }),
     admin.from('remittance_challenges').select('*, remittance_challenge_items(*)').eq('run_id', run.id).order('created_at', { ascending: false }),
+    admin.from('settlement_actual_lines').select('*').eq('run_id', run.id).order('created_at', { ascending: true }),
     admin.from('run_factors').select('key, value, category').in('key', [
       'booking_fee_per_payer',
       'cc_fee_pct',
@@ -150,6 +155,31 @@ export async function loadSettlementWorkspace(runCode: string): Promise<Settleme
     })),
   }))
 
+  const actuals: SettlementActualLine[] = (actualRows ?? []).flatMap(row => {
+    if (!isSettlementActualKind(row.line_kind) || !isSettlementActualStatus(row.status)) return []
+    const source = row.source === 'harbour_fixture' || row.source === 'advancing_copy' || row.source === 'manual'
+      ? row.source
+      : 'manual'
+    return [{
+      id: String(row.id),
+      run_id: String(row.run_id),
+      show_id: (row.show_id as string | null) ?? null,
+      line_key: String(row.line_key),
+      line_kind: row.line_kind,
+      amount: Number(row.amount) || 0,
+      status: row.status,
+      source,
+      notes: (row.notes as string | null) ?? null,
+      challenge_id: (row.challenge_id as string | null) ?? null,
+      paid: Boolean(row.paid),
+      paid_at: (row.paid_at as string | null) ?? null,
+      quote_note: (row.quote_note as string | null) ?? null,
+      attachment_path: (row.attachment_path as string | null) ?? null,
+      attachment_filename: (row.attachment_filename as string | null) ?? null,
+      attachment_mime: (row.attachment_mime as string | null) ?? null,
+    }]
+  })
+
   return {
     run: {
       id: run.id,
@@ -166,6 +196,7 @@ export async function loadSettlementWorkspace(runCode: string): Promise<Settleme
     remittanceLines: (remittanceLines ?? []) as RemittanceLine[],
     agentSettlementLines: (agentLines ?? []) as AgentSettlementLine[],
     challenges: typedChallenges,
+    actuals,
     insideFactors: insideFactorsFromRows((factorRows ?? []) as Array<{ key: string; value: unknown; category?: string | null }>),
     remittanceKnownLines: ((remittanceLines ?? []) as RemittanceLine[]).map(line => ({
       showId: line.show_id,
