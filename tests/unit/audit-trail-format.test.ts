@@ -8,7 +8,7 @@ import {
   parseAuditFieldName,
   truncateAuditText,
 } from '../../lib/audit-trail-format.ts'
-import { auditEntryDiffs } from '../../lib/audit-log.ts'
+import { auditEntryDiffs, auditLineItemDiffs } from '../../lib/audit-log.ts'
 import {
   AUDIT_FIELD_BULK_PAID,
   AUDIT_FIELD_LINE_MOVED,
@@ -27,6 +27,10 @@ const ctx = {
       entries: [
         { id: 'line-ushers', description: 'Ushers' },
         { id: 'line-rider', description: 'Rider' },
+      ],
+      line_items: [
+        { id: 'role-ushers', role: 'Ushers' },
+        { id: 'role-sec', role: 'Security' },
       ],
     },
     {
@@ -447,8 +451,63 @@ test('parseAuditFieldName understands trigger and writeAuditLog names', () => {
   assert.equal(parseAuditFieldName('flights.state').kind, 'state')
   assert.equal(parseAuditFieldName('flights.state').fieldKey, 'flights')
   assert.equal(parseAuditFieldName('venue_hire.entries[abc].amount').entryField, 'amount')
+  assert.equal(parseAuditFieldName('line_items[role-1].paid').kind, 'line_item')
+  assert.equal(parseAuditFieldName('venue_staff.line_items[role-1].confirmed').entryField, 'confirmed')
   assert.equal(parseAuditFieldName('shows.capacity').showField, 'capacity')
   assert.equal(parseAuditFieldName('runs.status').runField, 'status')
+})
+
+test('planned-role confirm / PAID sentences stay distinct from figure-source KNOWN', () => {
+  assert.equal(
+    sentence({
+      field_name: 'line_items[role-ushers].confirmed',
+      old_value: 'false',
+      new_value: 'true',
+    }),
+    'Michael confirm-ticked Ushers in Venue Staff.',
+  )
+  assert.equal(
+    sentence({
+      field_name: 'line_items[role-sec].paid',
+      old_value: 'false',
+      new_value: 'true',
+    }),
+    'Michael marked Security as PAID (role locked).',
+  )
+  assert.equal(
+    sentence({
+      field_name: 'line_items[role-sec].paid',
+      old_value: 'true',
+      new_value: 'false',
+    }),
+    'Michael marked Security unpaid (role unlocked).',
+  )
+  assert.doesNotMatch(
+    sentence({
+      field_name: 'line_items[role-ushers].confirmed',
+      old_value: 'false',
+      new_value: 'true',
+    }),
+    /PAID|KNOWN/,
+  )
+})
+
+test('auditLineItemDiffs writes per-role confirm / paid / add', () => {
+  const diffs = auditLineItemDiffs(
+    'cost_fields',
+    'cf-staff',
+    'run-1',
+    [{ id: 'role-ushers', role: 'Ushers', rate: 50, hours: 3, headcount: 2, confirmed: false, paid: false }],
+    [
+      { id: 'role-ushers', role: 'Ushers', rate: 50, hours: 3, headcount: 2, confirmed: true, paid: true },
+      { id: 'role-new', role: 'Security', rate: 70, hours: 5, headcount: 1, confirmed: false, paid: false },
+    ],
+  )
+  const names = diffs.map(d => d.field_name)
+  assert.ok(names.includes('line_items[role-ushers].confirmed'))
+  assert.ok(names.includes('line_items[role-ushers].paid'))
+  assert.ok(names.includes('line_items[role-new]'))
+  assert.ok(!names.includes('line_items'))
 })
 
 test('auditEntryDiffs writes per-line amount / GST / paid / add', () => {

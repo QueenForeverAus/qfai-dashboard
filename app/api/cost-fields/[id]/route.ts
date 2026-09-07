@@ -18,7 +18,10 @@ import {
   hasBulkPaidSnapshot,
   isNonConfirmedFieldState,
   isUnconfirmedEntriesSeed,
+  lineItemsSum,
   normalizeEntries,
+  normalizeLineItems,
+  paidLineItemLockViolation,
   paidLockViolation,
   parseSectionPayment,
   paymentDidNotChangeAttestationTicks,
@@ -32,32 +35,19 @@ import {
   shouldSkipConfirmRollup,
   stampPaidAt,
   type CostEntry,
+  type PayableAuditUnit,
   type SectionPaymentAuditCopy,
+  type StaffLineItem,
 } from '@/lib/cost-fields'
 import {
   COST_FIELD_SCALAR_AUDIT_FIELDS,
   auditEntryDiffs,
   auditFieldDiffs,
+  auditLineItemDiffs,
   setAuditActor,
   writeAuditLog,
 } from '@/lib/audit-log'
 import { staffDisplayName } from '@/lib/cost-entry-source'
-
-type LineItem = {
-  role: string
-  rate: number
-  hours: number
-  headcount: number
-  source?: string
-}
-
-function lineItemsSum(items: LineItem[] | null | undefined): number {
-  if (!items?.length) return 0
-  return items.reduce(
-    (sum, item) => sum + (Number(item.rate) || 0) * (Number(item.hours) || 0) * (Number(item.headcount) || 0),
-    0,
-  )
-}
 
 async function lastNonConfirmedStateBeforeConfirm(
   supabase: ReturnType<typeof createAdminClient>,
@@ -138,11 +128,9 @@ export async function PATCH(
     updates.source = body.source === '' ? null : body.source
   }
 
-  if (body.line_items !== undefined) {
-    if (!Array.isArray(body.line_items)) {
-      return NextResponse.json({ error: 'line_items must be an array' }, { status: 400 })
-    }
-    updates.line_items = body.line_items
+  const lineItemsProvided = body.line_items !== undefined
+  if (lineItemsProvided && !Array.isArray(body.line_items)) {
+    return NextResponse.json({ error: 'line_items must be an array' }, { status: 400 })
   }
 
   const sectionPayment = body.section_payment === undefined
@@ -163,12 +151,19 @@ export async function PATCH(
     )
   }
 
+  const existingLineItems = normalizeLineItems(existing.line_items) ?? []
+  const incomingLineItems = lineItemsProvided
+    ? (normalizeLineItems(body.line_items) ?? [])
+    : existingLineItems
+  const venueStaffUsesRoles = existing.field_key === 'venue_staff' && incomingLineItems.length > 0
+
   let bulkPaidApplied = false
   let snapshotRestored = false
-  let restoreBefore: CostEntry[] | null = null
-  let restoreAfter: CostEntry[] | null = null
-  let bulkBefore: CostEntry[] | null = null
-  let paidImpliedConfirms: CostEntry[] = []
+  let restoreBefore: Array<CostEntry | StaffLineItem> | null = null
+  let restoreAfter: Array<CostEntry | StaffLineItem> | null = null
+  let bulkBefore: Array<CostEntry | StaffLineItem> | null = null
+  let paidImpliedConfirms: Array<CostEntry | StaffLineItem> = []
+  let paymentAuditUnit: PayableAuditUnit = 'line'
 
   if (sectionPayment === SECTION_PAYMENT_PAID) {
     if (ENTRY_EXEMPT_FIELD_KEYS.has(existing.field_key)) {
@@ -177,35 +172,77 @@ export async function PATCH(
         { status: 400 },
       )
     }
-    const existingEntries = normalizeEntries(existing.entries) ?? []
-    if (existingEntries.length === 0) {
-      return NextResponse.json(
-        { error: 'No lines to mark paid' },
-        { status: 400 },
-      )
-    }
     // Payment action only — never writes cost_fields.state (not even 'known').
     delete updates.state
-    let entries = applyBulkMarkAllPaid(existingEntries)
-    entries = stampPaidAt(entries, existingEntries)
-    const repaired = ensurePaidLinesConfirmed(entries)
-    entries = repaired.entries
-    paidImpliedConfirms = repaired.newlyConfirmed
-    const lockError = paidLockViolation(existingEntries, entries)
-    if (lockError) {
-      return NextResponse.json({ error: lockError }, { status: 400 })
+    if (venueStaffUsesRoles) {
+      const prev = existingLineItems
+      let items = preservePaidSnapshots(incomingLineItems, prev)
+      if (items.length === 0) {
+        return NextResponse.json({ error: 'No roles to mark paid' }, { status: 400 })
+      }
+      items = applyBulkMarkAllPaid(items)
+      items = stampPaidAt(items, prev)
+      const repaired = ensurePaidLinesConfirmed(items)
+      items = repaired.entries
+      paidImpliedConfirms = repaired.newlyConfirmed
+      const lockError = paidLineItemLockViolation(prev, items)
+      if (lockError) {
+        return NextResponse.json({ error: lockError }, { status: 400 })
+      }
+      updates.line_items = items
+      const total = lineItemsSum(items)
+      updates.value = total === 0 ? null : total
+      bulkPaidApplied = true
+      bulkBefore = incomingLineItems
+      paymentAuditUnit = 'role'
+    } else {
+      const existingEntries = normalizeEntries(existing.entries) ?? []
+      if (existingEntries.length === 0) {
+        return NextResponse.json(
+          { error: 'No lines to mark paid' },
+          { status: 400 },
+        )
+      }
+      let entries = applyBulkMarkAllPaid(existingEntries)
+      entries = stampPaidAt(entries, existingEntries)
+      const repaired = ensurePaidLinesConfirmed(entries)
+      entries = repaired.entries
+      paidImpliedConfirms = repaired.newlyConfirmed
+      const lockError = paidLockViolation(existingEntries, entries)
+      if (lockError) {
+        return NextResponse.json({ error: lockError }, { status: 400 })
+      }
+      updates.entries = entries
+      updates.value = entriesSum(entries)
+      bulkPaidApplied = true
+      bulkBefore = existingEntries
     }
-    updates.entries = entries
-    updates.value = entriesSum(entries)
-    bulkPaidApplied = true
-    bulkBefore = existingEntries
   } else if (
     sectionPayment === SECTION_PAYMENT_RESTORE
-    || (sectionPayment == null && body.state !== undefined && !entriesProvided && hasBulkPaidSnapshot(normalizeEntries(existing.entries)))
+    || (sectionPayment == null && body.state !== undefined && !entriesProvided && (
+      hasBulkPaidSnapshot(normalizeEntries(existing.entries))
+      || (existing.field_key === 'venue_staff' && hasBulkPaidSnapshot(existingLineItems))
+    ))
   ) {
     // Leaving bulk-PAID: restore paid flags only. Figure-source state comes
     // from the user's dropdown selection (body.state) if they sent one —
     // snapshot restore must not invent or clobber cost_fields.state.
+    if (existing.field_key === 'venue_staff' && hasBulkPaidSnapshot(existingLineItems)) {
+      let items = preservePaidSnapshots(incomingLineItems, existingLineItems)
+      items = restorePaidSnapshot(items)
+      items = stampPaidAt(items, existingLineItems)
+      const lockError = paidLineItemLockViolation(existingLineItems, items)
+      if (lockError) {
+        return NextResponse.json({ error: lockError }, { status: 400 })
+      }
+      updates.line_items = items
+      const total = lineItemsSum(items)
+      updates.value = total === 0 ? null : total
+      snapshotRestored = true
+      restoreBefore = existingLineItems
+      restoreAfter = items
+      paymentAuditUnit = 'role'
+    }
     const existingEntries = normalizeEntries(existing.entries) ?? []
     if (hasBulkPaidSnapshot(existingEntries)) {
       let entries = restorePaidSnapshot(existingEntries)
@@ -215,10 +252,15 @@ export async function PATCH(
         return NextResponse.json({ error: lockError }, { status: 400 })
       }
       updates.entries = entries
-      updates.value = entriesSum(entries)
+      if (existing.field_key !== 'venue_staff') {
+        updates.value = entriesSum(entries)
+      }
       snapshotRestored = true
-      restoreBefore = existingEntries
-      restoreAfter = entries
+      if (!restoreBefore) {
+        restoreBefore = existingEntries
+        restoreAfter = entries
+        paymentAuditUnit = 'line'
+      }
     }
     // No snapshot: treat restore as a no-op so Edit→Confirmed still applies
     // figure-source state (double-save / already undone).
@@ -254,33 +296,65 @@ export async function PATCH(
     updates.value = entriesSum(entries)
   }
 
+  if (
+    lineItemsProvided
+    && !bulkPaidApplied
+    && !snapshotRestored
+    && existing.field_key === 'venue_staff'
+  ) {
+    let items = preservePaidSnapshots(incomingLineItems, existingLineItems)
+    items = stampPaidAt(items, existingLineItems)
+    const repaired = ensurePaidLinesConfirmed(items)
+    items = repaired.entries
+    if (repaired.newlyConfirmed.length > 0) {
+      paidImpliedConfirms = repaired.newlyConfirmed
+      paymentAuditUnit = 'role'
+    }
+    const lockError = paidLineItemLockViolation(existingLineItems, items)
+    if (lockError) {
+      return NextResponse.json({ error: lockError }, { status: 400 })
+    }
+    updates.line_items = items
+    if (!entriesProvided) {
+      const total = lineItemsSum(items)
+      updates.value = total === 0 ? null : total
+    }
+  }
+
   const rolledEntries = (updates.entries as ReturnType<typeof normalizeEntries>) ?? null
+  const rolledRoles = (updates.line_items as StaffLineItem[] | undefined) ?? null
   const existingEntriesForRollup = normalizeEntries(existing.entries) ?? []
   const skipRollup = shouldSkipConfirmRollup({
     bulkPaidApplied,
     snapshotRestored,
     paymentImpliedConfirmsOnly: Boolean(
-      rolledEntries && paymentDidNotChangeAttestationTicks(existingEntriesForRollup, rolledEntries),
+      (rolledRoles && paymentDidNotChangeAttestationTicks(existingLineItems, rolledRoles))
+      || (rolledEntries && paymentDidNotChangeAttestationTicks(existingEntriesForRollup, rolledEntries)),
     ),
   })
 
-  // W1.1: line-item confirm ticks roll up to cost_fields.state (`known` = CONFIRMED).
+  // W1.1: confirm ticks roll up to cost_fields.state (`known` = CONFIRMED).
+  // Venue Staff planned roles take precedence when they are the payload.
   // W1.2 PAID does not write cost_fields.state (payment ≠ figure accuracy).
-  // W1.2b bulk pay / snapshot restore skip rollup so confirming lines for lock
-  // rules (or restoring paid flags) cannot clobber the figure-source state.
+  const rollupLines = rolledRoles && rolledRoles.length > 0 && existing.field_key === 'venue_staff'
+    ? rolledRoles
+    : rolledEntries
   if (
-    rolledEntries
+    rollupLines
     && !skipRollup
     && !ENTRY_EXEMPT_FIELD_KEYS.has(existing.field_key)
-    && !isUnconfirmedEntriesSeed(existing.entries as Parameters<typeof isUnconfirmedEntriesSeed>[0], rolledEntries)
+    && !(
+      rollupLines === rolledEntries
+      && isUnconfirmedEntriesSeed(existing.entries as Parameters<typeof isUnconfirmedEntriesSeed>[0], rolledEntries)
+    )
   ) {
     const currentState = String(updates.state ?? existing.state ?? '')
     let prior: string | null = isNonConfirmedFieldState(currentState) ? currentState : null
-    if (currentState === CONFIRMED_FIELD_STATE && !allEntriesConfirmed(rolledEntries)) {
+    if (currentState === CONFIRMED_FIELD_STATE && !allEntriesConfirmed(rollupLines)) {
       prior = (await lastNonConfirmedStateBeforeConfirm(supabase, id)) ?? prior
     }
     const nextState = rolledUpCostFieldState({
-      entries: rolledEntries,
+      entries: rollupLines,
       currentState,
       priorNonConfirmedState: prior,
       fieldKey: existing.field_key,
@@ -290,17 +364,10 @@ export async function PATCH(
 
   // Explicit value only accepted when entries are not being patched —
   // and only for venue_staff (line_items-derived) or exempt auto fields.
-  if (body.value !== undefined && !entriesProvided) {
+  if (body.value !== undefined && !entriesProvided && updates.line_items === undefined) {
     if (existing.field_key === 'venue_staff' || ENTRY_EXEMPT_FIELD_KEYS.has(existing.field_key)) {
       updates.value = body.value === null || body.value === '' ? null : Number(body.value)
     }
-  }
-
-  // Saving planned roles: value = sum(line_items); do not fight entries totals
-  // unless entries were also in this request.
-  if (body.line_items !== undefined && !entriesProvided && existing.field_key === 'venue_staff') {
-    const total = lineItemsSum(body.line_items as LineItem[])
-    updates.value = total === 0 ? null : total
   }
 
   if (Object.keys(updates).length <= 1) {
@@ -342,6 +409,7 @@ export async function PATCH(
       showLabel,
       runCode,
       entries: bulkBefore,
+      unit: paymentAuditUnit,
     })
   } else if (!snapshotRestored && paidImpliedConfirms.length > 0) {
     const sentence = formatAllPaidAlsoConfirmedSentence({
@@ -349,11 +417,12 @@ export async function PATCH(
       sectionLabel,
       confirmedCount: paidImpliedConfirms.length,
       actionLabel: 'Pay',
+      unit: paymentAuditUnit,
     })
     if (sentence) {
       narrative = {
         fieldName: AUDIT_FIELD_PAID_ALSO_CONFIRMED,
-        oldValue: `${paidImpliedConfirms.length} ${paidImpliedConfirms.length === 1 ? 'line was' : 'lines were'} not confirm-ticked`,
+        oldValue: `${paidImpliedConfirms.length} ${paidImpliedConfirms.length === 1 ? `${paymentAuditUnit} was` : `${paymentAuditUnit}s were`} not confirm-ticked`,
         newValue: sentence,
       }
     }
@@ -365,21 +434,23 @@ export async function PATCH(
       runCode,
       before: restoreBefore,
       after: restoreAfter,
+      unit: paymentAuditUnit,
     })
   }
 
   const rolledToConfirmed = Boolean(
-    rolledEntries
+    rollupLines
     && !skipRollup
     && String(updates.state ?? '') === CONFIRMED_FIELD_STATE
     && String(existing.state ?? '') !== CONFIRMED_FIELD_STATE
-    && allEntriesConfirmed(rolledEntries),
+    && allEntriesConfirmed(rollupLines),
   )
-  if (!narrative && rolledToConfirmed && rolledEntries) {
+  if (!narrative && rolledToConfirmed && rollupLines) {
     narrative = formatSectionConfirmedAuditCopy({
       actorName,
       sectionLabel,
-      lineCount: rolledEntries.length,
+      lineCount: rollupLines.length,
+      unit: rolledRoles && rollupLines === rolledRoles ? 'role' : 'line',
     })
   }
 
@@ -399,6 +470,13 @@ export async function PATCH(
       runId,
       normalizeEntries(existing.entries),
       normalizeEntries((data as { entries?: unknown } | null)?.entries ?? updates.entries),
+    ))
+    auditRows.push(...auditLineItemDiffs(
+      'cost_fields',
+      id,
+      runId,
+      existingLineItems,
+      normalizeLineItems((data as { line_items?: unknown } | null)?.line_items ?? updates.line_items),
     ))
   }
   if (narrative) {

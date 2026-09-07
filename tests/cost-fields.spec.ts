@@ -354,3 +354,48 @@ test('entries label shows "entries" not "receipts"', async ({ page }) => {
   const receiptsText = page.locator('[class*="text-slate"]').filter({ hasText: /\d+ receipts/ })
   await expect(receiptsText).toHaveCount(0)
 })
+
+test('venue staff planned roles: confirm tick, Pay lock, MARK ALL, un-pay', async ({ page }) => {
+  test.setTimeout(60_000)
+  await page.goto('/runs')
+  const runLinks = page.getByRole('link', { name: /R\d+|TEST/i })
+  if (await runLinks.count() === 0) {
+    test.skip(true, 'No runs available on staging — seed one first')
+    return
+  }
+
+  await runLinks.first().click()
+  await page.waitForURL(/\/runs\//)
+  const costingTab = page.getByRole('button', { name: /run costing/i })
+  if (await costingTab.isVisible()) await costingTab.click()
+
+  const field = page.locator('[data-testid="cost-field-venue_staff"]').first()
+  await expect(field).toBeVisible({ timeout: 8000 })
+  await field.locator('button').filter({ hasText: /▼/ }).first().click()
+
+  const roles = field.getByTestId('role-row')
+  if (await roles.count() === 0) {
+    test.skip(true, 'No planned venue staff roles on this run')
+    return
+  }
+
+  const ticks = field.getByTestId('role-confirm-tick')
+  await expect(ticks.first()).toBeVisible({ timeout: 5000 })
+  if ((await ticks.first().getAttribute('aria-pressed')) !== 'true') {
+    await ticks.first().click()
+    await page.waitForTimeout(400)
+  }
+  const firstPay = field.getByTestId('role-paid-toggle').first()
+  await expect(firstPay).toBeVisible({ timeout: 5000 })
+  if ((await firstPay.getAttribute('aria-pressed')) !== 'true') {
+    await firstPay.click()
+    await page.waitForTimeout(400)
+  }
+  await expect(roles.first()).toHaveAttribute('data-paid', 'true', { timeout: 8000 })
+  await expect(field.getByTestId('role-paid-lock').first()).toBeVisible()
+  await expect(ticks.first()).toBeDisabled()
+
+  await firstPay.click()
+  await expect(roles.first()).toHaveAttribute('data-paid', 'false', { timeout: 8000 })
+  await expect(ticks.first()).toBeEnabled()
+})

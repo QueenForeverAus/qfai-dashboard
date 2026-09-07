@@ -39,6 +39,7 @@ export type AuditTrailCostField = {
   label?: string | null
   show_id?: string | null
   entries?: Array<{ id?: string | null; description?: string | null }> | null
+  line_items?: Array<{ id?: string | null; role?: string | null }> | null
 }
 
 export type AuditTrailShow = {
@@ -250,6 +251,16 @@ export function parseAuditFieldName(fieldName: string | null | undefined): Parse
     }
   }
 
+  const lineItem = raw.match(/^(?:([a-z0-9_]+)\.)?line_items\[([^\]]+)\](?:\.(.+))?$/i)
+  if (lineItem) {
+    return {
+      kind: 'line_item',
+      fieldKey: lineItem[1] || undefined,
+      entryId: lineItem[2],
+      entryField: lineItem[3] || '',
+    }
+  }
+
   if (raw.startsWith('shows.')) return { kind: 'show', showField: raw.slice('shows.'.length) }
   if (raw.startsWith('runs.')) return { kind: 'run', runField: raw.slice('runs.'.length) }
   if (raw.startsWith('advancement.')) {
@@ -295,6 +306,15 @@ function showLabel(
   return null
 }
 
+function matchPayableId(
+  id: string | null | undefined,
+  entryId: string,
+): boolean {
+  const raw = String(id ?? '')
+  if (!raw) return false
+  return raw === entryId || raw.startsWith(entryId) || entryId.startsWith(raw.slice(0, 8))
+}
+
 function entryLabel(
   ctx: AuditTrailContext,
   recordId: string | null | undefined,
@@ -304,13 +324,25 @@ function entryLabel(
   if (fallback?.trim()) return fallback.trim()
   if (!entryId) return 'a line'
   const field = (ctx.costFields ?? []).find(f => f.id === recordId)
-  const match = (field?.entries ?? []).find(e => {
-    const id = String(e.id ?? '')
-    return id === entryId || id.startsWith(entryId) || entryId.startsWith(id.slice(0, 8))
-  })
+  const match = (field?.entries ?? []).find(e => matchPayableId(e.id, entryId))
   const desc = match?.description?.trim()
   if (desc) return desc
   return 'a line'
+}
+
+function roleLabel(
+  ctx: AuditTrailContext,
+  recordId: string | null | undefined,
+  entryId: string | undefined,
+  fallback?: string | null,
+): string {
+  if (fallback?.trim()) return fallback.trim()
+  if (!entryId) return 'a role'
+  const field = (ctx.costFields ?? []).find(f => f.id === recordId)
+  const match = (field?.line_items ?? []).find(e => matchPayableId(e.id, entryId))
+  const role = match?.role?.trim()
+  if (role) return role
+  return 'a role'
 }
 
 function advancementLabel(
@@ -334,6 +366,14 @@ function entryFromJson(raw: unknown): { id?: string; description?: string; amoun
   const amount = row.amount != null && Number.isFinite(Number(row.amount)) ? Number(row.amount) : undefined
   const id = row.id != null ? String(row.id) : undefined
   return { id, description, amount }
+}
+
+function roleFromJson(raw: unknown): { id?: string; role?: string } | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const row = raw as Record<string, unknown>
+  const role = row.role != null ? String(row.role) : undefined
+  const id = row.id != null ? String(row.id) : undefined
+  return { id, role }
 }
 
 function onlyPaidSnapshotChanged(oldRaw: string | null, newRaw: string | null): boolean {
@@ -376,6 +416,35 @@ function meaningfulEntryChange(prev: Record<string, unknown>, next: Record<strin
     changes.push(next.paid
       ? `marked ${label} as PAID (line locked)`
       : `marked ${label} unpaid (line unlocked)`)
+  }
+  return changes
+}
+
+function meaningfulRoleChange(prev: Record<string, unknown>, next: Record<string, unknown>): string[] {
+  const label = String(next.role ?? prev.role ?? 'a role').trim() || 'a role'
+  const changes: string[] = []
+  if (String(prev.role ?? '') !== String(next.role ?? '')) {
+    changes.push(`renamed ${quoteLabel(String(prev.role ?? ''))} to ${quoteLabel(String(next.role ?? ''))}`)
+  }
+  if (String(prev.source ?? '') !== String(next.source ?? '')) {
+    changes.push(`updated Notes on ${label} from ${quoteLabel(truncateAuditText(String(prev.source ?? '')))} to ${quoteLabel(truncateAuditText(String(next.source ?? '')))}`)
+  }
+  if (String(prev.rate ?? '') !== String(next.rate ?? '')) {
+    changes.push(`edited ${label} rate from ${prev.rate ?? '—'} to ${next.rate ?? '—'}`)
+  }
+  if (String(prev.hours ?? '') !== String(next.hours ?? '')) {
+    changes.push(`edited ${label} hours from ${prev.hours ?? '—'} to ${next.hours ?? '—'}`)
+  }
+  if (String(prev.headcount ?? '') !== String(next.headcount ?? '')) {
+    changes.push(`edited ${label} headcount from ${prev.headcount ?? '—'} to ${next.headcount ?? '—'}`)
+  }
+  if (Boolean(prev.confirmed) !== Boolean(next.confirmed)) {
+    changes.push(next.confirmed ? `confirm-ticked ${label}` : `removed the confirm tick from ${label}`)
+  }
+  if (Boolean(prev.paid) !== Boolean(next.paid)) {
+    changes.push(next.paid
+      ? `marked ${label} as PAID (role locked)`
+      : `marked ${label} unpaid (role unlocked)`)
   }
   return changes
 }
@@ -463,6 +532,73 @@ function formatEntriesJsonDiff(
     return { sentence: finish(sentence(actor, bits[0])), kind }
   }
   return { sentence: finish(sentence(actor, bits.join('; '))), kind: 'entry-multi' }
+}
+
+function formatLineItemsJsonDiff(
+  actor: string | null,
+  section: string,
+  oldRaw: string | null,
+  newRaw: string | null,
+): { sentence: string; kind: string } | null {
+  const oldVal = tryParseJson(oldRaw)
+  const newVal = tryParseJson(newRaw)
+  if (!Array.isArray(oldVal) || !Array.isArray(newVal)) return null
+  if (onlyPaidSnapshotChanged(oldRaw, newRaw)) return null
+
+  const oldById = new Map<string, Record<string, unknown>>()
+  const newById = new Map<string, Record<string, unknown>>()
+  for (const row of oldVal) {
+    if (row && typeof row === 'object' && (row as { id?: unknown }).id) {
+      oldById.set(String((row as { id: unknown }).id), row as Record<string, unknown>)
+    }
+  }
+  for (const row of newVal) {
+    if (row && typeof row === 'object' && (row as { id?: unknown }).id) {
+      newById.set(String((row as { id: unknown }).id), row as Record<string, unknown>)
+    }
+  }
+  if (oldById.size === 0 && newById.size === 0) return null
+
+  const added: string[] = []
+  const removed: string[] = []
+  const changes: string[] = []
+
+  for (const [id, row] of newById) {
+    if (!oldById.has(id)) {
+      const role = String(row.role ?? 'a role').trim() || 'a role'
+      added.push(role)
+    }
+  }
+  for (const [id, row] of oldById) {
+    if (!newById.has(id)) {
+      const role = String(row.role ?? 'a role').trim() || 'a role'
+      removed.push(role)
+    }
+  }
+  for (const [id, next] of newById) {
+    const prev = oldById.get(id)
+    if (!prev) continue
+    changes.push(...meaningfulRoleChange(prev, next).map(bit => (
+      bit.startsWith('confirm-ticked') ? `${bit} in ${section}`
+        : bit.startsWith('removed the confirm tick') ? `${bit} in ${section}`
+        : bit
+    )))
+  }
+
+  const bits: string[] = []
+  if (added.length) bits.push(`added ${added.map(quoteLabel).join(', ')} to planned roles on ${section}`)
+  if (removed.length) bits.push(`removed ${removed.map(quoteLabel).join(', ')} from planned roles on ${section}`)
+  bits.push(...changes)
+  if (!bits.length) return null
+  if (bits.length === 1) {
+    const kind = bits[0].startsWith('added') ? 'role-add'
+      : bits[0].startsWith('removed') ? 'role-remove'
+      : bits[0].includes('PAID') ? 'role-paid'
+      : bits[0].includes('confirm') ? 'role-confirmed'
+      : 'role-other'
+    return { sentence: finish(sentence(actor, bits[0])), kind }
+  }
+  return { sentence: finish(sentence(actor, bits.join('; '))), kind: 'role-multi' }
 }
 
 function formatLineMoved(
@@ -684,6 +820,117 @@ export function formatAuditEvent(
     }
   }
 
+  if (parsed.kind === 'line_item') {
+    const role = roleLabel(
+      ctx,
+      recordId,
+      parsed.entryId,
+      roleFromJson(tryParseJson(row.new_value) ?? tryParseJson(row.old_value))?.role,
+    )
+    const roleField = parsed.entryField ?? ''
+
+    if (!roleField) {
+      if (row.old_value && !row.new_value) {
+        return {
+          id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+          sentence: finish(sentence(actor, `removed ${quoteLabel(role)} from planned roles on ${section}`)),
+          kind: 'role-remove', record_id: recordId,
+          suppressWith: ['narrative-move', 'narrative-bulk-paid', 'narrative-restore'],
+        }
+      }
+      if (!row.old_value && row.new_value) {
+        const parsedRole = roleFromJson(tryParseJson(row.new_value))
+        const name = parsedRole?.role?.trim() || role
+        return {
+          id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+          sentence: finish(sentence(actor, `added ${quoteLabel(name)} to planned roles on ${section}`)),
+          kind: 'role-add', record_id: recordId,
+          suppressWith: ['narrative-move'],
+        }
+      }
+      const jsonDiff = formatLineItemsJsonDiff(actor, section, row.old_value, row.new_value)
+      if (jsonDiff) {
+        return {
+          id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+          sentence: jsonDiff.sentence, kind: jsonDiff.kind, record_id: recordId,
+          suppressWith: ['narrative-bulk-paid', 'narrative-restore', 'narrative-move'],
+        }
+      }
+      const oldObj = tryParseJson(row.old_value)
+      const newObj = tryParseJson(row.new_value)
+      if (
+        oldObj && newObj
+        && typeof oldObj === 'object' && typeof newObj === 'object'
+        && !Array.isArray(oldObj) && !Array.isArray(newObj)
+      ) {
+        const prev = oldObj as Record<string, unknown>
+        const next = newObj as Record<string, unknown>
+        if (onlyInternalEntryKeysChanged(prev, next)) return null
+        const bits = meaningfulRoleChange(prev, next).map(bit => (
+          bit.startsWith('confirm-ticked') ? `${bit} in ${section}`
+            : bit.startsWith('removed the confirm tick') ? `${bit} in ${section}`
+            : bit
+        ))
+        if (!bits.length) return null
+        const kind = bits[0].includes('PAID') ? 'role-paid'
+          : bits[0].includes('confirm') ? 'role-confirmed'
+          : 'role-other'
+        return {
+          id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+          sentence: finish(sentence(actor, bits.join('; '))),
+          kind,
+          record_id: recordId,
+          suppressWith: ['narrative-bulk-paid', 'narrative-restore', 'narrative-move'],
+        }
+      }
+    }
+
+    if (roleField === 'role') {
+      return {
+        id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+        sentence: finish(sentence(actor, `renamed ${quoteLabel(row.old_value ?? '')} to ${quoteLabel(row.new_value ?? '')}`)),
+        kind: 'role-rename', record_id: recordId,
+      }
+    }
+    if (roleField === 'source') {
+      return {
+        id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+        sentence: finish(sentence(actor, `updated Notes on ${role} from ${quoteLabel(truncateAuditText(row.old_value))} to ${quoteLabel(truncateAuditText(row.new_value))}`)),
+        kind: 'role-notes', record_id: recordId,
+      }
+    }
+    if (roleField === 'rate' || roleField === 'hours' || roleField === 'headcount') {
+      return {
+        id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+        sentence: finish(sentence(actor, `edited ${role} ${roleField} from ${row.old_value ?? '—'} to ${row.new_value ?? '—'}`)),
+        kind: 'role-amount', record_id: recordId,
+      }
+    }
+    if (roleField === 'confirmed') {
+      const ticked = isTrue(row.new_value)
+      return {
+        id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+        sentence: finish(sentence(actor, ticked
+          ? `confirm-ticked ${role} in ${section}`
+          : `removed the confirm tick from ${role} in ${section}`)),
+        kind: 'role-confirmed', record_id: recordId,
+        suppressWith: ['narrative', 'narrative-bulk-paid'],
+      }
+    }
+    if (roleField === 'paid' || roleField === 'paid_at') {
+      if (roleField === 'paid_at') return null
+      const paid = isTrue(row.new_value)
+      return {
+        id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+        sentence: finish(sentence(actor, paid
+          ? `marked ${role} as PAID (role locked)`
+          : `marked ${role} unpaid (role unlocked)`)),
+        kind: 'role-paid', record_id: recordId,
+        suppressWith: ['narrative-bulk-paid', 'narrative-restore'],
+      }
+    }
+  }
+
   if (parsed.kind === 'value' || fieldName === 'value') {
     return {
       id: row.id, changed_at: row.changed_at, changed_by_name: actor,
@@ -724,11 +971,19 @@ export function formatAuditEvent(
   }
 
   if (parsed.kind === 'line_items' || fieldName === 'line_items' || fieldName.endsWith('.line_items')) {
+    const jsonDiff = formatLineItemsJsonDiff(actor, section, row.old_value, row.new_value)
+    if (jsonDiff) {
+      return {
+        id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+        sentence: jsonDiff.sentence, kind: jsonDiff.kind, record_id: recordId,
+        suppressWith: ['role-amount', 'role-add', 'role-remove', 'role-confirmed', 'role-paid', 'role-notes', 'role-rename', 'narrative-bulk-paid', 'narrative-restore', 'narrative-move'],
+      }
+    }
     return {
       id: row.id, changed_at: row.changed_at, changed_by_name: actor,
       sentence: finish(sentence(actor, `updated planned roles on ${section}`)),
       kind: 'line-items', record_id: recordId,
-      suppressWith: ['narrative-move'],
+      suppressWith: ['narrative-move', 'role-confirmed', 'role-paid', 'narrative-bulk-paid', 'narrative-restore'],
     }
   }
 
