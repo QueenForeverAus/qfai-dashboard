@@ -352,6 +352,49 @@ function onlyPaidSnapshotChanged(oldRaw: string | null, newRaw: string | null): 
   }
 }
 
+function meaningfulEntryChange(prev: Record<string, unknown>, next: Record<string, unknown>): string[] {
+  const label = String(next.description ?? prev.description ?? 'a line').trim() || 'a line'
+  const changes: string[] = []
+  if (String(prev.amount ?? '') !== String(next.amount ?? '')) {
+    changes.push(`edited ${label} from ${formatAuditMoney(prev.amount)} to ${formatAuditMoney(next.amount)}`)
+  }
+  if (String(prev.description ?? '') !== String(next.description ?? '')) {
+    changes.push(`renamed ${quoteLabel(String(prev.description ?? ''))} to ${quoteLabel(String(next.description ?? ''))}`)
+  }
+  if (String(prev.notes ?? '') !== String(next.notes ?? '')) {
+    changes.push(`updated Notes on ${label} from ${quoteLabel(truncateAuditText(String(prev.notes ?? '')))} to ${quoteLabel(truncateAuditText(String(next.notes ?? '')))}`)
+  }
+  if (Boolean(prev.gst_included) !== Boolean(next.gst_included)) {
+    changes.push(`set GST on ${label} to ${next.gst_included ? 'included' : 'excluded'} (was ${prev.gst_included ? 'included' : 'excluded'})`)
+  }
+  if (Boolean(prev.confirmed) !== Boolean(next.confirmed)) {
+    changes.push(next.confirmed ? `confirm-ticked ${label}` : `removed the confirm tick from ${label}`)
+  }
+  if (Boolean(prev.paid) !== Boolean(next.paid)) {
+    changes.push(next.paid
+      ? `marked ${label} as PAID (line locked)`
+      : `marked ${label} unpaid (line unlocked)`)
+  }
+  return changes
+}
+
+function onlyInternalEntryKeysChanged(
+  prev: Record<string, unknown>,
+  next: Record<string, unknown>,
+): boolean {
+  const strip = (row: Record<string, unknown>) => {
+    const copy = { ...row }
+    delete copy.paid_snapshot
+    delete copy.paid_at
+    return copy
+  }
+  try {
+    return JSON.stringify(strip(prev)) === JSON.stringify(strip(next))
+  } catch {
+    return false
+  }
+}
+
 function formatEntriesJsonDiff(
   actor: string | null,
   section: string,
@@ -396,29 +439,11 @@ function formatEntriesJsonDiff(
   for (const [id, next] of newById) {
     const prev = oldById.get(id)
     if (!prev) continue
-    const label = String(next.description ?? prev.description ?? 'a line').trim() || 'a line'
-    if (String(prev.amount ?? '') !== String(next.amount ?? '')) {
-      changes.push(`edited ${label} from ${formatAuditMoney(prev.amount)} to ${formatAuditMoney(next.amount)}`)
-    }
-    if (String(prev.description ?? '') !== String(next.description ?? '')) {
-      changes.push(`renamed ${quoteLabel(String(prev.description ?? ''))} to ${quoteLabel(String(next.description ?? ''))}`)
-    }
-    if (String(prev.notes ?? '') !== String(next.notes ?? '')) {
-      changes.push(`updated Notes on ${label} from ${quoteLabel(truncateAuditText(String(prev.notes ?? '')))} to ${quoteLabel(truncateAuditText(String(next.notes ?? '')))}`)
-    }
-    if (Boolean(prev.gst_included) !== Boolean(next.gst_included)) {
-      changes.push(`set GST on ${label} to ${next.gst_included ? 'included' : 'excluded'} (was ${prev.gst_included ? 'included' : 'excluded'})`)
-    }
-    if (Boolean(prev.confirmed) !== Boolean(next.confirmed)) {
-      changes.push(next.confirmed
-        ? `confirm-ticked ${label} in ${section}`
-        : `removed the confirm tick from ${label} in ${section}`)
-    }
-    if (Boolean(prev.paid) !== Boolean(next.paid)) {
-      changes.push(next.paid
-        ? `marked ${label} as PAID (line locked)`
-        : `marked ${label} unpaid (line unlocked)`)
-    }
+    changes.push(...meaningfulEntryChange(prev, next).map(bit => (
+      bit.startsWith('confirm-ticked') ? `${bit} in ${section}`
+        : bit.startsWith('removed the confirm tick') ? `${bit} in ${section}`
+        : bit
+    )))
   }
 
   const bits: string[] = []
@@ -571,6 +596,34 @@ export function formatAuditEvent(
         return {
           id: row.id, changed_at: row.changed_at, changed_by_name: actor,
           sentence: jsonDiff.sentence, kind: jsonDiff.kind, record_id: recordId,
+          suppressWith: ['narrative-bulk-paid', 'narrative-restore', 'narrative-move'],
+        }
+      }
+      const oldObj = tryParseJson(row.old_value)
+      const newObj = tryParseJson(row.new_value)
+      if (
+        oldObj && newObj
+        && typeof oldObj === 'object' && typeof newObj === 'object'
+        && !Array.isArray(oldObj) && !Array.isArray(newObj)
+      ) {
+        const prev = oldObj as Record<string, unknown>
+        const next = newObj as Record<string, unknown>
+        if (onlyInternalEntryKeysChanged(prev, next)) return null
+        const bits = meaningfulEntryChange(prev, next).map(bit => (
+          bit.startsWith('confirm-ticked') ? `${bit} in ${section}`
+            : bit.startsWith('removed the confirm tick') ? `${bit} in ${section}`
+            : bit
+        ))
+        if (!bits.length) return null
+        const kind = bits[0].startsWith('edited') ? 'entry-amount'
+          : bits[0].includes('PAID') ? 'entry-paid'
+          : bits[0].includes('confirm') ? 'entry-confirmed'
+          : 'entry-other'
+        return {
+          id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+          sentence: finish(sentence(actor, bits.join('; '))),
+          kind,
+          record_id: recordId,
           suppressWith: ['narrative-bulk-paid', 'narrative-restore', 'narrative-move'],
         }
       }

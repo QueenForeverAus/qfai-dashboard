@@ -381,6 +381,48 @@ test('dedupes raw entries JSON next to MARK ALL AS PAID', () => {
   assert.match(events[0].sentence, /marked all lines in Ground Transport as PAID/)
 })
 
+test('trigger whole-entry JSON (paid/gst fallback) becomes a sentence, not a field key', () => {
+  const out = sentence({
+    field_name: 'venue_hire.entries[6ac5cd1f]',
+    old_value: JSON.stringify({
+      id: '6ac5cd1f-5d87-46e7-ad51-4dc40b030dee',
+      description: 'Venue Hire',
+      amount: 1000,
+      notes: '',
+      gst_included: true,
+      confirmed: true,
+      paid: false,
+    }),
+    new_value: JSON.stringify({
+      id: '6ac5cd1f-5d87-46e7-ad51-4dc40b030dee',
+      description: 'Venue Hire',
+      amount: 1451,
+      notes: '',
+      gst_included: true,
+      confirmed: true,
+      paid: false,
+    }),
+    changed_by_name: 'Test Admin',
+  })
+  assert.equal(out, 'Test edited Venue Hire from $1,000 to $1,451.')
+  assert.doesNotMatch(out, /entries\[|updated venue hire/i)
+})
+
+test('paid_snapshot-only trigger dumps are hidden', () => {
+  const ev = formatAuditEvent(row({
+    field_name: 'venue_hire.entries[6ac5cd1f]',
+    old_value: JSON.stringify({
+      id: '6ac5cd1f', description: 'Venue Hire', amount: 100, paid: true, confirmed: true,
+      paid_snapshot: null,
+    }),
+    new_value: JSON.stringify({
+      id: '6ac5cd1f', description: 'Venue Hire', amount: 100, paid: true, confirmed: true,
+      paid_snapshot: { paid: false, paid_at: null, confirmed: false },
+    }),
+  }), ctx)
+  assert.equal(ev, null)
+})
+
 test('parseAuditFieldName understands trigger and writeAuditLog names', () => {
   assert.deepEqual(parseAuditFieldName('state'), { kind: 'state' })
   assert.equal(parseAuditFieldName('flights.state').kind, 'state')
