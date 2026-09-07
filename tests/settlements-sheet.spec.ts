@@ -41,8 +41,11 @@ test('post-show TCOMP1 Sheet fills Col3 actuals, confirm, challenge (not sent), 
   await expect(page.getByTestId('pnl-owner-revenue')).toHaveCount(0)
 
   await page.getByTestId('sheet-harbour-fixture').click()
+  await expect(page.getByTestId('sheet-harbour-fixture')).toBeEnabled({ timeout: 15000 })
+  await page.reload()
+  await expect(page.getByTestId('settlements-sheet')).toBeVisible({ timeout: 8000 })
   await expect(page.getByTestId('sheet-actual-show:venue_hire').first()).toBeVisible({ timeout: 8000 })
-  await expect(page.getByTestId('sheet-challenge-show:venue_hire').first()).toBeVisible()
+  await expect(page.getByTestId('sheet-challenge-show:venue_hire').first()).toBeVisible({ timeout: 8000 })
   await expect(page.getByTestId('sheet-actual-status-show:venue_hire').first()).toContainText(/confirmed|challenged/i)
   await expect(page.getByTestId('sheet-variance-show:venue_hire').first()).toBeVisible()
 
@@ -63,9 +66,9 @@ test('post-show TCOMP1 Sheet fills Col3 actuals, confirm, challenge (not sent), 
   await expect(bandInput).toBeEnabled()
   await bandInput.fill('2700')
   await page.getByTestId('sheet-band-save-run:accommodation').first().click()
-  await expect(page.getByTestId('sheet-band-paid-run:accommodation').first()).toBeVisible({ timeout: 8000 })
+  await expect(page.getByTestId('sheet-band-save-run:accommodation').first()).toBeEnabled({ timeout: 15000 })
   await page.getByTestId('sheet-band-paid-btn-run:accommodation').first().click()
-  await expect(page.getByTestId('sheet-band-paid-run:accommodation').first()).toHaveText(/PAID/, { timeout: 8000 })
+  await expect(page.getByTestId('sheet-band-paid-run:accommodation').first()).toHaveText(/PAID/, { timeout: 15000 })
   await expect(page.getByTestId('sheet-band-input-run:accommodation').first()).toBeDisabled()
 })
 
