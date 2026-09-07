@@ -1,8 +1,10 @@
 -- Staging-only additive Factors for P&L → Run Costing insides.
--- DO NOT apply to prod. DO NOT overwrite Revenue cc_fee_pct (keep 1.0%).
--- Idempotent: Finance may also seed these rows.
+-- DO NOT apply to prod.
+-- DO NOT overwrite or bump Revenue cc_fee_pct (keep 1.0%). Auto-calc READS it.
+-- Idempotent: Finance may also seed booking_fee_per_payer.
+-- inside_cc_fee_pct is an optional later stub — do NOT require a seed.
 
--- booking_fee_per_payer = 4.50 estimated (Gareth standing default)
+-- booking_fee_per_payer = 4.50 estimated (Ticketing/Inside Costs)
 insert into public.run_factors (key, label, category, value, unit, description)
 select
   'booking_fee_per_payer',
@@ -10,25 +12,12 @@ select
   'Ticketing/Inside Costs',
   4.50,
   '$/payer',
-  'Silent estimated default for P&L insides when remittance/contract silent. Venue override OK. Remittance/contract known wins. Never known from this Factor alone.'
+  'Silent estimated default for P&L insides when remittance/contract silent. Dual model with Revenue cc_fee_pct. Venue override OK. Remittance/contract known wins. Never known from this Factor alone.'
 where not exists (
   select 1 from public.run_factors where key = 'booking_fee_per_payer'
 );
 
--- inside_cc_fee_pct = 1.6 estimated — insides-only. Leave Revenue cc_fee_pct alone.
-insert into public.run_factors (key, label, category, value, unit, description)
-select
-  'inside_cc_fee_pct',
-  'Inside credit card fee rate',
-  'Ticketing/Inside Costs',
-  1.6,
-  '%',
-  'Gareth standing estimated default for P&L insides (1.6%). Separate from Revenue cc_fee_pct (keep 1.0%). Remittance/contract known wins. Never known from Factor alone.'
-where not exists (
-  select 1 from public.run_factors where key = 'inside_cc_fee_pct'
-);
-
--- Optional later stub (unused until set). Skip if Finance already inserted.
+-- Optional later stub (unused until Lead/Gareth set a value). Skip if already present.
 insert into public.run_factors (key, label, category, value, unit, description)
 select
   'ticketing_inside_pct',
@@ -36,10 +25,10 @@ select
   'Ticketing/Inside Costs',
   0,
   '%',
-  'Optional later stub. Unused at 0. Not LPA/EIS/APRA/BO setup. Not Revenue cc_fee_pct.'
+  'Optional later stub. Unused at 0. Not LPA/EIS/APRA/BO setup.'
 where not exists (
   select 1 from public.run_factors where key = 'ticketing_inside_pct'
 );
 
 comment on table public.run_factors is
-  'Rule inputs. Ticketing/Inside Costs keys (booking_fee_per_payer, inside_cc_fee_pct) are estimated P&L insides only — do not overwrite Revenue cc_fee_pct.';
+  'Rule inputs. P&L insides silent default reads booking_fee_per_payer + Revenue cc_fee_pct (do not bump cc_fee_pct). inside_cc_fee_pct is an optional unused stub.';

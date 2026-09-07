@@ -130,7 +130,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
     supabase
       .from('run_factors')
       .select('key, value')
-      .in('key', ['booking_fee_per_payer', 'inside_cc_fee_pct', 'ticketing_inside_pct']),
+      .in('key', ['booking_fee_per_payer', 'cc_fee_pct', 'inside_cc_fee_pct', 'ticketing_inside_pct']),
     supabase
       .from('remittance_lines')
       .select('show_id, line_type, description, notes, amount')

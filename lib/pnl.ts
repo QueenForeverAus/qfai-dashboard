@@ -6,22 +6,28 @@
  *   harbour        = 0.10 × commissionable  (never editable; ignore Factors harbour_agency_pct)
  *   net_revenue    = commissionable − harbour
  *
- * Dual-model CC:
- *   Revenue `cc_fee_pct` stays 1.0% and is NEVER read for insides.
- *   Insides use `inside_cc_fee_pct` (1.6 estimated) + `booking_fee_per_payer` (4.50).
+ * Dual-model silent insides (Finance staging):
+ *   inside ≈ booking_fee_per_payer × payers + cc_fee_pct% × gross
+ *   booking_fee_per_payer = 4.50 (Ticketing/Inside Costs, estimated)
+ *   cc_fee_pct            = 1.0  (Revenue — READ, do not bump to 1.6)
+ *   Do NOT use $5/payer alone as the primary path.
+ *
+ * `inside_cc_fee_pct` is an optional later stub. Do not require a seed.
+ * Auto-calc does not read it until Lead/Gareth decide.
  *
  * Factors = estimated only. Remittance / contract known wins.
- * Never treat a historic 7.3% as known.
+ * Never mark known from a Factor alone. Never treat historic 7.3% as known.
  */
 
 export const HARBOUR_COMMISSION_RATE = 0.10
 export const OWNER_RESERVE_RATE = 0.20
 
-/** Revenue-category Factor — do not use for P&L insides. */
+/** Revenue-category Factor — READ for silent insides. Do not change its stored value. */
 export const REVENUE_CC_FEE_PCT_KEY = 'cc_fee_pct'
 
 export const INSIDE_FACTOR_KEYS = {
   bookingFeePerPayer: 'booking_fee_per_payer',
+  /** Optional later stub — unused until Lead/Gareth decide. */
   insideCcFeePct: 'inside_cc_fee_pct',
   ticketingInsidePct: 'ticketing_inside_pct',
 } as const
@@ -33,7 +39,10 @@ export const INSIDE_FACTOR_CATEGORY_ALIASES = [
 ] as const
 
 export const DEFAULT_BOOKING_FEE_PER_PAYER = 4.5
-export const DEFAULT_INSIDE_CC_FEE_PCT = 1.6
+/** Staging Revenue `cc_fee_pct`. Do not bump to 1.6. */
+export const DEFAULT_CC_FEE_PCT = 1.0
+/** Rejected alternate — never the primary silent path. */
+export const ALTERNATE_BOOKING_FEE_PER_PAYER_ALONE = 5
 
 /** Revenue / auto-calc keys — FIGURES NEEDED here does not lock sliders. */
 export const PNL_UNLOCK_EXCLUDED_FIELD_KEYS = new Set(['social_ads_var', 'gross_box_office'])
@@ -41,8 +50,13 @@ export const REVENUE_FIELD_KEYS = new Set(['gross_box_office'])
 
 export type InsideFactors = {
   booking_fee_per_payer: number
-  /** Whole percent (1.6 = 1.6%). */
-  inside_cc_fee_pct: number
+  /** Revenue `cc_fee_pct` — whole percent (1.0 = 1.0%). Used for silent insides. */
+  cc_fee_pct: number
+  /**
+   * Optional later stub. Parsed if present but NOT used for auto-calc
+   * until Lead/Gareth decide a separate insides CC rate.
+   */
+  inside_cc_fee_pct: number | null
   /** Optional later stub. Null / 0 = unused. */
   ticketing_inside_pct: number | null
 }
@@ -101,17 +115,19 @@ export function parseInsideFactors(
     map.set(row.key, n)
   }
   const ticketing = map.get(INSIDE_FACTOR_KEYS.ticketingInsidePct)
+  const insideCc = map.get(INSIDE_FACTOR_KEYS.insideCcFeePct)
   return {
     booking_fee_per_payer: map.get(INSIDE_FACTOR_KEYS.bookingFeePerPayer) ?? DEFAULT_BOOKING_FEE_PER_PAYER,
-    inside_cc_fee_pct: map.get(INSIDE_FACTOR_KEYS.insideCcFeePct) ?? DEFAULT_INSIDE_CC_FEE_PCT,
+    cc_fee_pct: map.get(REVENUE_CC_FEE_PCT_KEY) ?? DEFAULT_CC_FEE_PCT,
+    inside_cc_fee_pct: insideCc != null && insideCc !== 0 ? insideCc : null,
     ticketing_inside_pct: ticketing != null && ticketing !== 0 ? ticketing : null,
   }
 }
 
 /**
- * Silent estimated insides. Prefer the two-key Factors path.
- * inside ≈ booking_fee_per_payer × payers + inside_cc_fee_pct% × gross
- * Optional ticketing_inside_pct% × gross is additive when the stub is set.
+ * Silent estimated insides — dual model only.
+ * inside ≈ booking_fee_per_payer × payers + cc_fee_pct% × gross
+ * Does not use $5/payer alone. Does not read `inside_cc_fee_pct`.
  */
 export function silentInsideDefault(opts: {
   gross: number
@@ -119,7 +135,7 @@ export function silentInsideDefault(opts: {
   factors?: Partial<InsideFactors> | null
 }): number {
   const booking = opts.factors?.booking_fee_per_payer ?? DEFAULT_BOOKING_FEE_PER_PAYER
-  const ccPct = opts.factors?.inside_cc_fee_pct ?? DEFAULT_INSIDE_CC_FEE_PCT
+  const ccPct = opts.factors?.cc_fee_pct ?? DEFAULT_CC_FEE_PCT
   const ticketingPct = opts.factors?.ticketing_inside_pct ?? null
   const gross = Number(opts.gross) || 0
   const payers = Math.max(0, Number(opts.payers) || 0)
@@ -284,15 +300,6 @@ export const INSIDE_FACTOR_SEED = [
     value: DEFAULT_BOOKING_FEE_PER_PAYER,
     unit: '$/payer',
     description:
-      'Silent estimated default for P&L insides when remittance/contract silent. Venue override OK. Remittance/contract known wins. Never known from this Factor alone.',
-  },
-  {
-    key: INSIDE_FACTOR_KEYS.insideCcFeePct,
-    label: 'Inside credit card fee rate',
-    category: INSIDE_FACTOR_CATEGORY,
-    value: DEFAULT_INSIDE_CC_FEE_PCT,
-    unit: '%',
-    description:
-      'Gareth standing estimated default for P&L insides (1.6%). Separate from Revenue cc_fee_pct (keep 1.0%). Remittance/contract known wins. Never known from Factor alone.',
+      'Silent estimated default for P&L insides when remittance/contract silent. Dual model with Revenue cc_fee_pct. Venue override OK. Remittance/contract known wins. Never known from this Factor alone.',
   },
 ] as const

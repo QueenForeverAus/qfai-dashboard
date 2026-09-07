@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  ALTERNATE_BOOKING_FEE_PER_PAYER_ALONE,
   DEFAULT_BOOKING_FEE_PER_PAYER,
-  DEFAULT_INSIDE_CC_FEE_PCT,
+  DEFAULT_CC_FEE_PCT,
   HARBOUR_COMMISSION_RATE,
   INSIDE_FACTOR_KEYS,
   REVENUE_CC_FEE_PCT_KEY,
@@ -42,53 +43,71 @@ test('Harbour stays 10% of commissionable even if inside is zero', () => {
   assert.equal(wf.netRevenue, 4_500)
 })
 
-test('silent inside default is $4.50/payer + 1.6% of gross', () => {
-  const inside = silentInsideDefault({ gross: 10_000, payers: 200 })
+test('silent inside default is $4.50/payer + Revenue cc_fee_pct 1.0% of gross', () => {
+  const inside = silentInsideDefault({ gross: 5_000, payers: 200 })
   assert.equal(DEFAULT_BOOKING_FEE_PER_PAYER, 4.5)
-  assert.equal(DEFAULT_INSIDE_CC_FEE_PCT, 1.6)
-  assert.equal(inside, 200 * 4.5 + 0.016 * 10_000)
-  assert.equal(inside, 1_060)
+  assert.equal(DEFAULT_CC_FEE_PCT, 1.0)
+  assert.equal(inside, 200 * 4.5 + 0.01 * 5_000)
+  assert.equal(inside, 950)
+  assert.notEqual(inside, 200 * ALTERNATE_BOOKING_FEE_PER_PAYER_ALONE)
 })
 
-test('silent inside uses Factors overrides, never Revenue cc_fee_pct', () => {
+test('silent inside reads Revenue cc_fee_pct and ignores inside_cc_fee_pct stub', () => {
   const rows = [
     { key: REVENUE_CC_FEE_PCT_KEY, value: 1.0 },
     { key: INSIDE_FACTOR_KEYS.bookingFeePerPayer, value: 4.5 },
     { key: INSIDE_FACTOR_KEYS.insideCcFeePct, value: 1.6 },
   ]
   const factors = parseInsideFactors(rows)
-  assert.equal(factors.inside_cc_fee_pct, 1.6)
+  assert.equal(factors.cc_fee_pct, 1.0)
   assert.equal(factors.booking_fee_per_payer, 4.5)
+  assert.equal(factors.inside_cc_fee_pct, 1.6)
   const inside = silentInsideDefault({ gross: 1_000, payers: 10, factors })
-  assert.equal(inside, 45 + 16)
-  assert.notEqual(inside, 45 + 10) // would be 1.0% Revenue cc
+  assert.equal(inside, 45 + 10)
+  assert.notEqual(inside, 45 + 16) // 1.6% stub must not win
 })
 
-test('parseInsideFactors ignores missing keys and uses Gareth standing defaults', () => {
-  const factors = parseInsideFactors([{ key: REVENUE_CC_FEE_PCT_KEY, value: 7.3 }])
+test('parseInsideFactors defaults booking 4.50 and cc_fee_pct 1.0 when keys missing', () => {
+  const factors = parseInsideFactors([])
   assert.equal(factors.booking_fee_per_payer, 4.5)
-  assert.equal(factors.inside_cc_fee_pct, 1.6)
+  assert.equal(factors.cc_fee_pct, 1.0)
+  assert.equal(factors.inside_cc_fee_pct, null)
   assert.equal(factors.ticketing_inside_pct, null)
 })
 
 test('never treat historic 7.3% as known insides', () => {
-  const factors = parseInsideFactors([{ key: REVENUE_CC_FEE_PCT_KEY, value: 7.3 }])
+  const missing = parseInsideFactors([])
+  assert.equal(missing.cc_fee_pct, 1.0)
+  assert.notEqual(missing.cc_fee_pct, 7.3)
   const { inside, source } = resolveInside({
     gross: 10_000,
     payers: 0,
-    factors,
+    factors: missing,
     knownInside: null,
   })
   assert.equal(source, 'factors')
-  assert.equal(inside, 160)
+  assert.equal(inside, 100)
   assert.notEqual(inside, 730)
+})
+
+test('Factors alone never mark insides known', () => {
+  const { source } = resolveInside({
+    gross: 10_000,
+    payers: 200,
+    factors: parseInsideFactors([
+      { key: INSIDE_FACTOR_KEYS.bookingFeePerPayer, value: 4.5 },
+      { key: REVENUE_CC_FEE_PCT_KEY, value: 1.0 },
+    ]),
+    knownInside: null,
+  })
+  assert.equal(source, 'factors')
 })
 
 test('remittance / contract known wins over Factors', () => {
   const { inside, source } = resolveInside({
     gross: 10_000,
     payers: 200,
-    factors: { booking_fee_per_payer: 4.5, inside_cc_fee_pct: 1.6, ticketing_inside_pct: null },
+    factors: { booking_fee_per_payer: 4.5, cc_fee_pct: 1.0, inside_cc_fee_pct: 1.6, ticketing_inside_pct: null },
     knownInside: 250,
   })
   assert.equal(source, 'known')

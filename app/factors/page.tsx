@@ -38,7 +38,7 @@ export default async function FactorsPage() {
           Rule inputs that flow through to all ESTIMATE fields across every run. Edit a value here and it cascades automatically to any run that uses that factor.
         </p>
         <p className="text-amber-400/70 text-xs mt-2">
-          Owner-only — not visible to crew or production. Ticketing/Inside Costs (`booking_fee_per_payer`, `inside_cc_fee_pct`) are estimated P&amp;L insides only — remittance/contract known wins. Do not edit Revenue `cc_fee_pct` for insides (keep 1.0%).
+          Owner-only — not visible to crew or production. P&amp;L insides silent default is estimated only: `booking_fee_per_payer` ($4.50) + Revenue `cc_fee_pct` (keep 1.0% — do not bump). Remittance/contract known wins. Never known from a Factor alone.
         </p>
       </div>
 
