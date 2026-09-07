@@ -142,7 +142,7 @@ test('Wave 1 Settlement and Remittance tabs still work beside the Sheet', async 
   await expect(page.getByTestId('tab-sheet')).toBeVisible({ timeout: 8000 })
   await expect(page.getByTestId('settlements-left-pane')).toBeVisible()
   await expect(page.getByTestId('settlements-right-pane')).toBeVisible()
-  await expect(page.getByText('Band Costs')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Band Costs' })).toBeVisible()
   await page.getByTestId('tab-remittance').click()
   await page.waitForURL(/\/settlements\/r12\/remittance/i)
   await expect(page.getByTestId('remittance-compare')).toBeVisible()
