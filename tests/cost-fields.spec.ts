@@ -102,6 +102,63 @@ test('confirming every line rolls the section up to CONFIRMED; unticking restore
   await expect(field.getByTestId('cost-field-state')).not.toHaveText(/CONFIRMED/i, { timeout: 8000 })
 })
 
+test('confirm then mark PAID locks the line; un-pay unlocks; section PAID rolls up', async ({ page }) => {
+  await page.goto('/runs')
+  const runLinks = page.getByRole('link', { name: /R\d+|TEST/i })
+  if (await runLinks.count() === 0) {
+    test.skip(true, 'No runs available on staging — seed one first')
+    return
+  }
+
+  await runLinks.first().click()
+  await page.waitForURL(/\/runs\//)
+
+  const costingTab = page.getByRole('button', { name: /run costing/i })
+  if (await costingTab.isVisible()) await costingTab.click()
+
+  const field = page.locator('[data-testid="cost-field-venue_hire"]').first()
+  await expect(field).toBeVisible({ timeout: 8000 })
+  await field.locator('button').filter({ hasText: /▼/ }).click()
+
+  const ticks = field.getByTestId('entry-confirm-tick')
+  await expect(ticks.first()).toBeVisible({ timeout: 5000 })
+
+  const count = await ticks.count()
+  for (let i = 0; i < count; i++) {
+    const tick = ticks.nth(i)
+    if (!(await tick.isVisible())) continue
+    if ((await tick.getAttribute('aria-pressed')) !== 'true') {
+      await tick.click()
+      await page.waitForTimeout(400)
+    }
+  }
+
+  await expect(field.getByTestId('cost-field-state')).toHaveText(/CONFIRMED/i, { timeout: 8000 })
+  await expect(field.getByTestId('cost-field-paid')).toHaveCount(0)
+
+  const payButtons = field.getByTestId('entry-paid-toggle')
+  await expect(payButtons.first()).toBeVisible({ timeout: 5000 })
+  const payCount = await payButtons.count()
+  for (let i = 0; i < payCount; i++) {
+    const btn = payButtons.nth(i)
+    if (!(await btn.isVisible())) continue
+    if ((await btn.getAttribute('aria-pressed')) !== 'true') {
+      await btn.click()
+      await page.waitForTimeout(400)
+    }
+  }
+
+  await expect(field.getByTestId('cost-field-paid')).toHaveText(/PAID/i, { timeout: 8000 })
+  await expect(field.getByTestId('cost-field-state')).toHaveText(/CONFIRMED/i)
+  await expect(field.getByTestId('entry-paid-lock').first()).toBeVisible()
+  await expect(ticks.first()).toBeDisabled()
+
+  await payButtons.first().click()
+  await expect(field.getByTestId('cost-field-paid')).toHaveCount(0, { timeout: 8000 })
+  await expect(ticks.first()).toBeEnabled()
+  await expect(field.getByTestId('cost-field-state')).toHaveText(/CONFIRMED/i)
+})
+
 test('entries label shows "entries" not "receipts"', async ({ page }) => {
   await page.goto('/runs')
   const runLinks = page.getByRole('link', { name: /R\d+|TEST/i })

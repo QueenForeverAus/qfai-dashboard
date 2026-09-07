@@ -7,7 +7,9 @@ import {
   entriesSum,
   ENTRY_EXEMPT_FIELD_KEYS,
   normalizeEntries,
+  paidLockViolation,
   productionCanEditFieldKey,
+  stampPaidAt,
 } from '@/lib/cost-fields'
 
 /**
@@ -57,6 +59,11 @@ export async function POST(req: NextRequest) {
 
   if (!ENTRY_EXEMPT_FIELD_KEYS.has(fieldKey)) {
     entries = ensureMinimumEntry(entries, String(body.label), initialValue)
+  }
+  entries = stampPaidAt(entries, [])
+  const lockError = paidLockViolation([], entries)
+  if (lockError) {
+    return NextResponse.json({ error: lockError }, { status: 400 })
   }
 
   const value = ENTRY_EXEMPT_FIELD_KEYS.has(fieldKey)

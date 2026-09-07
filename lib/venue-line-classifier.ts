@@ -103,6 +103,7 @@ function asEntries(raw: unknown): CostEntry[] {
   if (!Array.isArray(raw)) return []
   return raw.map((e, i) => {
     const row = (e ?? {}) as Record<string, unknown>
+    const paid = Boolean(row.paid)
     return {
       id: String(row.id ?? `e-${i}`),
       description: String(row.description ?? ''),
@@ -110,6 +111,8 @@ function asEntries(raw: unknown): CostEntry[] {
       amount: Number(row.amount) || 0,
       gst_included: Boolean(row.gst_included),
       confirmed: Boolean(row.confirmed),
+      paid,
+      paid_at: paid && typeof row.paid_at === 'string' ? row.paid_at : null,
     }
   })
 }
@@ -206,6 +209,8 @@ export async function reclassifyShowVenueLines(
             amount: amt,
             gst_included: false,
             confirmed: false,
+            paid: false,
+            paid_at: null,
           })
         }
         notes.push(`line_item "${desc}" removed from venue_staff → ${kind}`)

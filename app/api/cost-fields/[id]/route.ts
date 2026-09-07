@@ -11,9 +11,11 @@ import {
   isNonConfirmedFieldState,
   isUnconfirmedEntriesSeed,
   normalizeEntries,
+  paidLockViolation,
   pickPriorStateFromAuditRows,
   productionCanEditFieldKey,
   rolledUpCostFieldState,
+  stampPaidAt,
 } from '@/lib/cost-fields'
 import {
   COST_FIELD_AUDIT_FIELDS,
@@ -136,6 +138,14 @@ export async function PATCH(
       }
       entries = ensureMinimumEntry(entries, existing.label, existing.value)
     }
+
+    const existingEntries = normalizeEntries(existing.entries) ?? []
+    entries = stampPaidAt(entries, existingEntries)
+    const lockError = paidLockViolation(existingEntries, entries)
+    if (lockError) {
+      return NextResponse.json({ error: lockError }, { status: 400 })
+    }
+
     updates.entries = entries
     // Entries drive line total for non–venue_staff fields.
     // venue_staff: planned roles (line_items) remain primary when saving roles;
@@ -143,6 +153,7 @@ export async function PATCH(
     updates.value = entriesSum(entries)
 
     // W1.1: line-item confirm ticks roll up to cost_fields.state (`known` = CONFIRMED).
+    // W1.2 PAID does not write cost_fields.state (payment ≠ figure accuracy).
     if (
       !ENTRY_EXEMPT_FIELD_KEYS.has(existing.field_key)
       && !isUnconfirmedEntriesSeed(existing.entries as Parameters<typeof isUnconfirmedEntriesSeed>[0], entries)
