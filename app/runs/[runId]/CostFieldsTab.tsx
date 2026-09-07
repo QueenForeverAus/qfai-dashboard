@@ -8,12 +8,10 @@ import ShowPackTab from './ShowPackTab'
 import TicketOutlookBlock from './TicketOutlookBlock'
 import { formatDateShortAU } from '@/lib/dates'
 import { runDateRangeFromShows } from '@/lib/run-dates'
-import BandedSellSlider from '@/components/BandedSellSlider'
 import {
   normalizeCapacityBands,
   topBandSeats,
   modelledVenueStaffForTickets,
-  activeBandForTickets,
 } from '@/lib/capacity-bands'
 import {
   allEntriesConfirmed,
@@ -54,6 +52,14 @@ import {
   staffDisplayName,
 } from '@/lib/cost-entry-source'
 import QuoteInvoiceStub from '@/components/QuoteInvoiceStub'
+import { PnlRevenueBlock, PnlSummaryBlock, venuePnl } from './PnlOwnerChrome'
+import {
+  canSeeOwnerPnl,
+  computePnlSummary,
+  pnlSlidersUnlocked,
+  type InsideFactorValues,
+  type KnownInsideLine,
+} from '@/lib/pnl-run-costing'
 
 type FieldState = CostFieldState
 
@@ -79,6 +85,8 @@ type Show = {
   ticket_outlook_status?: 'empty' | 'draft' | 'confirmed'
   ticket_outlook_as_of?: string | null
   ticket_outlook_sources?: unknown
+  booking_fee_per_payer?: number | null
+  cc_fee_pct?: number | null
 }
 
 type CostFieldRow = {
@@ -1563,6 +1571,8 @@ export default function CostFieldsTab({
   isOwnerOrAdmin = false,
   ticketOutlookSummary = null,
   editorDisplayNameByFieldId = {},
+  insideFactors = {},
+  remittanceLines = [],
 }: {
   runId: string
   runCode: string
@@ -1577,6 +1587,8 @@ export default function CostFieldsTab({
   isOwnerOrAdmin?: boolean
   ticketOutlookSummary?: string | null
   editorDisplayNameByFieldId?: Record<string, string>
+  insideFactors?: InsideFactorValues
+  remittanceLines?: KnownInsideLine[]
 }) {
   const { effectiveRole, profile } = useProfile()
   const hasTabAccess = canAccessTab(effectiveRole, 'costs')
@@ -1584,9 +1596,10 @@ export default function CostFieldsTab({
   const hasShowPack = canAccessTab(effectiveRole, 'show_pack')
   const hasOutlook = canAccessTab(effectiveRole, 'outlook')
   const defaultTab = hasTabAccess ? 'costs' : hasOutlook ? 'outlook' : hasAdvancement ? 'advancement' : hasShowPack ? 'show_pack' : 'costs'
-  const [activeTab, setActiveTab] = useState<'overview' | 'costs' | 'outlook' | 'audit' | 'advancement' | 'show_pack'>(
-    defaultTab as 'overview' | 'costs' | 'outlook' | 'audit' | 'advancement' | 'show_pack',
+  const [activeTab, setActiveTab] = useState<'costs' | 'outlook' | 'audit' | 'advancement' | 'show_pack'>(
+    defaultTab === 'overview' ? 'costs' : defaultTab as 'costs' | 'outlook' | 'audit' | 'advancement' | 'show_pack',
   )
+  const showOwnerPnl = canSeeOwnerPnl(effectiveRole)
   const isProduction = effectiveRole === 'production'
   // Which per-show fields production can see (no revenue, no venue hire)
   const visibleShowFields = isProduction
@@ -1703,16 +1716,7 @@ export default function CostFieldsTab({
     else fieldMap.set(runFieldKey(f.field_key), f)
   }
 
-  // Overview calculations
-  function projectedBoxOffice(show: Show, pct: number) {
-    const cap = modelCapacity(show)
-    if (!cap || !show.ticket_price) return null
-    return Math.round(cap * (pct / 100) * show.ticket_price)
-  }
-
-  const totalRevenue = showsState.reduce((sum, s) => sum + (projectedBoxOffice(s, sellThrough[s.id] ?? 75) ?? 0), 0)
-  const harbourCommission = Math.round(totalRevenue * 0.1)
-  const netRevenue = totalRevenue - harbourCommission
+  const mergedFactors: InsideFactorValues = insideFactors
 
   // social_ads_var is AUTO-CALC: tickets × $1.10 — computed live from sliders, not from stored value
   const dynamicSocialAds = showsState.reduce((sum, s) => {
@@ -1736,32 +1740,48 @@ export default function CostFieldsTab({
   }, 0)
 
   const totalCosts = runCostTotal + showCostTotal
-  const netProfit = netRevenue - totalCosts
-  const reserve = Math.round(Math.max(0, netProfit) * 0.2)
-  const preDistMargin = netProfit - reserve
 
-  // Completeness gate — unlock P&L when fields are estimate/guess/confirmed (known).
-  // Only FIGURES NEEDED (pending) blocks. Dollar amount may live in value OR entries.
-  const COMPLETENESS_EXCLUDED = new Set(['social_ads_var', 'gross_box_office'])
-  const incompleteFields: string[] = []
-  for (const f of RUN_FIELDS) {
-    if (COMPLETENESS_EXCLUDED.has(f.key)) continue
-    const row = fieldMap.get(runFieldKey(f.key))
-    if (!row) continue
-    if (row.state === 'pending' || row.state === 'figures_needed') {
-      incompleteFields.push(f.label)
-    }
-  }
-  for (const show of showsState) {
-    for (const sf of SHOW_FIELDS.filter(sf => sf.category !== 'Revenue')) {
-      const row = fieldMap.get(showFieldKey(show.id, sf.key))
-      if (!row) continue
-      if (row.state === 'pending' || row.state === 'figures_needed') {
-        incompleteFields.push(`${show.venue_city} – ${sf.label}`)
+  const unlockLines = [
+    ...RUN_FIELDS.map(f => {
+      const row = fieldMap.get(runFieldKey(f.key))
+      return {
+        fieldKey: f.key,
+        category: f.category,
+        state: row?.state ?? null,
+        allPaid: row ? allEntriesPaid(sectionPayableLines(f.key, row.entries, row.line_items)) : false,
+        label: f.label,
       }
-    }
-  }
-  const isDataComplete = incompleteFields.length === 0
+    }),
+    ...showsState.flatMap(show =>
+      SHOW_FIELDS.map(sf => {
+        const row = fieldMap.get(showFieldKey(show.id, sf.key))
+        return {
+          fieldKey: sf.key,
+          category: sf.category,
+          state: row?.state ?? null,
+          allPaid: row ? allEntriesPaid(sectionPayableLines(sf.key, row.entries, row.line_items)) : false,
+          label: `${show.venue_city} – ${sf.label}`,
+        }
+      }),
+    ),
+  ]
+  const unlock = pnlSlidersUnlocked(unlockLines)
+  const slidersUnlocked = unlock.unlocked
+  const incompleteFields = unlock.blocking.map(b => {
+    const labelled = unlockLines.find(l => l.fieldKey === b.fieldKey && l.category === b.category && l.state === b.state)
+    return labelled?.label ?? b.fieldKey
+  })
+  const isDataComplete = slidersUnlocked
+  const ownerVenuePnls = showsState.map(show =>
+    venuePnl({
+      show,
+      pct: sellThrough[show.id] ?? 75,
+      factors: mergedFactors,
+      remittanceLines,
+    }),
+  )
+  const ownerNetRevenue = ownerVenuePnls.reduce((s, v) => s + v.waterfall.netRevenue, 0)
+  const ownerPnlSummary = computePnlSummary({ netRevenue: ownerNetRevenue, totalCosts })
   const hasGuessFields = !isDataComplete ? false : (() => {
     for (const f of RUN_FIELDS) {
       if (COMPLETENESS_EXCLUDED.has(f.key)) continue
@@ -1807,12 +1827,12 @@ export default function CostFieldsTab({
       {(hasTabAccess || hasOutlook || hasAdvancement || hasShowPack) && (
       <div className="relative mb-6">
         <div className="flex gap-1 border-b border-slate-700 items-end overflow-x-auto scrollbar-thin pb-px pr-6">
-          {(['overview', 'costs', 'outlook', 'audit'] as const).filter(tab => canAccessTab(effectiveRole, tab)).map((tab) => (
+          {(['costs', 'outlook', 'audit'] as const).filter(tab => canAccessTab(effectiveRole, tab)).map((tab) => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
                 activeTab === tab ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
               }`}>
-              {tab === 'costs' ? 'Run Costing' : tab === 'audit' ? 'Audit Trail' : tab === 'outlook' ? 'Ticket Outlook' : 'P&L Calculator'}
+              {tab === 'costs' ? 'Run Costing' : tab === 'audit' ? 'Audit Trail' : 'Ticket Outlook'}
             </button>
           ))}
           {hasAdvancement && (
@@ -1894,218 +1914,23 @@ export default function CostFieldsTab({
         />
       )}
 
-      {/* P&L CALCULATOR TAB */}
-      {hasTabAccess && activeTab === 'overview' && (
-        <div className="space-y-5">
-
-          {/* Completeness warning */}
-          {!isDataComplete && (
-            <div className="bg-red-950/40 border border-red-800/60 rounded-xl p-4">
-              <div className="flex items-start gap-3">
-                <span className="text-red-400 text-base shrink-0 mt-0.5">⚠</span>
-                <div>
-                  <p className="text-red-300 font-semibold text-sm">Data incomplete — P&L not shown</p>
-                  <p className="text-red-400/80 text-xs mt-1 mb-2">The following fields are still marked Figures Needed — set them to Estimate, Guess, or Confirmed to unlock P&L:</p>
-                  <ul className="space-y-0.5">
-                    {incompleteFields.map(f => (
-                      <li key={f} className="text-red-400/70 text-xs flex items-center gap-1.5">
-                        <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Estimates caution — shown when P&L is visible but some fields are rough guesses */}
-          {isDataComplete && hasGuessFields && (
-            <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 flex items-start gap-2">
-              <span className="text-amber-500 text-sm shrink-0 mt-0.5">~</span>
-              <p className="text-amber-400/80 text-xs">Some figures are estimates or unconfirmed — treat this P&L as indicative only.</p>
-            </div>
-          )}
-
-          {/* Revenue — per show */}
-          <div>
-            <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">Revenue</h3>
-            <div className="space-y-3">
-              {showsState.map(show => {
-                const pct = sellThrough[show.id] ?? 75
-                const cap = modelCapacity(show)
-                const tickets = cap ? Math.round(cap * pct / 100) : null
-                const gbo = projectedBoxOffice(show, pct)
-                const bands = normalizeCapacityBands(show.capacity_bands)
-                return (
-                  <div key={show.id} className="bg-slate-800 rounded-xl border border-slate-700 p-3 sm:p-4">
-                    <div className="flex items-center justify-between gap-3 mb-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-white text-sm font-semibold truncate">{show.venue_name}</div>
-                        <div className="text-slate-500 text-xs mt-0.5 truncate">
-                          {show.venue_city}{show.state_territory ? `, ${show.state_territory}` : ''} · {formatDateShortAU(show.show_date)}
-                          {cap ? ` · Cap ${cap.toLocaleString()}` : ''}
-                          {bands.length > 1 ? ` · ${bands.length} bands` : ''}
-                          {show.ticket_price != null ? ` · $${Number(show.ticket_price).toFixed(2)} nett/ticket` : ' · Ticket price —'}
-                        </div>
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <div className="text-amber-400 font-bold">{pct}%</div>
-                        <div className="text-slate-500 text-xs">{tickets != null ? `${tickets.toLocaleString()} tix` : '—'}</div>
-                      </div>
-                    </div>
-                    <BandedSellSlider
-                      value={pct}
-                      onChange={v => updateSellThrough(show.id, v)}
-                      capacity={cap}
-                      capacityBands={show.capacity_bands}
-                      className="mb-3"
-                    />
-                    <div className="flex justify-between text-sm gap-2 mb-1.5">
-                      <span className="text-slate-400">Ticket price <span className="text-slate-500">(Harbour nett)</span></span>
-                      <span className="text-white font-medium flex-shrink-0">
-                        {show.ticket_price != null ? `$${Number(show.ticket_price).toFixed(2)}` : <span className="text-red-400/70">—</span>}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm gap-2">
-                      <span className="text-slate-400">
-                        Gross Box Office
-                        {cap && show.ticket_price != null ? (
-                          <span className="text-slate-600 font-normal"> · {cap.toLocaleString()} × {pct}% × ${Number(show.ticket_price).toFixed(2)}</span>
-                        ) : null}
-                      </span>
-                      <span className="text-white font-semibold flex-shrink-0">{fmt(gbo)}</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <div className="mt-3 bg-slate-800/60 rounded-lg border border-slate-700/60 p-3 space-y-1.5 text-sm">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Total Box Office</span>
-                <span className="text-white font-medium">{fmt(totalRevenue)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">− Harbour Agency (10%)</span>
-                <span className="text-red-400">{fmt(harbourCommission)}</span>
-              </div>
-              <div className="flex justify-between border-t border-slate-700 pt-1.5 font-medium">
-                <span className="text-slate-300">Net Revenue</span>
-                <span className="text-white">{fmt(netRevenue)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Venue costs — per show */}
-          <div>
-            <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">Venue Costs — Per Show</h3>
-            <div className="bg-slate-800 rounded-xl border border-slate-700 divide-y divide-slate-700/60">
-              {showsState.map(show => {
-                const pct = sellThrough[show.id] ?? 75
-                const hire = effectiveFieldValue(fieldMap.get(showFieldKey(show.id, 'venue_hire')))
-                const staffRow = fieldMap.get(showFieldKey(show.id, 'venue_staff'))
-                const staffBase = effectiveFieldValue(staffRow)
-                const staff = calcVenueStaff(show, pct, staffRow)
-                const staffStepped = staffBase != null && staff != null && Math.abs(staff - staffBase) > 0.005
-                const prod = effectiveFieldValue(fieldMap.get(showFieldKey(show.id, 'production_costs')))
-                const showTotal = (hire ?? 0) + (staff ?? 0) + (prod ?? 0)
-                const bands = normalizeCapacityBands(show.capacity_bands)
-                const cap = modelCapacity(show)
-                const tickets = cap ? Math.round(cap * pct / 100) : 0
-                const band = activeBandForTickets(bands, tickets)
-                return (
-                  <div key={show.id} className="p-3">
-                    <div className="text-white text-sm font-medium mb-2">{show.venue_city} <span className="text-slate-500 font-normal text-xs">— {show.venue_name}</span></div>
-                    <div className="grid grid-cols-3 gap-2 text-xs mb-2">
-                      <div>
-                        <div className="text-slate-500 mb-0.5">Venue Hire</div>
-                        <div className="text-slate-200">{hire !== null ? fmt(hire) : <span className="text-red-400/70">—</span>}</div>
-                      </div>
-                      <div>
-                        <div className="text-slate-500 mb-0.5">Staff / On-costs {staffStepped ? <span className="text-amber-400/80">(calc)</span> : null}</div>
-                        <div className="text-slate-200">{staff !== null ? fmt(staff) : <span className="text-red-400/70">—</span>}</div>
-                        {staffStepped && staffBase != null && (
-                          <div className="text-slate-500 mt-0.5">Base {fmt(staffBase)}{band ? ` · ${band.label ?? band.seats}` : ''}</div>
-                        )}
-                      </div>
-                      <div>
-                        <div className="text-slate-500 mb-0.5">Production / AV</div>
-                        <div className="text-slate-200">{prod !== null ? fmt(prod) : <span className="text-red-400/70">—</span>}</div>
-                      </div>
-                    </div>
-                    <div className="flex justify-between text-xs border-t border-slate-700/40 pt-1.5">
-                      <span className="text-slate-400">Show total</span>
-                      <span className="text-slate-200 font-medium">{showTotal > 0 ? fmt(showTotal) : '—'}</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Run-level costs — by category */}
-          <div>
-            <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">Run-Level Costs</h3>
-            <div className="bg-slate-800 rounded-xl border border-slate-700 p-3 space-y-2 text-sm">
-              {RUN_CATEGORIES.map(cat => {
-                const catTotal = RUN_FIELDS.filter(f => f.category === cat).reduce((sum, f) => {
-                  return sum + (effectiveFieldValue(fieldMap.get(runFieldKey(f.key))) ?? 0)
-                }, 0)
-                return (
-                  <div key={cat} className="flex justify-between">
-                    <span className="text-slate-400">{cat}</span>
-                    <span className="text-slate-200">{catTotal > 0 ? fmt(catTotal) : '—'}</span>
-                  </div>
-                )
-              })}
-              <div className="flex justify-between border-t border-slate-700 pt-2 font-medium">
-                <span className="text-slate-300">Run-level subtotal</span>
-                <span className="text-slate-200">{fmt(runCostTotal)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* P&L Summary — gated */}
-          <div>
-            <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">P&L Summary</h3>
-            {isDataComplete ? (
-              <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Net Revenue</span>
-                  <span className="text-white">{fmt(netRevenue)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">− Total Costs</span>
-                  <span className="text-red-400">{fmt(totalCosts)}</span>
-                </div>
-                <div className="flex justify-between font-semibold border-t border-slate-700 pt-2">
-                  <span className="text-white">Net Profit / (Loss)</span>
-                  <span className={netProfit >= 0 ? 'text-green-400' : 'text-red-400'}>{fmt(netProfit)}</span>
-                </div>
-                <div className="flex justify-between text-slate-400">
-                  <span>− 20% Reserve</span>
-                  <span className="text-red-400/70">{fmt(reserve)}</span>
-                </div>
-                <div className="flex justify-between font-bold border-t border-slate-600 pt-2">
-                  <span className="text-amber-400">Pre-Distribution Margin</span>
-                  <span className={preDistMargin >= 0 ? 'text-amber-400' : 'text-red-400'}>{fmt(preDistMargin)}</span>
-                </div>
-                <p className="text-slate-600 text-xs pt-1">GST quarantine not included — calculated by Scott at settlement.</p>
-              </div>
-            ) : (
-              <div className="bg-slate-800/40 rounded-xl border border-slate-700/50 p-5 text-center">
-                <p className="text-slate-400 text-sm font-medium">P&L not available</p>
-                <p className="text-slate-600 text-xs mt-1.5">Complete all cost fields in Run Costing before a go/no-go decision can be made.</p>
-              </div>
-            )}
-          </div>
-
-        </div>
-      )}
-
-      {/* COST FIELDS TAB */}
+      {/* COST FIELDS TAB — one sheet: owners get revenue top + P&L bottom; middle costing unchanged */}
       {hasTabAccess && activeTab === 'costs' && (
         <div className="space-y-6">
+          {showOwnerPnl && (
+            <PnlRevenueBlock
+              shows={showsState}
+              sellThrough={sellThrough}
+              slidersUnlocked={slidersUnlocked}
+              incompleteFields={incompleteFields}
+              hasGuessFields={hasGuessFields}
+              factors={mergedFactors}
+              remittanceLines={remittanceLines}
+              onSellThrough={updateSellThrough}
+              onShowUpdated={handleShowUpdated}
+            />
+          )}
+
           {/* Legend */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs mb-1">
             {([
@@ -2226,6 +2051,10 @@ export default function CostFieldsTab({
               </div>
             ))}
           </div>
+
+          {showOwnerPnl && (
+            <PnlSummaryBlock summary={ownerPnlSummary} slidersUnlocked={slidersUnlocked} />
+          )}
         </div>
       )}
 
