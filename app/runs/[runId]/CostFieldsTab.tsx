@@ -752,7 +752,7 @@ function EntryPanel({
             {saving ? '…' : '+ Add'}
           </button>
         </div>
-      </div>
+      </div>}
     </div>
   )
 }
