@@ -33,6 +33,13 @@ export const NUDGE_STUB_NOTE =
 export const AGENT_SETTLEMENT_EMPTY_NOTE =
   'No agent statement yet. The proposed payment (Settlement) will appear here when a statement is received. This is not remittance.'
 
+/** Hide the Agent Settlement empty copy once any proposed statement lines exist. */
+export function shouldShowAgentSettlementEmptyCopy(
+  lines: ReadonlyArray<unknown> | null | undefined,
+): boolean {
+  return (lines?.length ?? 0) === 0
+}
+
 export const BAND_COSTS_HELP =
   'Receipts and surprise costs (e.g. Uber) belong on the right only. They are not written back into the locked Run Costing snapshot.'
 

@@ -14,6 +14,7 @@ import {
   nudgeDueFromLastShow,
   parseCostingSnapshot,
   SETTLEMENT_PROPOSED_NOTE,
+  shouldShowAgentSettlementEmptyCopy,
 } from '../../lib/settlements.ts'
 
 test('admin and owner can access Settlements; production cannot in v1', () => {
@@ -28,6 +29,14 @@ test('Settlement copy says proposed, not cash', () => {
   assert.match(SETTLEMENT_PROPOSED_NOTE, /proposed/i)
   assert.match(SETTLEMENT_PROPOSED_NOTE, /not cash/i)
   assert.doesNotMatch(SETTLEMENT_PROPOSED_NOTE, /remittance received/i)
+})
+
+test('Agent Settlement empty copy hides once statement lines exist', () => {
+  assert.equal(shouldShowAgentSettlementEmptyCopy([]), true)
+  assert.equal(shouldShowAgentSettlementEmptyCopy(null), true)
+  assert.equal(shouldShowAgentSettlementEmptyCopy(undefined), true)
+  assert.equal(shouldShowAgentSettlementEmptyCopy([{ id: 'line-1' }]), false)
+  assert.equal(shouldShowAgentSettlementEmptyCopy([{ id: 'a' }, { id: 'b' }]), false)
 })
 
 test('buildCostingSnapshot freezes fields and parse round-trips', () => {
