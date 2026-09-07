@@ -542,6 +542,37 @@ test('Finalise Costing narrative is a plain sentence', () => {
   )
 })
 
+test('Remittance narratives are plain sentences', () => {
+  assert.equal(
+    sentence({
+      table_name: 'remittance_lines',
+      record_id: 'rl-1',
+      field_name: 'Remittance line added',
+      new_value: 'Test Admin entered remittance line Venue Hire $1,649.00 on Goulburn (run R12).',
+    }),
+    'Test Admin entered remittance line Venue Hire $1,649.00 on Goulburn (run R12).',
+  )
+  assert.equal(
+    sentence({
+      table_name: 'remittance_challenges',
+      record_id: 'ch-1',
+      field_name: 'Challenge draft created',
+      new_value: 'Test Admin created a challenge draft to Harbour for R12 (not sent) — 1 line. Reason: Hire short.',
+    }),
+    'Test Admin created a challenge draft to Harbour for R12 (not sent) — 1 line. Reason: Hire short.',
+  )
+  assert.equal(
+    sentence({
+      table_name: 'run_settlements',
+      record_id: 'run-1',
+      field_name: 'Remittance accepted',
+      old_value: 'open',
+      new_value: 'Test Admin accepted remittance as-is for R12. Agent Settlement was not overwritten.',
+    }),
+    'Test Admin accepted remittance as-is for R12. Agent Settlement was not overwritten.',
+  )
+})
+
 test('Band Cost added narrative is a plain sentence', () => {
   assert.equal(
     sentence({

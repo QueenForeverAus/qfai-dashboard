@@ -13,8 +13,6 @@ import {
   FINALISE_CONTROL_LABEL,
   FINALISE_LOCK_NOTE,
   NUDGE_STUB_NOTE,
-  REMITTANCE_STUB_LABEL,
-  REMITTANCE_STUB_NOTE,
   SETTLEMENT_PROPOSED_NOTE,
   SETTLEMENTS_MODULE_LABEL,
   bandCostCloseGate,
@@ -26,6 +24,8 @@ import {
   type CostingSnapshotField,
   type RunSettlementRow,
 } from '@/lib/settlements'
+import type { AgentSettlementLine } from '@/lib/remittance'
+import SettlementsTabBar from './SettlementsTabBar'
 
 type Show = {
   id: string
@@ -60,6 +60,7 @@ export default function SettlementWorkspaceClient({
   settlement,
   bandCosts,
   focusedShowId,
+  agentSettlementLines = [],
 }: {
   run: { id: string; code: string; name: string; status: string; start_date: string | null; end_date: string | null }
   shows: Show[]
@@ -67,6 +68,7 @@ export default function SettlementWorkspaceClient({
   settlement: RunSettlementRow | null
   bandCosts: BandCostLine[]
   focusedShowId: string | null
+  agentSettlementLines?: AgentSettlementLine[]
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
@@ -77,6 +79,10 @@ export default function SettlementWorkspaceClient({
   const [amount, setAmount] = useState('')
   const [notes, setNotes] = useState('')
   const [lineShowId, setLineShowId] = useState(focusedShowId ?? '')
+  const [agentLines, setAgentLines] = useState(agentSettlementLines)
+  const [agentDesc, setAgentDesc] = useState('')
+  const [agentAmount, setAgentAmount] = useState('')
+  const [agentShowId, setAgentShowId] = useState(focusedShowId ?? '')
 
   const finalised = isCostingFinalised(settlement)
   const snapshotFields = settlement?.costing_snapshot?.fields ?? []
@@ -192,12 +198,6 @@ export default function SettlementWorkspaceClient({
                 Live preview
               </span>
             )}
-            <span
-              className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed"
-              title={REMITTANCE_STUB_NOTE}
-            >
-              {REMITTANCE_STUB_LABEL} · W1.4
-            </span>
           </div>
           <h1 className="text-white text-2xl font-bold">{run.name}</h1>
           <p className="text-slate-400 text-sm mt-1">
@@ -208,6 +208,8 @@ export default function SettlementWorkspaceClient({
           <p className="text-slate-500 text-xs mt-2 max-w-2xl">{SETTLEMENT_PROPOSED_NOTE}</p>
         </div>
       </div>
+
+      <SettlementsTabBar runCode={run.code} showId={focusedShowId} active="settlement" />
 
       {shows.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-4">
@@ -327,12 +329,89 @@ export default function SettlementWorkspaceClient({
 
         {/* Right: Agent Settlement + Band Costs */}
         <div className="space-y-4" data-testid="settlements-right-pane">
-          <section className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+          <section className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-3">
             <h2 className="text-white font-semibold">Agent Settlement</h2>
             <p className="text-slate-500 text-xs mt-1">{AGENT_SETTLEMENT_EMPTY_NOTE}</p>
-            <div className="mt-3 rounded-lg border border-dashed border-slate-600 bg-slate-900/40 px-3 py-4 text-center">
-              <p className="text-slate-400 text-sm">Proposed payment</p>
-              <p className="text-slate-600 text-xs mt-1">Placeholder — no agent statement on file.</p>
+            {agentLines.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-600 bg-slate-900/40 px-3 py-4 text-center">
+                <p className="text-slate-400 text-sm">Proposed payment</p>
+                <p className="text-slate-600 text-xs mt-1">No agent statement lines yet. Enter proposed figures (not cash).</p>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {agentLines.map(line => (
+                  <li key={line.id} className="rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 flex justify-between gap-2">
+                    <span className="text-slate-200 text-sm">{line.description}</span>
+                    <span className="text-white text-sm tabular-nums">{formatSettlementsMoney(line.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="border-t border-slate-700/60 pt-3 space-y-2">
+              <div className="text-slate-400 text-xs font-semibold">Add proposed line</div>
+              <input
+                data-testid="agent-settlement-description"
+                value={agentDesc}
+                onChange={e => setAgentDesc(e.target.value)}
+                placeholder="e.g. Venue Hire (agent statement)"
+                className="w-full px-3 py-2 rounded-lg text-sm bg-slate-900 border border-slate-600 text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-400"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  data-testid="agent-settlement-amount"
+                  value={agentAmount}
+                  onChange={e => setAgentAmount(e.target.value)}
+                  type="number"
+                  step="0.01"
+                  placeholder="Proposed amount"
+                  className="px-3 py-2 rounded-lg text-sm bg-slate-900 border border-slate-600 text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-400"
+                />
+                <select
+                  value={agentShowId}
+                  onChange={e => setAgentShowId(e.target.value)}
+                  className="px-3 py-2 rounded-lg text-sm bg-slate-900 border border-slate-600 text-slate-300 focus:outline-none focus:border-amber-400"
+                >
+                  <option value="">Whole run</option>
+                  {shows.map(show => (
+                    <option key={show.id} value={show.id}>{show.venue_name}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                data-testid="add-agent-settlement"
+                disabled={busy || !agentDesc.trim()}
+                onClick={async () => {
+                  const description = agentDesc.trim()
+                  if (!description) return
+                  setBusy(true)
+                  setError(null)
+                  try {
+                    const res = await fetch(`/api/settlements/${run.id}/agent-settlement`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        description,
+                        amount: Number(agentAmount) || 0,
+                        show_id: agentShowId || null,
+                      }),
+                    })
+                    const body = await res.json().catch(() => ({}))
+                    if (!res.ok) throw new Error(body.error || 'Could not add proposed line')
+                    setAgentLines(prev => [...prev, body.line])
+                    setAgentDesc('')
+                    setAgentAmount('')
+                    router.refresh()
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Could not add proposed line')
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+                className="bg-amber-400 text-slate-900 text-xs font-semibold px-3 py-1.5 rounded hover:bg-amber-300 disabled:opacity-50"
+              >
+                Add proposed Settlement line
+              </button>
             </div>
           </section>
 

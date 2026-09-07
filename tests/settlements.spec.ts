@@ -17,7 +17,7 @@ test('Settlements lists runs with nested shows and two-pane workspace', async ({
   await expect(page).not.toHaveURL(/login/)
   await expect(page.getByRole('heading', { name: /^settlements$/i })).toBeVisible({ timeout: 8000 })
   await expect(page.getByText(/proposed payment/i)).toBeVisible()
-  await expect(page.getByText(/Remittance · W1\.4/i)).toBeVisible()
+  await expect(page.getByText(/^remittance$/i).first()).toBeVisible()
 
   const r12 = page.getByTestId('settlement-run-R12')
   if (await r12.count() === 0) {
@@ -35,6 +35,11 @@ test('Settlements lists runs with nested shows and two-pane workspace', async ({
   await expect(page.getByText('Band Costs')).toBeVisible()
   await expect(page.getByTestId('close-gate-summary')).toBeVisible()
   await expect(page.getByTestId('finalise-costing').or(page.getByTestId('finalised-badge'))).toBeVisible()
+  await expect(page.getByTestId('tab-remittance')).toBeVisible()
+  await page.getByTestId('tab-remittance').click()
+  await page.waitForURL(/\/settlements\/r12\/remittance/i)
+  await expect(page.getByTestId('remittance-compare')).toBeVisible()
+  await expect(page.getByTestId('add-remittance')).toBeVisible()
 })
 
 test('legacy /settlement redirects to Settlements', async ({ page }) => {

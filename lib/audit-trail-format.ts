@@ -20,6 +20,13 @@ import {
   AUDIT_FIELD_BAND_COST_STATUS,
   AUDIT_FIELD_FINALISE_COSTING,
 } from './settlements.ts'
+import {
+  AUDIT_FIELD_CHALLENGE_DRAFT,
+  AUDIT_FIELD_REMITTANCE_ACCEPTED,
+  AUDIT_FIELD_REMITTANCE_ADDED,
+  AUDIT_FIELD_REMITTANCE_RECTIFY,
+  AUDIT_FIELD_RIGHTS_PAYER,
+} from './remittance.ts'
 import { staffDisplayName } from './cost-entry-source.ts'
 import { formatBookingStatus } from './format-booking-status.ts'
 import { formatDateAU } from './dates.ts'
@@ -153,6 +160,11 @@ const NARRATIVE_FIELDS = new Set([
   AUDIT_FIELD_FINALISE_COSTING,
   AUDIT_FIELD_BAND_COST_ADDED,
   AUDIT_FIELD_BAND_COST_STATUS,
+  AUDIT_FIELD_REMITTANCE_ADDED,
+  AUDIT_FIELD_REMITTANCE_ACCEPTED,
+  AUDIT_FIELD_REMITTANCE_RECTIFY,
+  AUDIT_FIELD_CHALLENGE_DRAFT,
+  AUDIT_FIELD_RIGHTS_PAYER,
 ])
 
 export function formatAuditMoney(value: unknown): string {
@@ -222,7 +234,7 @@ function looksLikeSentence(text: string | null | undefined): boolean {
   if (t.startsWith('{') || t.startsWith('[')) return false
   if (t.includes(' → ') && t.length < 40) return false
   return (
-    /^(Someone|\S+) (marked|restored|edited|confirmed|renamed|changed|added|removed|moved|updated|set|published|returned|unmarked|confirm-ticked|finalised|waived)\b/i.test(t)
+    /^(Someone|\S+) (marked|restored|edited|confirmed|renamed|changed|added|removed|moved|updated|set|published|returned|unmarked|confirm-ticked|finalised|waived|entered|accepted|created)\b/i.test(t)
     || (t.endsWith('.') && /[a-zA-Z]{3,} .+ /.test(t) && t.split(' ').length >= 5)
   )
 }
