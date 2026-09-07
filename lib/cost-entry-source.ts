@@ -35,6 +35,13 @@ export function enteredByLabel(fullName: string | null | undefined): string | nu
 }
 
 /** Remittance / Factors / Draft schedule wording that must be left unchanged. */
+/** HARD Notes/Source from Michael advancing email apply. */
+export const ADVANCING_SOURCE_NOTE_RE = /^Michael email w\/(.+) (\d{2}\/\d{2}\/\d{2})$/
+
+export function isAdvancingSourceNote(text: string | null | undefined): boolean {
+  return ADVANCING_SOURCE_NOTE_RE.test(String(text ?? '').trim())
+}
+
 export function hasPreservedSource(text: string | null | undefined): boolean {
   const t = (text ?? '').trim()
   if (!t) return false
@@ -42,7 +49,8 @@ export function hasPreservedSource(text: string | null | undefined): boolean {
     /remittance/i.test(t) ||
     /Source:\s*Factors/i.test(t) ||
     /\bDraft\s+\d+/i.test(t) ||
-    /Draft\s+schedule/i.test(t)
+    /Draft\s+schedule/i.test(t) ||
+    isAdvancingSourceNote(t)
   )
 }
 
