@@ -8,6 +8,7 @@ import {
   SETTLEMENTS_MODULE_LABEL,
 } from '@/lib/settlements'
 import { REMITTANCE_CASH_NOTE, REMITTANCE_TAB_LABEL } from '@/lib/remittance'
+import { SHEET_TAB_LABEL, settlementSheetHref } from '@/lib/settlements-sheet'
 
 export type SettlementListShow = {
   id: string
@@ -73,6 +74,9 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
         <p className="text-slate-400 text-sm">{SETTLEMENT_PROPOSED_NOTE}</p>
         <p className="text-slate-500 text-xs mt-1">{REMITTANCE_CASH_NOTE}</p>
         <p className="text-slate-500 text-xs mt-1">Post-show close. Tour Desk stays the pre-show costing workspace.</p>
+        <p className="text-slate-500 text-xs mt-1">
+          Rebuild path: <span className="text-slate-400">{SHEET_TAB_LABEL}</span> is the 3-column expected vs actual view. Wave 1 Settlement / Remittance stay available.
+        </p>
       </div>
 
       <input
@@ -115,6 +119,13 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
                     </span>
                   </Link>
                   <div className="flex items-center gap-2 shrink-0">
+                    <Link
+                      href={settlementSheetHref(run.code)}
+                      className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded border bg-teal-900/30 text-teal-300 border-teal-800 hover:bg-teal-900/50"
+                      data-testid={`settlement-sheet-run-${run.code}`}
+                    >
+                      {SHEET_TAB_LABEL}
+                    </Link>
                     {run.finalised ? (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-teal-900/40 text-teal-300 border-teal-800">
                         FINALISED
@@ -140,17 +151,26 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
                       <ul>
                         {run.shows.map(show => (
                           <li key={show.id}>
-                            <Link
-                              href={`/settlements/${run.code.toLowerCase()}/${show.id}`}
-                              className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-slate-800/80 text-sm"
-                              data-testid={`settlement-show-${show.id}`}
-                            >
-                              <span className="text-slate-200">
-                                {show.venue_name}
-                                {show.venue_city ? <span className="text-slate-500"> · {show.venue_city}</span> : null}
-                              </span>
-                              <span className="text-slate-500 text-xs shrink-0">{formatDateShortAU(show.show_date)}</span>
-                            </Link>
+                            <div className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-slate-800/80 text-sm">
+                              <Link
+                                href={`/settlements/${run.code.toLowerCase()}/${show.id}`}
+                                className="flex-1 min-w-0 flex items-center justify-between gap-3"
+                                data-testid={`settlement-show-${show.id}`}
+                              >
+                                <span className="text-slate-200">
+                                  {show.venue_name}
+                                  {show.venue_city ? <span className="text-slate-500"> · {show.venue_city}</span> : null}
+                                </span>
+                                <span className="text-slate-500 text-xs shrink-0">{formatDateShortAU(show.show_date)}</span>
+                              </Link>
+                              <Link
+                                href={settlementSheetHref(run.code, show.id)}
+                                className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded border bg-teal-900/30 text-teal-300 border-teal-800 hover:bg-teal-900/50"
+                                data-testid={`settlement-sheet-${show.id}`}
+                              >
+                                {SHEET_TAB_LABEL}
+                              </Link>
+                            </div>
                           </li>
                         ))}
                       </ul>
