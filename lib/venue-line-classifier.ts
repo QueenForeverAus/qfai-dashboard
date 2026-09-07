@@ -4,7 +4,12 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { writeAuditLog, auditStringify } from '@/lib/audit-log'
-import { entriesSum, type CostEntry } from '@/lib/cost-fields'
+import {
+  AUDIT_FIELD_LINE_MOVED,
+  DEFINED_SHOW_COST_FIELDS,
+  entriesSum,
+  type CostEntry,
+} from '@/lib/cost-fields'
 
 export type VenueLineKind = 'venue_marketing' | 'production_costs' | 'venue_staff' | 'unknown'
 
@@ -163,6 +168,15 @@ export async function reclassifyShowVenueLines(
     production_costs: [] as CostEntry[],
   }
 
+  const sectionTitle = (key: string, fallback: string) => {
+    const row = byKey.get(key)
+    const live = typeof row?.label === 'string' ? row.label.trim() : ''
+    if (live) return live
+    return DEFINED_SHOW_COST_FIELDS.find(f => f.key === key)?.label ?? fallback
+  }
+
+  const moves: Array<{ line: string; fromKey: typeof keys[number]; toKey: typeof keys[number] }> = []
+
   for (const fromKey of keys) {
     for (const entry of buckets[fromKey]) {
       const kind = classifyVenueLine(entry.description, entry.notes)
@@ -180,6 +194,7 @@ export async function reclassifyShowVenueLines(
       }
       nextBuckets[kind].push(entry)
       moved += 1
+      moves.push({ line: entry.description || 'a line', fromKey, toKey: kind })
       notes.push(`moved "${entry.description}" $${entry.amount} : ${fromKey} → ${kind}`)
     }
   }
@@ -261,27 +276,37 @@ export async function reclassifyShowVenueLines(
     }
 
     if (userId) {
-      for (const field of ['entries', 'value', 'line_items'] as const) {
-        if (field === 'line_items' && key !== 'venue_staff') continue
-        const oldVal = before[field]
-        const newVal = patch[field]
-        if (auditStringify(oldVal) === auditStringify(newVal)) continue
+      if (auditStringify(before.value) !== auditStringify(patch.value)) {
         auditRows.push({
           table_name: 'cost_fields',
           record_id: String(row.id),
           run_id: runId,
-          field_name: field,
-          old_value: auditStringify(oldVal),
-          new_value: auditStringify(newVal),
+          field_name: 'value',
+          old_value: auditStringify(before.value),
+          new_value: auditStringify(patch.value),
           change_type: 'update',
         })
       }
     }
   }
 
-  if (userId && auditRows.length) {
-    await writeAuditLog(adminClient, userId, auditRows)
-    notes.push(`audit: ${auditRows.length} field change(s)`)
+  if (userId) {
+    for (const move of moves) {
+      const fromId = byKey.get(move.fromKey)?.id
+      auditRows.push({
+        table_name: 'cost_fields',
+        record_id: String(fromId ?? showId),
+        run_id: runId,
+        field_name: AUDIT_FIELD_LINE_MOVED,
+        old_value: auditStringify({ line: move.line, from: sectionTitle(move.fromKey, move.fromKey) }),
+        new_value: auditStringify({ line: move.line, to: sectionTitle(move.toKey, move.toKey) }),
+        change_type: 'update',
+      })
+    }
+    if (auditRows.length) {
+      await writeAuditLog(adminClient, userId, auditRows)
+      notes.push(`audit: ${auditRows.length} field change(s)`)
+    }
   }
 
   notes.push(`reclassify show ${showId}: moved=${moved} flagged=${flagged}`)

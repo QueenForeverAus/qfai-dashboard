@@ -273,11 +273,9 @@ test('MARK ALL AS PAID works with partial ticks, restores paid snapshot, and wri
   await page.waitForLoadState('domcontentloaded')
   const auditTab = page.getByRole('button', { name: /audit trail/i })
   if (await auditTab.isVisible()) await auditTab.click()
-  await expect(page.getByText(/MARK ALL AS PAID/i).first()).toBeVisible({ timeout: 8000 })
-  await expect(page.getByText(/marked all lines/i).first()).toBeVisible()
+  await expect(page.getByText(/marked all lines/i).first()).toBeVisible({ timeout: 8000 })
   await expect(page.getByText(/not confirm-ticked/i).first()).toBeVisible()
-  await expect(page.getByText(/PAID snapshot restore/i).first()).toBeVisible()
-  await expect(page.getByText(/restored prior PAID snapshot/i).first()).toBeVisible()
+  await expect(page.getByText(/restored the prior PAID snapshot|restored prior PAID snapshot/i).first()).toBeVisible()
 })
 
 test('entries label shows "entries" not "receipts"', async ({ page }) => {

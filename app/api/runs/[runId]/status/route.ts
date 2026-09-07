@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { auditFieldDiffs, setAuditActor, writeAuditLog } from '@/lib/audit-log'
 
 const ALLOWED_STATUSES = ['proposed', 'confirmed', 'declined', 'booking', 'show_week', 'post_show', 'settled']
 
@@ -26,6 +27,14 @@ export async function PATCH(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  const { data: existing } = await supabase
+    .from('runs')
+    .select('id, status, code')
+    .eq('id', runId)
+    .single()
+
+  await setAuditActor(supabase, user.id)
+
   const { data, error } = await supabase
     .from('runs')
     .update({ status, updated_at: new Date().toISOString() })
@@ -34,6 +43,19 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await writeAuditLog(
+    supabase,
+    user.id,
+    auditFieldDiffs(
+      'runs',
+      runId,
+      runId,
+      (existing ?? {}) as Record<string, unknown>,
+      (data ?? {}) as Record<string, unknown>,
+      ['status'],
+    ),
+  )
 
   // Queue a calendar update task when confirming a run
   if (status === 'confirmed' && data) {

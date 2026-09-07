@@ -198,6 +198,14 @@ export async function PATCH(
       return NextResponse.json({ error: 'Only Gareth or Michael can publish the Worksheet' }, { status: 403 })
     }
 
+    const { data: existingPack } = await supabase
+      .from('runs')
+      .select('id, show_pack_status')
+      .eq('id', runId)
+      .single()
+
+    await setAuditActor(supabase, user.id)
+
     if (body.action === 'publish') {
       // STUB: future — email band + PDF export. Do NOT auto-email yet.
       const { data, error } = await supabase
@@ -211,6 +219,18 @@ export async function PATCH(
         .select('id, show_pack_status, show_pack_published_at, show_pack_published_by')
         .single()
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      await writeAuditLog(
+        supabase,
+        user.id,
+        auditFieldDiffs(
+          'runs',
+          runId,
+          runId,
+          (existingPack ?? {}) as Record<string, unknown>,
+          (data ?? {}) as Record<string, unknown>,
+          ['show_pack_status'],
+        ),
+      )
       return NextResponse.json({
         run: data,
         message: 'Worksheet published (band email + PDF stubbed — not sent).',
@@ -228,6 +248,18 @@ export async function PATCH(
       .select('id, show_pack_status, show_pack_published_at, show_pack_published_by')
       .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await writeAuditLog(
+      supabase,
+      user.id,
+      auditFieldDiffs(
+        'runs',
+        runId,
+        runId,
+        (existingPack ?? {}) as Record<string, unknown>,
+        (data ?? {}) as Record<string, unknown>,
+        ['show_pack_status'],
+      ),
+    )
     return NextResponse.json({ run: data, message: 'Worksheet returned to draft.' })
   }
 
