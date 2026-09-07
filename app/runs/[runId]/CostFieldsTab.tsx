@@ -27,9 +27,15 @@ import {
   DEFINED_SHOW_COST_FIELDS,
   findMissingDefinedCostFields,
   buildCreateCostFieldBody,
+  hasBulkPaidSnapshot,
   roleCanSeeCostField,
   canEditCostFields,
   productionCanEditFieldKey,
+  sectionEditSelectValue,
+  SECTION_BULK_PAID_VALUE,
+  type CostEntry,
+  type CostFieldState,
+  type SectionEditValue,
 } from '@/lib/cost-fields'
 import {
   NOTES_SOURCE_OF_DATA_LABEL,
@@ -39,7 +45,7 @@ import {
   staffDisplayName,
 } from '@/lib/cost-entry-source'
 
-type FieldState = 'known' | 'estimated' | 'guess' | 'pending' | 'auto_calc'
+type FieldState = CostFieldState
 
 type LineItem = {
   role: string
@@ -49,16 +55,7 @@ type LineItem = {
   source?: string
 }
 
-type Entry = {
-  id: string
-  description: string
-  notes: string
-  amount: number
-  gst_included: boolean
-  confirmed: boolean
-  paid?: boolean
-  paid_at?: string | null
-}
+type Entry = CostEntry
 
 const PAID_BADGE = { bg: 'bg-teal-900/40', text: 'text-teal-300', border: 'border-teal-800', label: 'PAID' }
 
@@ -116,6 +113,46 @@ const STATE_STYLES: Record<string, { bg: string; text: string; border: string; l
 
 function stateStyles(state: string | null | undefined) {
   return STATE_STYLES[state ?? ''] ?? STATE_STYLES.pending
+}
+
+function figureStateFromSelect(value: SectionEditValue, fallback: FieldState): FieldState {
+  return value === SECTION_BULK_PAID_VALUE ? fallback : value
+}
+
+function SectionEditSelect({
+  value,
+  onChange,
+  canBulkPaid,
+}: {
+  value: SectionEditValue
+  onChange: (next: SectionEditValue) => void
+  canBulkPaid: boolean
+}) {
+  const bulkEnabled = canBulkPaid || value === SECTION_BULK_PAID_VALUE
+  return (
+    <select
+      data-testid="cost-field-edit-select"
+      value={value}
+      onChange={(e) => onChange(e.target.value as SectionEditValue)}
+      className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-amber-400"
+    >
+      <option value="known">Confirmed</option>
+      <option value="estimated">Estimate</option>
+      <option value="guess">Guess</option>
+      <option value="pending">Figures Needed</option>
+      <option value="auto_calc">Auto Calc</option>
+      <option
+        value={SECTION_BULK_PAID_VALUE}
+        disabled={!bulkEnabled}
+        data-testid="cost-field-bulk-paid-option"
+        title={bulkEnabled
+          ? 'Marks every line paid and locked. Unticked lines are confirmed by this action. Undo by choosing Confirmed / Estimate / Guess (restores prior paid flags only).'
+          : 'Add at least one line first'}
+      >
+        MARK ALL AS PAID
+      </option>
+    </select>
+  )
 }
 
 // Fields that default to GST-not-included for new entries
@@ -626,25 +663,37 @@ function FieldRow({
 }) {
   const [isEditing, setIsEditing] = useState(false)
   const persistedState = (existing?.state as FieldState) ?? fieldDef.defaultState
-  const [draftState, setDraftState] = useState<FieldState>(persistedState)
+  const entries = existing?.entries ?? []
+  const persistedSelect = sectionEditSelectValue(entries, persistedState)
+  const [draftSelect, setDraftSelect] = useState<SectionEditValue>(persistedSelect)
   const [saving, setSaving] = useState(false)
   const [entriesOpen, setEntriesOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const state = isEditing ? draftState : persistedState
+  const state = figureStateFromSelect(isEditing ? draftSelect : persistedSelect, persistedState)
   const styles = stateStyles(state)
-  const entries = existing?.entries ?? []
   const sectionPaid = allEntriesPaid(entries)
   const displayTotal = entries.length > 0 ? entriesSum(entries) : (existing?.value ?? null)
+  const canBulkPaid = Boolean(existing?.id) && entries.length > 0 && !ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
 
   async function handleSaveState() {
     setSaving(true)
     setError(null)
     try {
       if (existing?.id) {
-        const data = await patchCostField(existing.id, { state })
-        onSaved(data)
+        if (draftSelect === SECTION_BULK_PAID_VALUE) {
+          const data = await patchCostField(existing.id, { section_payment: 'paid' })
+          onSaved(data)
+        } else {
+          const body: Record<string, unknown> = { state: draftSelect }
+          if (hasBulkPaidSnapshot(entries)) body.section_payment = 'restore'
+          const data = await patchCostField(existing.id, body)
+          onSaved(data)
+        }
       } else {
+        if (draftSelect === SECTION_BULK_PAID_VALUE) {
+          throw new Error('Add a cost line before MARK ALL AS PAID')
+        }
         const data = await createCostField({
           run_id: runId,
           show_id: showId,
@@ -652,7 +701,7 @@ function FieldRow({
           field_key: fieldDef.key,
           label: fieldDef.label,
           value: 0,
-          state,
+          state: draftSelect,
           entries: [{
             id: crypto.randomUUID(),
             description: fieldDef.label || 'Estimate',
@@ -695,19 +744,14 @@ function FieldRow({
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {isEditing ? (
             <>
-              <select
-                value={draftState}
-                onChange={(e) => setDraftState(e.target.value as FieldState)}
-                className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-amber-400"
-              >
-                <option value="known">Confirmed</option>
-                <option value="estimated">Estimate</option>
-                <option value="guess">Guess</option>
-                <option value="pending">Figures Needed</option>
-                <option value="auto_calc">Auto Calc</option>
-              </select>
+              <SectionEditSelect
+                value={draftSelect}
+                onChange={setDraftSelect}
+                canBulkPaid={canBulkPaid}
+              />
               <span className={`text-sm font-medium ${styles.text}`}>{fmt(displayTotal)}</span>
               <button
+                data-testid="cost-field-edit-save"
                 onClick={handleSaveState}
                 disabled={saving}
                 className="bg-amber-400 text-slate-900 text-xs font-semibold px-2.5 py-1 rounded hover:bg-amber-300 disabled:opacity-50 transition-colors"
@@ -715,7 +759,7 @@ function FieldRow({
                 {saving ? '…' : 'Save'}
               </button>
               <button
-                onClick={() => { setIsEditing(false); setDraftState(persistedState); setError(null) }}
+                onClick={() => { setIsEditing(false); setDraftSelect(persistedSelect); setError(null) }}
                 className="text-slate-500 hover:text-slate-300 text-xs px-1 transition-colors"
               >
                 ✕
@@ -736,7 +780,7 @@ function FieldRow({
                   {PAID_BADGE.label}
                 </span>
               )}
-              <button onClick={() => { setDraftState(persistedState); setIsEditing(true) }} data-testid="cost-field-edit" className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
+              <button onClick={() => { setDraftSelect(persistedSelect); setIsEditing(true) }} data-testid="cost-field-edit" className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
             </>
           )}
           {/* Receipts toggle — show for all fields that have an ID */}
@@ -793,17 +837,18 @@ function VenueStaffRow({
   const [items, setItems] = useState<LineItem[]>(existing?.line_items ?? [])
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const persistedState = (existing?.state as FieldState) ?? 'guess'
-  const [draftState, setDraftState] = useState<FieldState>(persistedState)
-  const [stateDirty, setStateDirty] = useState(false)
+  const entries = existing?.entries ?? []
+  const persistedSelect = sectionEditSelectValue(entries, persistedState)
+  const [draftSelect, setDraftSelect] = useState<SectionEditValue>(persistedSelect)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const state = stateDirty ? draftState : persistedState
+  const state = figureStateFromSelect(draftSelect, persistedState)
   const styles = stateStyles(state)
   const total = items.reduce((sum, item) => sum + (item.rate || 0) * (item.hours || 0) * (item.headcount || 0), 0)
-  const entries = existing?.entries ?? []
   const sectionPaid = allEntriesPaid(entries)
   const enteredTotal = entries.reduce((s, e) => s + e.amount, 0)
+  const canBulkPaid = Boolean(existing?.id) && entries.length > 0
 
   function updateItem(idx: number, field: keyof LineItem, raw: string) {
     setItems(prev => {
@@ -838,15 +883,29 @@ function VenueStaffRow({
     const numVal = total === 0 ? null : total
     try {
       if (existing?.id) {
-        const data = await patchCostField(existing.id, {
-          value: numVal,
-          state,
-          line_items: items,
-        })
-        onSaved(data)
-        setDraftState((data.state as FieldState) ?? state)
-        setStateDirty(false)
+        if (draftSelect === SECTION_BULK_PAID_VALUE) {
+          const data = await patchCostField(existing.id, {
+            section_payment: 'paid',
+            line_items: items,
+            value: numVal,
+          })
+          onSaved(data)
+          setDraftSelect(sectionEditSelectValue(data.entries as Entry[] | null, (data.state as FieldState) ?? persistedState))
+        } else {
+          const body: Record<string, unknown> = {
+            value: numVal,
+            state: draftSelect,
+            line_items: items,
+          }
+          if (hasBulkPaidSnapshot(entries)) body.section_payment = 'restore'
+          const data = await patchCostField(existing.id, body)
+          onSaved(data)
+          setDraftSelect(sectionEditSelectValue(data.entries as Entry[] | null, (data.state as FieldState) ?? draftSelect))
+        }
       } else {
+        if (draftSelect === SECTION_BULK_PAID_VALUE) {
+          throw new Error('Add a cost line before MARK ALL AS PAID')
+        }
         const data = await createCostField({
           run_id: runId,
           show_id: showId,
@@ -854,7 +913,7 @@ function VenueStaffRow({
           field_key: 'venue_staff',
           label: 'Venue Staff / On-costs',
           value: numVal,
-          state,
+          state: draftSelect,
           line_items: items,
           entries: [{
             id: crypto.randomUUID(),
@@ -868,8 +927,7 @@ function VenueStaffRow({
           }],
         })
         onSaved(data)
-        setDraftState((data.state as FieldState) ?? state)
-        setStateDirty(false)
+        setDraftSelect(sectionEditSelectValue(data.entries as Entry[] | null, (data.state as FieldState) ?? draftSelect))
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Save failed'
@@ -1049,14 +1107,11 @@ function VenueStaffRow({
           <div className="flex items-center justify-between gap-3">
             <button onClick={addItem} className="text-amber-400 hover:text-amber-300 text-xs transition-colors shrink-0">+ Add role</button>
             <div className="flex items-center gap-3">
-              <select value={state} onChange={e => { setDraftState(e.target.value as FieldState); setStateDirty(true) }}
-                className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-amber-400">
-                <option value="known">Confirmed</option>
-                <option value="estimated">Estimate</option>
-                <option value="guess">Guess</option>
-                <option value="pending">Figures Needed</option>
-                <option value="auto_calc">Auto Calc</option>
-              </select>
+              <SectionEditSelect
+                value={draftSelect}
+                onChange={setDraftSelect}
+                canBulkPaid={canBulkPaid}
+              />
               {total > 0 && <span className="text-slate-400 text-xs whitespace-nowrap">Total: <span className="text-white font-medium">{fmt(total)}</span></span>}
               <button onClick={handleSave} disabled={saving}
                 className="bg-amber-400 text-slate-900 text-xs font-semibold px-3 py-1.5 rounded hover:bg-amber-300 disabled:opacity-50 transition-colors shrink-0">
@@ -1813,7 +1868,7 @@ export default function CostFieldsTab({
           </div>
           <div className="flex items-start gap-2 text-xs -mt-1 mb-1">
             <span className={`px-1.5 py-0.5 rounded border shrink-0 ${PAID_BADGE.bg} ${PAID_BADGE.text} ${PAID_BADGE.border}`}>{PAID_BADGE.label}</span>
-            <span className="text-slate-500 leading-snug pt-0.5">Receipt recorded — locks the line. Only after a line confirm tick (not Edit→Confirmed alone). Un-pay to unlock.</span>
+            <span className="text-slate-500 leading-snug pt-0.5">Receipt recorded — locks the line. Per-line Pay still needs a confirm tick. Edit → MARK ALL AS PAID marks every line paid (unticked lines are confirmed by that action). Un-pay or undo via the dropdown to unlock.</span>
           </div>
           <p className="text-slate-600 text-xs -mt-2">Use ▼ on any cost field to drill into the breakdown and add individual line items as they come in.</p>
 
@@ -1926,7 +1981,7 @@ export default function CostFieldsTab({
               <p className="text-slate-600 text-xs mt-1">Every field edit will appear here.</p>
             </div>
           ) : (
-            <table className="w-full text-sm">
+            <table data-testid="audit-trail-table" className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-700">
                   <th className="text-left text-slate-400 text-xs font-medium px-4 py-3">When</th>
@@ -1939,13 +1994,13 @@ export default function CostFieldsTab({
                 {auditRows.map((row, i) => (
                   <tr key={row.id} className={`border-b border-slate-700/50 ${i === auditRows.length - 1 ? 'border-0' : ''}`}>
                     <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{row.changed_at}</td>
-                    <td className="px-4 py-2.5 text-slate-300 text-xs">{row.field_name ?? row.change_type}</td>
-                    <td className="px-4 py-2.5 text-xs">
-                      <span className="text-red-400">{row.old_value ?? '—'}</span>
+                    <td className="px-4 py-2.5 text-slate-300 text-xs whitespace-nowrap">{row.field_name ?? row.change_type}</td>
+                    <td className="px-4 py-2.5 text-xs max-w-xl">
+                      <span className="text-red-400 break-words">{row.old_value ?? '—'}</span>
                       <span className="text-slate-600 mx-1">→</span>
-                      <span className="text-green-400">{row.new_value ?? '—'}</span>
+                      <span className="text-green-400 break-words">{row.new_value ?? '—'}</span>
                     </td>
-                    <td className="px-4 py-2.5 text-slate-400 text-xs">{row.changed_by_name}</td>
+                    <td className="px-4 py-2.5 text-slate-400 text-xs whitespace-nowrap">{row.changed_by_name}</td>
                   </tr>
                 ))}
               </tbody>

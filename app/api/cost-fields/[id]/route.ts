@@ -3,19 +3,31 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import {
   allEntriesConfirmed,
+  applyBulkMarkAllPaid,
   canEditCostFields,
   CONFIRMED_FIELD_STATE,
   ensureMinimumEntry,
   entriesSum,
   ENTRY_EXEMPT_FIELD_KEYS,
+  formatBulkPaidAuditCopy,
+  formatPaidRestoreAuditCopy,
+  hasBulkPaidSnapshot,
   isNonConfirmedFieldState,
   isUnconfirmedEntriesSeed,
   normalizeEntries,
   paidLockViolation,
+  parseSectionPayment,
   pickPriorStateFromAuditRows,
+  preservePaidSnapshots,
   productionCanEditFieldKey,
+  restorePaidSnapshot,
   rolledUpCostFieldState,
+  SECTION_PAYMENT_PAID,
+  SECTION_PAYMENT_RESTORE,
+  shouldSkipConfirmRollup,
   stampPaidAt,
+  type CostEntry,
+  type SectionPaymentAuditCopy,
 } from '@/lib/cost-fields'
 import {
   COST_FIELD_AUDIT_FIELDS,
@@ -23,6 +35,7 @@ import {
   setAuditActor,
   writeAuditLog,
 } from '@/lib/audit-log'
+import { staffDisplayName } from '@/lib/cost-entry-source'
 
 type LineItem = {
   role: string
@@ -76,7 +89,7 @@ export async function PATCH(
   const supabase = createAdminClient()
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, full_name')
     .eq('id', user.id)
     .single()
 
@@ -126,7 +139,84 @@ export async function PATCH(
     updates.line_items = body.line_items
   }
 
+  const sectionPayment = body.section_payment === undefined
+    ? null
+    : parseSectionPayment(body.section_payment)
+  if (body.section_payment !== undefined && sectionPayment == null) {
+    return NextResponse.json(
+      { error: "Invalid section_payment — use 'paid' or 'restore'" },
+      { status: 400 },
+    )
+  }
+
   const entriesProvided = body.entries !== undefined
+  if (entriesProvided && sectionPayment != null) {
+    return NextResponse.json(
+      { error: 'Do not send entries together with section_payment' },
+      { status: 400 },
+    )
+  }
+
+  let bulkPaidApplied = false
+  let snapshotRestored = false
+  let restoreBefore: CostEntry[] | null = null
+  let restoreAfter: CostEntry[] | null = null
+  let bulkBefore: CostEntry[] | null = null
+
+  if (sectionPayment === SECTION_PAYMENT_PAID) {
+    if (ENTRY_EXEMPT_FIELD_KEYS.has(existing.field_key)) {
+      return NextResponse.json(
+        { error: 'This field does not support MARK ALL AS PAID' },
+        { status: 400 },
+      )
+    }
+    const existingEntries = normalizeEntries(existing.entries) ?? []
+    if (existingEntries.length === 0) {
+      return NextResponse.json(
+        { error: 'No lines to mark paid' },
+        { status: 400 },
+      )
+    }
+    // Payment action only — never writes cost_fields.state (not even 'known').
+    delete updates.state
+    let entries = applyBulkMarkAllPaid(existingEntries)
+    entries = stampPaidAt(entries, existingEntries)
+    const lockError = paidLockViolation(existingEntries, entries)
+    if (lockError) {
+      return NextResponse.json({ error: lockError }, { status: 400 })
+    }
+    updates.entries = entries
+    updates.value = entriesSum(entries)
+    bulkPaidApplied = true
+    bulkBefore = existingEntries
+  } else if (
+    sectionPayment === SECTION_PAYMENT_RESTORE
+    || (sectionPayment == null && body.state !== undefined && !entriesProvided && hasBulkPaidSnapshot(normalizeEntries(existing.entries)))
+  ) {
+    // Leaving bulk-PAID: restore paid flags only. Figure-source state comes
+    // from the user's dropdown selection (body.state) if they sent one —
+    // snapshot restore must not invent or clobber cost_fields.state.
+    const existingEntries = normalizeEntries(existing.entries) ?? []
+    if (hasBulkPaidSnapshot(existingEntries)) {
+      let entries = restorePaidSnapshot(existingEntries)
+      entries = stampPaidAt(entries, existingEntries)
+      const lockError = paidLockViolation(existingEntries, entries)
+      if (lockError) {
+        return NextResponse.json({ error: lockError }, { status: 400 })
+      }
+      updates.entries = entries
+      updates.value = entriesSum(entries)
+      snapshotRestored = true
+      restoreBefore = existingEntries
+      restoreAfter = entries
+    } else if (sectionPayment === SECTION_PAYMENT_RESTORE) {
+      return NextResponse.json(
+        { error: 'No MARK ALL AS PAID snapshot to restore' },
+        { status: 400 },
+      )
+    }
+  }
+
   if (entriesProvided) {
     let entries = normalizeEntries(body.entries) ?? []
     if (!ENTRY_EXEMPT_FIELD_KEYS.has(existing.field_key)) {
@@ -140,6 +230,7 @@ export async function PATCH(
     }
 
     const existingEntries = normalizeEntries(existing.entries) ?? []
+    entries = preservePaidSnapshots(entries, existingEntries)
     entries = stampPaidAt(entries, existingEntries)
     const lockError = paidLockViolation(existingEntries, entries)
     if (lockError) {
@@ -151,26 +242,33 @@ export async function PATCH(
     // venue_staff: planned roles (line_items) remain primary when saving roles;
     // when entries are explicitly patched, sync value to sum(entries).
     updates.value = entriesSum(entries)
+  }
 
-    // W1.1: line-item confirm ticks roll up to cost_fields.state (`known` = CONFIRMED).
-    // W1.2 PAID does not write cost_fields.state (payment ≠ figure accuracy).
-    if (
-      !ENTRY_EXEMPT_FIELD_KEYS.has(existing.field_key)
-      && !isUnconfirmedEntriesSeed(existing.entries as Parameters<typeof isUnconfirmedEntriesSeed>[0], entries)
-    ) {
-      const currentState = String(updates.state ?? existing.state ?? '')
-      let prior: string | null = isNonConfirmedFieldState(currentState) ? currentState : null
-      if (currentState === CONFIRMED_FIELD_STATE && !allEntriesConfirmed(entries)) {
-        prior = (await lastNonConfirmedStateBeforeConfirm(supabase, id)) ?? prior
-      }
-      const nextState = rolledUpCostFieldState({
-        entries,
-        currentState,
-        priorNonConfirmedState: prior,
-        fieldKey: existing.field_key,
-      })
-      if (nextState !== currentState) updates.state = nextState
+  const rolledEntries = (updates.entries as ReturnType<typeof normalizeEntries>) ?? null
+  const skipRollup = shouldSkipConfirmRollup({ bulkPaidApplied, snapshotRestored })
+
+  // W1.1: line-item confirm ticks roll up to cost_fields.state (`known` = CONFIRMED).
+  // W1.2 PAID does not write cost_fields.state (payment ≠ figure accuracy).
+  // W1.2b bulk pay / snapshot restore skip rollup so confirming lines for lock
+  // rules (or restoring paid flags) cannot clobber the figure-source state.
+  if (
+    rolledEntries
+    && !skipRollup
+    && !ENTRY_EXEMPT_FIELD_KEYS.has(existing.field_key)
+    && !isUnconfirmedEntriesSeed(existing.entries as Parameters<typeof isUnconfirmedEntriesSeed>[0], rolledEntries)
+  ) {
+    const currentState = String(updates.state ?? existing.state ?? '')
+    let prior: string | null = isNonConfirmedFieldState(currentState) ? currentState : null
+    if (currentState === CONFIRMED_FIELD_STATE && !allEntriesConfirmed(rolledEntries)) {
+      prior = (await lastNonConfirmedStateBeforeConfirm(supabase, id)) ?? prior
     }
+    const nextState = rolledUpCostFieldState({
+      entries: rolledEntries,
+      currentState,
+      priorNonConfirmedState: prior,
+      fieldKey: existing.field_key,
+    })
+    if (nextState !== currentState) updates.state = nextState
   }
 
   // Explicit value only accepted when entries are not being patched —
@@ -205,18 +303,66 @@ export async function PATCH(
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const runId = (existing.run_id as string | null) ?? (data?.run_id as string | null) ?? null
-  await writeAuditLog(
-    supabase,
-    user.id,
-    auditFieldDiffs(
-      'cost_fields',
-      id,
-      runId,
-      existing as Record<string, unknown>,
-      (data ?? {}) as Record<string, unknown>,
-      COST_FIELD_AUDIT_FIELDS,
-    ),
+  const showId = (existing.show_id as string | null) ?? null
+  const actorName = staffDisplayName(profile.full_name) ?? 'Someone'
+  const [runRow, showRow] = await Promise.all([
+    runId
+      ? supabase.from('runs').select('code').eq('id', runId).maybeSingle()
+      : Promise.resolve({ data: null }),
+    showId
+      ? supabase.from('shows').select('venue_name').eq('id', showId).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ])
+  const runCode = runRow.data && 'code' in runRow.data ? String(runRow.data.code ?? '') : ''
+  const showLabel = showRow.data && 'venue_name' in showRow.data ? String(showRow.data.venue_name ?? '') : ''
+  const sectionLabel = String(existing.label ?? existing.field_key ?? 'this section')
+
+  let narrative: SectionPaymentAuditCopy | null = null
+  if (bulkPaidApplied && bulkBefore) {
+    narrative = formatBulkPaidAuditCopy({
+      actorName,
+      sectionLabel,
+      showLabel,
+      runCode,
+      entries: bulkBefore,
+    })
+  } else if (snapshotRestored && restoreBefore && restoreAfter) {
+    narrative = formatPaidRestoreAuditCopy({
+      actorName,
+      sectionLabel,
+      showLabel,
+      runCode,
+      before: restoreBefore,
+      after: restoreAfter,
+    })
+  }
+
+  // Prefer the plain-language row over a cryptic entries JSON dump for bulk pay / restore.
+  const diffFields = (bulkPaidApplied || snapshotRestored)
+    ? COST_FIELD_AUDIT_FIELDS.filter(field => field !== 'entries')
+    : COST_FIELD_AUDIT_FIELDS
+
+  const auditRows = auditFieldDiffs(
+    'cost_fields',
+    id,
+    runId,
+    existing as Record<string, unknown>,
+    (data ?? {}) as Record<string, unknown>,
+    diffFields,
   )
+  if (narrative) {
+    auditRows.unshift({
+      table_name: 'cost_fields',
+      record_id: id,
+      run_id: runId,
+      field_name: narrative.fieldName,
+      old_value: narrative.oldValue,
+      new_value: narrative.newValue,
+      change_type: 'update',
+    })
+  }
+
+  await writeAuditLog(supabase, user.id, auditRows)
 
   return NextResponse.json(data)
 }

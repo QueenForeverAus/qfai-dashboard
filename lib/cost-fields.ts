@@ -15,6 +15,18 @@ export type CostEntry = {
    */
   paid?: boolean
   paid_at?: string | null
+  /**
+   * W1.2b — prior paid flags captured immediately before section
+   * “MARK ALL AS PAID”. Cleared after a successful restore when leaving
+   * bulk-paid mode. Not a figure-source / cost_fields.state field.
+   */
+  paid_snapshot?: PaidStatusSnapshot | null
+}
+
+/** Prior `paid` / `paid_at` for one line. Restore writes these only. */
+export type PaidStatusSnapshot = {
+  paid: boolean
+  paid_at: string | null
 }
 
 /** Fields frozen while a line is PAID. Un-pay first to edit. */
@@ -33,6 +45,18 @@ export const CONFIRMED_FIELD_STATE = 'known' as const
 
 export const COST_FIELD_STATES = ['known', 'estimated', 'guess', 'pending', 'auto_calc'] as const
 export type CostFieldState = (typeof COST_FIELD_STATES)[number]
+
+/**
+ * Section Edit dropdown sentinel — a payment *action*, not a cost_fields.state.
+ * UI label: “MARK ALL AS PAID”. Writes entries[].paid (+ implied confirm), never state='paid'.
+ */
+export const SECTION_BULK_PAID_VALUE = 'bulk_paid' as const
+export type SectionEditValue = CostFieldState | typeof SECTION_BULK_PAID_VALUE
+
+/** PATCH /api/cost-fields/[id] `section_payment` values. */
+export const SECTION_PAYMENT_PAID = 'paid' as const
+export const SECTION_PAYMENT_RESTORE = 'restore' as const
+export type SectionPayment = typeof SECTION_PAYMENT_PAID | typeof SECTION_PAYMENT_RESTORE
 
 export function isCostFieldState(value: string | null | undefined): value is CostFieldState {
   return value != null && (COST_FIELD_STATES as readonly string[]).includes(value)
@@ -142,6 +166,205 @@ export function parsePaidAt(raw: unknown): string | null {
   if (!trimmed) return null
   const ms = Date.parse(trimmed)
   return Number.isNaN(ms) ? null : trimmed
+}
+
+export function parsePaidSnapshot(raw: unknown): PaidStatusSnapshot | null {
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const row = raw as Record<string, unknown>
+  return {
+    paid: Boolean(row.paid),
+    paid_at: parsePaidAt(row.paid_at),
+  }
+}
+
+export function snapshotPaidStatus(entry: Pick<CostEntry, 'paid' | 'paid_at'>): PaidStatusSnapshot {
+  return {
+    paid: Boolean(entry.paid),
+    paid_at: entry.paid ? parsePaidAt(entry.paid_at) : null,
+  }
+}
+
+/** True when a section bulk-PAID snapshot is still pending restore (undo). */
+export function hasBulkPaidSnapshot(entries: CostEntry[] | null | undefined): boolean {
+  return Array.isArray(entries) && entries.some(e => e.paid_snapshot != null)
+}
+
+/** Section Edit select: show MARK ALL AS PAID while a snapshot is outstanding. */
+export function sectionEditSelectValue(
+  entries: CostEntry[] | null | undefined,
+  state: string,
+): SectionEditValue {
+  if (hasBulkPaidSnapshot(entries)) return SECTION_BULK_PAID_VALUE
+  return isCostFieldState(state) ? state : 'guess'
+}
+
+export function parseSectionPayment(raw: unknown): SectionPayment | null {
+  if (raw === SECTION_PAYMENT_PAID || raw === SECTION_PAYMENT_RESTORE) return raw
+  return null
+}
+
+/**
+ * W1.2b — MARK ALL AS PAID.
+ * No confirm-tick gate (Lead/Gareth 2026-09-07): unticked lines are confirmed
+ * by this explicit bulk payment action so existing paid-requires-confirmed
+ * lock rules still hold. First bulk captures paid_snapshot; later bulks keep
+ * the original so undo still restores the pre-bulk paid map.
+ */
+export function applyBulkMarkAllPaid(
+  entries: CostEntry[],
+  now = new Date().toISOString(),
+): CostEntry[] {
+  return entries.map((entry) => {
+    const paid_snapshot = entry.paid_snapshot ?? snapshotPaidStatus(entry)
+    return {
+      ...entry,
+      paid_snapshot,
+      confirmed: true,
+      paid: true,
+      paid_at: entry.paid ? (entry.paid_at ?? now) : now,
+    }
+  })
+}
+
+/**
+ * Restore entries[].paid / paid_at from paid_snapshot only.
+ * Does not touch confirmed, amounts, or cost_fields.state.
+ * Clears snapshot after apply so the next bulk can capture a fresh map.
+ */
+export function restorePaidSnapshot(entries: CostEntry[]): CostEntry[] {
+  return entries.map((entry) => {
+    if (entry.paid_snapshot == null) {
+      return { ...entry, paid_snapshot: null }
+    }
+    const snap = entry.paid_snapshot
+    return {
+      ...entry,
+      paid: snap.paid,
+      paid_at: snap.paid ? snap.paid_at : null,
+      paid_snapshot: null,
+    }
+  })
+}
+
+/**
+ * Keep outstanding bulk-PAID snapshots across per-line Pay / entry edits
+ * so refresh + undo still work if the client omits paid_snapshot.
+ */
+export function preservePaidSnapshots(next: CostEntry[], previous: CostEntry[] | null | undefined): CostEntry[] {
+  const prevById = new Map((previous ?? []).map(e => [e.id, e]))
+  return next.map((entry) => {
+    if (entry.paid_snapshot != null) return entry
+    const prior = prevById.get(entry.id)
+    if (prior?.paid_snapshot != null) {
+      return { ...entry, paid_snapshot: prior.paid_snapshot }
+    }
+    return entry
+  })
+}
+
+/** Skip W1.1 confirm→state rollup so bulk pay / snapshot restore cannot clobber figure-source state. */
+export function shouldSkipConfirmRollup(opts: {
+  bulkPaidApplied?: boolean
+  snapshotRestored?: boolean
+}): boolean {
+  return Boolean(opts.bulkPaidApplied || opts.snapshotRestored)
+}
+
+/** Portal Audit Trail `field_name` for section MARK ALL AS PAID. */
+export const AUDIT_FIELD_BULK_PAID = 'MARK ALL AS PAID'
+/** Portal Audit Trail `field_name` for undo / leaving bulk-PAID (paid-flag restore). */
+export const AUDIT_FIELD_PAID_RESTORE = 'PAID snapshot restore'
+
+export function entryAuditLabel(entry: Pick<CostEntry, 'id' | 'description'>): string {
+  const title = (entry.description ?? '').trim()
+  const shortId = entry.id.slice(0, 8)
+  return title ? `${title} (${shortId})` : `line ${shortId}`
+}
+
+function joinAuditLabels(labels: string[], max = 6): string {
+  if (labels.length <= max) return labels.join(', ')
+  return `${labels.slice(0, max).join(', ')}, and ${labels.length - max} more`
+}
+
+export function formatSectionScope(opts: {
+  sectionLabel: string
+  showLabel?: string | null
+  runCode?: string | null
+}): string {
+  const section = (opts.sectionLabel || 'this section').trim()
+  const extras: string[] = []
+  const show = (opts.showLabel ?? '').trim()
+  const run = (opts.runCode ?? '').trim()
+  if (show) extras.push(show)
+  if (run) extras.push(`run ${run}`)
+  return extras.length ? `${section} (${extras.join(', ')})` : section
+}
+
+export type SectionPaymentAuditCopy = {
+  fieldName: string
+  oldValue: string
+  newValue: string
+}
+
+/**
+ * Plain-language Audit Trail copy for MARK ALL AS PAID.
+ * Who / when / by-line live on the audit_log row; this is the Change text.
+ */
+export function formatBulkPaidAuditCopy(opts: {
+  actorName: string
+  sectionLabel: string
+  showLabel?: string | null
+  runCode?: string | null
+  entries: CostEntry[]
+}): SectionPaymentAuditCopy {
+  const actor = opts.actorName.trim() || 'Someone'
+  const scope = formatSectionScope(opts)
+  const lineCount = opts.entries.length
+  const alreadyPaid = opts.entries.filter(e => e.paid).length
+  const unconfirmed = opts.entries.filter(e => !e.confirmed)
+  const lines = `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`
+  let sentence = `${actor} marked all lines in ${scope} as PAID (${lines}`
+  if (unconfirmed.length > 0) {
+    const verb = unconfirmed.length === 1 ? 'was' : 'were'
+    sentence += `; ${unconfirmed.length} ${verb} not confirm-ticked: ${joinAuditLabels(unconfirmed.map(entryAuditLabel))}`
+  }
+  sentence += ').'
+  return {
+    fieldName: AUDIT_FIELD_BULK_PAID,
+    oldValue: `${alreadyPaid} of ${lineCount} ${lineCount === 1 ? 'line' : 'lines'} already paid`,
+    newValue: sentence,
+  }
+}
+
+/**
+ * Plain-language Audit Trail copy for restoring the prior paid snapshot.
+ * Paid flags only — never mentions a figure-source rewrite.
+ */
+export function formatPaidRestoreAuditCopy(opts: {
+  actorName: string
+  sectionLabel: string
+  showLabel?: string | null
+  runCode?: string | null
+  before: CostEntry[]
+  after: CostEntry[]
+}): SectionPaymentAuditCopy {
+  const actor = opts.actorName.trim() || 'Someone'
+  const scope = formatSectionScope(opts)
+  const beforeById = new Map(opts.before.map(e => [e.id, e]))
+  const unpaidAgain = opts.after.filter(row => Boolean(beforeById.get(row.id)?.paid) && !row.paid)
+  const lineCount = opts.after.length
+  let sentence = `${actor} restored prior PAID snapshot for ${scope}`
+  if (unpaidAgain.length > 0) {
+    sentence += ` (${unpaidAgain.length} ${unpaidAgain.length === 1 ? 'line' : 'lines'} unpaid again: ${joinAuditLabels(unpaidAgain.map(entryAuditLabel))})`
+  } else {
+    sentence += ` (${lineCount} ${lineCount === 1 ? 'line' : 'lines'}; paid flags unchanged)`
+  }
+  sentence += '.'
+  return {
+    fieldName: AUDIT_FIELD_PAID_RESTORE,
+    oldValue: 'Section was bulk-PAID',
+    newValue: sentence,
+  }
 }
 
 /** Stamp paid_at when marking PAID; clear on un-pay. Preserves existing / client paid_at. */
@@ -298,6 +521,7 @@ export function normalizeEntries(raw: unknown): CostEntry[] | null {
       confirmed: Boolean(row.confirmed),
       paid,
       paid_at: paid ? parsePaidAt(row.paid_at) : null,
+      paid_snapshot: parsePaidSnapshot(row.paid_snapshot),
     }
   })
 }
