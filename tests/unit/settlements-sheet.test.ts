@@ -168,7 +168,9 @@ test('rebuild hrefs are additive and do not replace Wave 1', () => {
   assert.equal(wave1SettlementHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1')
 })
 
-test('Col3 stays a placeholder this phase', () => {
+test('Col3 copy is Phase 4 actuals, not a placeholder-only note', () => {
+  assert.match(COL3_PLACEHOLDER_NOTE, /confirmed/)
+  assert.match(COL3_PLACEHOLDER_NOTE, /Challenge/)
+  assert.match(COL3_PLACEHOLDER_NOTE, /PAID/)
   assert.equal(COL3_CELL, '—')
-  assert.match(COL3_PLACEHOLDER_NOTE, /Phase 4/)
 })

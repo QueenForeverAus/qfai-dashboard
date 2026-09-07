@@ -1,7 +1,7 @@
 /**
- * Settlements Phase 3 — 3-column Expected vs Actual sheet (staging).
+ * Settlements Phase 3/4 — 3-column Expected vs Actual sheet (staging).
  *
- * Col1 labels · Col2 live Advancing expected · Col3 actuals placeholder.
+ * Col1 labels · Col2 live Advancing expected · Col3 actuals (Phase 4).
  * Pre-show is a hard block. No revenue sliders.
  * Col2 tickets sold = actual count (entered or known), then the same
  * Run Costing P&L formulas (inside / Harbour 10% / auto-calcs).
@@ -39,7 +39,7 @@ export const COL1_HEADER = 'Line'
 export const COL2_HEADER = 'Expected (Advancing)'
 export const COL3_HEADER = 'Actuals'
 export const COL3_PLACEHOLDER_NOTE =
-  'Actuals land in Phase 4 — venue settlement, challenge, and band costs.'
+  'Venue settlement figures enter as confirmed. Challenge drafts a Harbour email (never auto-sent). Band costs copy from Advancing and stay editable until PAID.'
 export const COL3_CELL = '—'
 
 export const PRE_SHOW_BLOCK_COPY =
