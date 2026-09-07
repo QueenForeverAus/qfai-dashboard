@@ -318,7 +318,7 @@ function EntryRow({
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            data-testid="entry-confirm-tick"
+            data-testid="entry-confirm-tick-mobile"
             aria-pressed={entry.confirmed}
             onClick={toggleConfirmed}
             title={entry.confirmed ? 'Mark as estimate' : 'Mark as confirmed'}

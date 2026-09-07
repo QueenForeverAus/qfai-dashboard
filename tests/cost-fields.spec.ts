@@ -88,6 +88,7 @@ test('confirming every line rolls the section up to CONFIRMED; unticking restore
   const count = await ticks.count()
   for (let i = 0; i < count; i++) {
     const tick = ticks.nth(i)
+    if (!(await tick.isVisible())) continue
     if ((await tick.getAttribute('aria-pressed')) !== 'true') {
       await tick.click()
       await page.waitForTimeout(400)
