@@ -1,12 +1,12 @@
 /** Shared Run Costing helpers — entries as source of truth for line totals. */
 
-export type CostEntry = {
+/**
+ * Confirm / PAID flags shared by cost `entries[]` and venue_staff `line_items[]`.
+ * Not figure-source / cost_fields.state.
+ */
+export type PayableLine = {
   id: string
-  description: string
-  notes: string
-  amount: number
-  gst_included: boolean
-  /** W1.1 operator attestation that this line was checked — not payment. */
+  /** W1.1 operator attestation that this line/role was checked — not payment. */
   confirmed: boolean
   /**
    * W1.2 cash/receipt. Wave 2 bank/Amex match will set the same fields.
@@ -21,6 +21,25 @@ export type CostEntry = {
    * bulk-paid mode. Not a figure-source / cost_fields.state field.
    */
   paid_snapshot?: PaidStatusSnapshot | null
+}
+
+export type CostEntry = PayableLine & {
+  description: string
+  notes: string
+  amount: number
+  gst_included: boolean
+}
+
+/**
+ * Planned venue_staff role (rate × hours × headcount).
+ * Confirm / PAID live on the JSONB object — same pattern as entries[].
+ */
+export type StaffLineItem = PayableLine & {
+  role: string
+  rate: number
+  hours: number
+  headcount: number
+  source?: string
 }
 
 /**
@@ -44,6 +63,18 @@ export const PAID_LOCKED_ENTRY_FIELDS = [
 ] as const
 
 export type PaidLockedEntryField = (typeof PAID_LOCKED_ENTRY_FIELDS)[number]
+
+/** Fields frozen while a planned role is PAID. Un-pay first to edit. */
+export const PAID_LOCKED_LINE_ITEM_FIELDS = [
+  'role',
+  'source',
+  'rate',
+  'hours',
+  'headcount',
+  'confirmed',
+] as const
+
+export type PaidLockedLineItemField = (typeof PAID_LOCKED_LINE_ITEM_FIELDS)[number]
 
 /** Section badge CONFIRMED — existing cost_fields.state value, not a parallel status. */
 export const CONFIRMED_FIELD_STATE = 'known' as const
@@ -142,14 +173,38 @@ export function entriesSum(entries: CostEntry[] | null | undefined): number {
   return entries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
 }
 
+/** Planned-role total: rate × hours × headcount. */
+export function lineItemsSum(items: StaffLineItem[] | null | undefined): number {
+  if (!items?.length) return 0
+  return items.reduce(
+    (sum, item) => sum + (Number(item.rate) || 0) * (Number(item.hours) || 0) * (Number(item.headcount) || 0),
+    0,
+  )
+}
+
 /** True when the section has ≥1 line and every line-item confirm tick is checked. */
-export function allEntriesConfirmed(entries: CostEntry[] | null | undefined): boolean {
+export function allEntriesConfirmed(entries: PayableLine[] | null | undefined): boolean {
   return Array.isArray(entries) && entries.length > 0 && entries.every(e => e.confirmed)
 }
 
 /** Payment roll-up: every line is PAID. Distinct from CONFIRMED (`state === known`). */
-export function allEntriesPaid(entries: CostEntry[] | null | undefined): boolean {
+export function allEntriesPaid(entries: PayableLine[] | null | undefined): boolean {
   return Array.isArray(entries) && entries.length > 0 && entries.every(e => e.paid)
+}
+
+/**
+ * Venue Staff chrome / MARK ALL / all-PAID overlay uses planned roles when
+ * present; otherwise cost entries (actuals). Other fields always use entries.
+ */
+export function sectionPayableLines(
+  fieldKey: string,
+  entries: PayableLine[] | null | undefined,
+  lineItems: PayableLine[] | null | undefined,
+): PayableLine[] {
+  if (fieldKey === 'venue_staff' && Array.isArray(lineItems) && lineItems.length > 0) {
+    return lineItems
+  }
+  return Array.isArray(entries) ? entries : []
 }
 
 /**
@@ -161,11 +216,11 @@ export function entryIsAttested(entry: Pick<CostEntry, 'confirmed' | 'paid'>): b
 }
 
 /** Tick paid-but-unticked lines so attestation matches the lock. Returns newly confirmed rows. */
-export function ensurePaidLinesConfirmed(entries: CostEntry[]): {
-  entries: CostEntry[]
-  newlyConfirmed: CostEntry[]
+export function ensurePaidLinesConfirmed<T extends PayableLine>(entries: T[]): {
+  entries: T[]
+  newlyConfirmed: T[]
 } {
-  const newlyConfirmed: CostEntry[] = []
+  const newlyConfirmed: T[] = []
   const next = entries.map((entry) => {
     if (!entry.paid || entry.confirmed) return entry
     newlyConfirmed.push(entry)
@@ -186,7 +241,7 @@ export const ALL_PAID_SECTION_CHIP_LABEL = 'CONFIRMED' as const
  */
 export function displayCostFieldChromeState(
   storedState: string | null | undefined,
-  entries: CostEntry[] | null | undefined,
+  entries: PayableLine[] | null | undefined,
 ): string {
   if (allEntriesPaid(entries)) return CONFIRMED_FIELD_STATE
   return storedState ?? 'pending'
@@ -195,7 +250,7 @@ export function displayCostFieldChromeState(
 /** Header status chip. All-PAID uses ALL_PAID_SECTION_CHIP_LABEL (display only). */
 export function displayCostFieldChipLabel(
   storedState: string | null | undefined,
-  entries: CostEntry[] | null | undefined,
+  entries: PayableLine[] | null | undefined,
   storedLabel: string,
 ): string {
   if (allEntriesPaid(entries)) return ALL_PAID_SECTION_CHIP_LABEL
@@ -207,8 +262,8 @@ export function displayCostFieldChipLabel(
  * are now PAID (implied attestation). Payment-only edits must not write state.
  */
 export function paymentDidNotChangeAttestationTicks(
-  previous: CostEntry[] | null | undefined,
-  next: CostEntry[],
+  previous: PayableLine[] | null | undefined,
+  next: PayableLine[],
 ): boolean {
   const prevById = new Map((previous ?? []).map(e => [e.id, e]))
   for (const prev of previous ?? []) {
@@ -256,7 +311,7 @@ export function parsePaidSnapshot(raw: unknown): PaidStatusSnapshot | null {
   }
 }
 
-export function snapshotPaidStatus(entry: Pick<CostEntry, 'paid' | 'paid_at' | 'confirmed'>): PaidStatusSnapshot {
+export function snapshotPaidStatus(entry: Pick<PayableLine, 'paid' | 'paid_at' | 'confirmed'>): PaidStatusSnapshot {
   return {
     paid: Boolean(entry.paid),
     paid_at: entry.paid ? parsePaidAt(entry.paid_at) : null,
@@ -265,7 +320,7 @@ export function snapshotPaidStatus(entry: Pick<CostEntry, 'paid' | 'paid_at' | '
 }
 
 /** Line ids that were unticked when MARK ALL AS PAID captured the snapshot. */
-export function untickedIdsFromPaidSnapshots(entries: CostEntry[] | null | undefined): string[] {
+export function untickedIdsFromPaidSnapshots(entries: PayableLine[] | null | undefined): string[] {
   if (!Array.isArray(entries)) return []
   return entries
     .filter(e => e.paid_snapshot != null && e.paid_snapshot.confirmed === false)
@@ -273,13 +328,13 @@ export function untickedIdsFromPaidSnapshots(entries: CostEntry[] | null | undef
 }
 
 /** True when a section bulk-PAID snapshot is still pending restore (undo). */
-export function hasBulkPaidSnapshot(entries: CostEntry[] | null | undefined): boolean {
+export function hasBulkPaidSnapshot(entries: PayableLine[] | null | undefined): boolean {
   return Array.isArray(entries) && entries.some(e => e.paid_snapshot != null)
 }
 
 /** Section Edit select: show MARK ALL AS PAID while a snapshot is outstanding. */
 export function sectionEditSelectValue(
-  entries: CostEntry[] | null | undefined,
+  entries: PayableLine[] | null | undefined,
   state: string,
 ): SectionEditValue {
   if (hasBulkPaidSnapshot(entries)) return SECTION_BULK_PAID_VALUE
@@ -298,10 +353,10 @@ export function parseSectionPayment(raw: unknown): SectionPayment | null {
  * lock rules still hold. First bulk captures paid_snapshot; later bulks keep
  * the original so undo still restores the pre-bulk paid map.
  */
-export function applyBulkMarkAllPaid(
-  entries: CostEntry[],
+export function applyBulkMarkAllPaid<T extends PayableLine>(
+  entries: T[],
   now = new Date().toISOString(),
-): CostEntry[] {
+): T[] {
   return entries.map((entry) => {
     const paid_snapshot = entry.paid_snapshot ?? snapshotPaidStatus(entry)
     return {
@@ -319,7 +374,7 @@ export function applyBulkMarkAllPaid(
  * Does not touch confirmed, amounts, or cost_fields.state.
  * Clears snapshot after apply so the next bulk can capture a fresh map.
  */
-export function restorePaidSnapshot(entries: CostEntry[]): CostEntry[] {
+export function restorePaidSnapshot<T extends PayableLine>(entries: T[]): T[] {
   return entries.map((entry) => {
     if (entry.paid_snapshot == null) {
       return { ...entry, paid_snapshot: null }
@@ -337,12 +392,13 @@ export function restorePaidSnapshot(entries: CostEntry[]): CostEntry[] {
 /**
  * Keep outstanding bulk-PAID snapshots across per-line Pay / entry edits
  * so refresh + undo still work if the client omits paid_snapshot.
+ * Falls back to index when ids were assigned on first persist.
  */
-export function preservePaidSnapshots(next: CostEntry[], previous: CostEntry[] | null | undefined): CostEntry[] {
+export function preservePaidSnapshots<T extends PayableLine>(next: T[], previous: T[] | null | undefined): T[] {
   const prevById = new Map((previous ?? []).map(e => [e.id, e]))
-  return next.map((entry) => {
+  return next.map((entry, idx) => {
     if (entry.paid_snapshot != null) return entry
-    const prior = prevById.get(entry.id)
+    const prior = prevById.get(entry.id) ?? previous?.[idx]
     if (prior?.paid_snapshot != null) {
       return { ...entry, paid_snapshot: prior.paid_snapshot }
     }
@@ -374,6 +430,24 @@ export function entryAuditLabel(entry: Pick<CostEntry, 'id' | 'description'>): s
   const title = (entry.description ?? '').trim()
   const shortId = entry.id.slice(0, 8)
   return title ? `${title} (${shortId})` : `line ${shortId}`
+}
+
+export function roleAuditLabel(item: Pick<StaffLineItem, 'id' | 'role'>): string {
+  const title = (item.role ?? '').trim()
+  const shortId = item.id.slice(0, 8)
+  return title ? `${title} (${shortId})` : `role ${shortId}`
+}
+
+export function payableAuditLabel(row: { id: string; description?: string; role?: string }): string {
+  if (row.role != null && row.role !== '') return roleAuditLabel({ id: row.id, role: row.role })
+  return entryAuditLabel({ id: row.id, description: row.description ?? '' })
+}
+
+export type PayableAuditUnit = 'line' | 'role'
+
+function unitWord(unit: PayableAuditUnit, count: number): string {
+  if (unit === 'role') return count === 1 ? 'role' : 'roles'
+  return count === 1 ? 'line' : 'lines'
 }
 
 function joinAuditLabels(labels: string[], max = 6): string {
@@ -410,29 +484,32 @@ export function formatBulkPaidAuditCopy(opts: {
   sectionLabel: string
   showLabel?: string | null
   runCode?: string | null
-  entries: CostEntry[]
+  entries: Array<PayableLine & { description?: string; role?: string }>
+  unit?: PayableAuditUnit
 }): SectionPaymentAuditCopy {
   const actor = opts.actorName.trim() || 'Someone'
+  const unit = opts.unit ?? 'line'
   const scope = formatSectionScope(opts)
   const lineCount = opts.entries.length
   const alreadyPaid = opts.entries.filter(e => e.paid).length
   const unconfirmed = opts.entries.filter(e => !e.confirmed)
-  const lines = `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`
-  let sentence = `${actor} marked all lines in ${scope} as PAID (${lines}`
+  const lines = `${lineCount} ${unitWord(unit, lineCount)}`
+  let sentence = `${actor} marked all ${unit === 'role' ? 'roles' : 'lines'} in ${scope} as PAID (${lines}`
   if (unconfirmed.length > 0) {
     const verb = unconfirmed.length === 1 ? 'was' : 'were'
-    sentence += `; ${unconfirmed.length} ${verb} not confirm-ticked: ${joinAuditLabels(unconfirmed.map(entryAuditLabel))} [ids: ${unconfirmed.map(e => e.id).join(', ')}]`
+    sentence += `; ${unconfirmed.length} ${verb} not confirm-ticked: ${joinAuditLabels(unconfirmed.map(payableAuditLabel))} [ids: ${unconfirmed.map(e => e.id).join(', ')}]`
   }
   sentence += ').'
   const alsoConfirmed = formatAllPaidAlsoConfirmedSentence({
     actorName: actor,
     sectionLabel: opts.sectionLabel,
     confirmedCount: unconfirmed.length,
+    unit,
   })
   if (alsoConfirmed) sentence += ` ${alsoConfirmed}`
   return {
     fieldName: AUDIT_FIELD_BULK_PAID,
-    oldValue: `${alreadyPaid} of ${lineCount} ${lineCount === 1 ? 'line' : 'lines'} already paid`,
+    oldValue: `${alreadyPaid} of ${lineCount} ${unitWord(unit, lineCount)} already paid`,
     newValue: sentence,
   }
 }
@@ -451,10 +528,12 @@ export function formatAllPaidAlsoConfirmedSentence(opts: {
   sectionLabel: string
   confirmedCount: number
   actionLabel?: string
+  unit?: PayableAuditUnit
 }): string | null {
   if (opts.confirmedCount <= 0) return null
   const n = opts.confirmedCount
-  const lines = `${n} ${n === 1 ? 'line' : 'lines'}`
+  const unit = opts.unit ?? 'line'
+  const lines = `${n} ${unitWord(unit, n)}`
   const section = (opts.sectionLabel || 'this section').trim()
   const action = (opts.actionLabel ?? 'MARK ALL AS PAID').trim() || 'MARK ALL AS PAID'
   return `${actorPossessive(opts.actorName)} ${action} also confirmed ${lines} in ${section}.`
@@ -469,19 +548,21 @@ export function formatPaidRestoreAuditCopy(opts: {
   sectionLabel: string
   showLabel?: string | null
   runCode?: string | null
-  before: CostEntry[]
-  after: CostEntry[]
+  before: Array<PayableLine & { description?: string; role?: string }>
+  after: Array<PayableLine & { description?: string; role?: string }>
+  unit?: PayableAuditUnit
 }): SectionPaymentAuditCopy {
   const actor = opts.actorName.trim() || 'Someone'
+  const unit = opts.unit ?? 'line'
   const scope = formatSectionScope(opts)
   const beforeById = new Map(opts.before.map(e => [e.id, e]))
   const unpaidAgain = opts.after.filter(row => Boolean(beforeById.get(row.id)?.paid) && !row.paid)
   const lineCount = opts.after.length
   let sentence = `${actor} restored prior PAID snapshot for ${scope}`
   if (unpaidAgain.length > 0) {
-    sentence += ` (${unpaidAgain.length} ${unpaidAgain.length === 1 ? 'line' : 'lines'} unpaid again: ${joinAuditLabels(unpaidAgain.map(entryAuditLabel))})`
+    sentence += ` (${unpaidAgain.length} ${unitWord(unit, unpaidAgain.length)} unpaid again: ${joinAuditLabels(unpaidAgain.map(payableAuditLabel))})`
   } else {
-    sentence += ` (${lineCount} ${lineCount === 1 ? 'line' : 'lines'}; paid flags unchanged)`
+    sentence += ` (${lineCount} ${unitWord(unit, lineCount)}; paid flags unchanged)`
   }
   sentence += '.'
   return {
@@ -500,10 +581,12 @@ export function formatSectionConfirmedAuditCopy(opts: {
   actorName: string
   sectionLabel: string
   lineCount: number
+  unit?: PayableAuditUnit
 }): SectionPaymentAuditCopy {
   const actor = opts.actorName.trim() || 'Someone'
   const n = opts.lineCount
-  const lines = `${n} ${n === 1 ? 'line' : 'lines'}`
+  const unit = opts.unit ?? 'line'
+  const lines = `${n} ${unitWord(unit, n)}`
   return {
     fieldName: AUDIT_FIELD_SECTION_CONFIRMED,
     oldValue: 'Section was not fully confirm-ticked',
@@ -512,11 +595,11 @@ export function formatSectionConfirmedAuditCopy(opts: {
 }
 
 /** Stamp paid_at when marking PAID; clear on un-pay. Preserves existing / client paid_at. */
-export function stampPaidAt(
-  next: CostEntry[],
-  previous: CostEntry[] | null | undefined,
+export function stampPaidAt<T extends PayableLine>(
+  next: T[],
+  previous: T[] | null | undefined,
   now = new Date().toISOString(),
-): CostEntry[] {
+): T[] {
   const prevById = new Map((previous ?? []).map(e => [e.id, e]))
   return next.map((entry) => {
     if (!entry.paid) return { ...entry, paid_at: null }
@@ -555,6 +638,49 @@ export function paidLockViolation(
   for (const prev of existing ?? []) {
     if (prev.paid && !next.some(row => row.id === prev.id)) {
       return 'Cannot remove a paid line — un-pay first'
+    }
+  }
+
+  return null
+}
+
+function lockedLineItemFieldChanged(
+  prev: StaffLineItem,
+  next: StaffLineItem,
+  field: PaidLockedLineItemField,
+): boolean {
+  if (field === 'rate' || field === 'hours' || field === 'headcount') {
+    return Number(prev[field]) !== Number(next[field])
+  }
+  if (field === 'source') return String(prev.source ?? '') !== String(next.source ?? '')
+  return prev[field] !== next[field]
+}
+
+/**
+ * Reject edits to a still-paid planned role, paying without attestation, or deleting a paid role.
+ * Un-paying in the same payload unlocks.
+ */
+export function paidLineItemLockViolation(
+  existing: StaffLineItem[] | null | undefined,
+  next: StaffLineItem[],
+): string | null {
+  const prevById = new Map((existing ?? []).map(e => [e.id, e]))
+
+  for (const row of next) {
+    if (row.paid && !row.confirmed) {
+      return 'Cannot mark a role PAID until it is confirmed (operator attestation)'
+    }
+    const prev = prevById.get(row.id)
+    if (!prev?.paid || !row.paid) continue
+    const changed = PAID_LOCKED_LINE_ITEM_FIELDS.some(field => lockedLineItemFieldChanged(prev, row, field))
+    if (changed) {
+      return 'Paid role is locked — un-pay before editing rate, hours, headcount, description, or confirm'
+    }
+  }
+
+  for (const prev of existing ?? []) {
+    if (prev.paid && !next.some(row => row.id === prev.id)) {
+      return 'Cannot remove a paid role — un-pay first'
     }
   }
 
@@ -604,7 +730,7 @@ export function pickPriorStateFromAuditRows(
  * PAID is not a cost_fields.state — do not write `paid` here (figure accuracy stays).
  */
 export function rolledUpCostFieldState(opts: {
-  entries: CostEntry[] | null | undefined
+  entries: PayableLine[] | null | undefined
   currentState: string
   priorNonConfirmedState?: string | null
   fieldKey?: string
@@ -647,6 +773,34 @@ export function ensureMinimumEntry(
     paid: false,
     paid_at: null,
   }]
+}
+
+function payableFlagsFromRaw(row: Record<string, unknown>, fallbackId: () => string): PayableLine {
+  const paid = Boolean(row.paid)
+  return {
+    id: typeof row.id === 'string' && row.id ? row.id : fallbackId(),
+    confirmed: Boolean(row.confirmed),
+    paid,
+    paid_at: paid ? parsePaidAt(row.paid_at) : null,
+    paid_snapshot: parsePaidSnapshot(row.paid_snapshot),
+  }
+}
+
+/** Normalize planned venue_staff roles; assign ids so confirm/PAID can key off them. */
+export function normalizeLineItems(raw: unknown): StaffLineItem[] | null {
+  if (raw === undefined) return null
+  if (!Array.isArray(raw)) return []
+  return raw.map((e) => {
+    const row = e as Record<string, unknown>
+    return {
+      ...payableFlagsFromRaw(row, newEntryId),
+      role: String(row.role ?? ''),
+      rate: Number(row.rate) || 0,
+      hours: Number(row.hours) || 0,
+      headcount: Number(row.headcount) || 0,
+      source: row.source != null ? String(row.source) : '',
+    }
+  })
 }
 
 /** Normalize entries payload from client; drop invalid rows. */

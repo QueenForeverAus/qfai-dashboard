@@ -6,7 +6,10 @@ import {
   ensureMinimumEntry,
   entriesSum,
   ENTRY_EXEMPT_FIELD_KEYS,
+  lineItemsSum,
   normalizeEntries,
+  normalizeLineItems,
+  paidLineItemLockViolation,
   paidLockViolation,
   productionCanEditFieldKey,
   stampPaidAt,
@@ -66,9 +69,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: lockError }, { status: 400 })
   }
 
+  let lineItems = fieldKey === 'venue_staff'
+    ? (normalizeLineItems(body.line_items) ?? [])
+    : (body.line_items ?? null)
+  if (Array.isArray(lineItems) && fieldKey === 'venue_staff') {
+    lineItems = stampPaidAt(lineItems, [])
+    const roleLock = paidLineItemLockViolation([], lineItems)
+    if (roleLock) {
+      return NextResponse.json({ error: roleLock }, { status: 400 })
+    }
+  }
+
+  const roleTotal = fieldKey === 'venue_staff' && Array.isArray(lineItems) && lineItems.length > 0
+    ? lineItemsSum(lineItems)
+    : null
   const value = ENTRY_EXEMPT_FIELD_KEYS.has(fieldKey)
     ? initialValue
-    : entriesSum(entries)
+    : roleTotal != null
+      ? (roleTotal === 0 ? null : roleTotal)
+      : entriesSum(entries)
 
   const row = {
     run_id: body.run_id,
@@ -79,7 +98,7 @@ export async function POST(req: NextRequest) {
     value,
     state,
     source: body.source ?? null,
-    line_items: body.line_items ?? null,
+    line_items: lineItems,
     entries,
     updated_by: user.id,
   }

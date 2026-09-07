@@ -32,14 +32,19 @@ import {
   findMissingDefinedCostFields,
   buildCreateCostFieldBody,
   hasBulkPaidSnapshot,
+  lineItemsSum,
+  normalizeLineItems,
   roleCanSeeCostField,
   canEditCostFields,
   productionCanEditFieldKey,
   sectionEditSelectValue,
+  sectionPayableLines,
   SECTION_BULK_PAID_VALUE,
   type CostEntry,
   type CostFieldState,
+  type PayableLine,
   type SectionEditValue,
+  type StaffLineItem,
 } from '@/lib/cost-fields'
 import {
   NOTES_SOURCE_OF_DATA_LABEL,
@@ -51,13 +56,7 @@ import {
 
 type FieldState = CostFieldState
 
-type LineItem = {
-  role: string
-  rate: number
-  hours: number
-  headcount: number
-  source?: string
-}
+type LineItem = StaffLineItem
 
 type Entry = CostEntry
 
@@ -117,15 +116,15 @@ function stateStyles(state: string | null | undefined) {
 }
 
 /** Display overlay: all-PAID uses confirmed chrome + chip. Stored state is unchanged. */
-function sectionChrome(figureState: string, entries: Entry[]) {
-  const chromeState = displayCostFieldChromeState(figureState, entries)
+function sectionChrome(figureState: string, lines: PayableLine[]) {
+  const chromeState = displayCostFieldChromeState(figureState, lines)
   const styles = stateStyles(chromeState)
-  const chipLabel = displayCostFieldChipLabel(figureState, entries, styles.label)
+  const chipLabel = displayCostFieldChipLabel(figureState, lines, styles.label)
   return {
     chromeState,
     styles,
     chipLabel,
-    allPaid: allEntriesPaid(entries),
+    allPaid: allEntriesPaid(lines),
     chromeAttr: chromeState === CONFIRMED_FIELD_STATE ? 'confirmed' : chromeState,
   }
 }
@@ -834,7 +833,7 @@ function FieldRow({
   )
 }
 
-const STAFF_GRID = 'sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1.2fr)_64px_44px_56px_56px_18px_18px]'
+const STAFF_GRID = 'sm:grid-cols-[20px_40px_minmax(0,1.1fr)_minmax(0,1.2fr)_64px_44px_56px_56px_18px_18px]'
 
 // ─── Venue staff line-items row ──────────────────────────────────────────────
 
@@ -856,25 +855,28 @@ function VenueStaffRow({
   const { profile } = useProfile()
   const [open, setOpen] = useState(false)
   const [entriesOpen, setEntriesOpen] = useState(false)
-  const [items, setItems] = useState<LineItem[]>(existing?.line_items ?? [])
+  const [items, setItems] = useState<LineItem[]>(() => normalizeLineItems(existing?.line_items) ?? [])
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const persistedState = (existing?.state as FieldState) ?? 'guess'
   const entries = existing?.entries ?? []
-  const persistedSelect = sectionEditSelectValue(entries, persistedState)
+  const payableLines = sectionPayableLines('venue_staff', entries, items)
+  const persistedSelect = sectionEditSelectValue(payableLines, persistedState)
   const [draftSelect, setDraftSelect] = useState<SectionEditValue>(persistedSelect)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const state = figureStateFromSelect(draftSelect, persistedState)
-  const { styles, chipLabel, chromeAttr, allPaid: sectionPaid } = sectionChrome(state, entries)
-  const total = items.reduce((sum, item) => sum + (item.rate || 0) * (item.hours || 0) * (item.headcount || 0), 0)
+  const { styles, chipLabel, chromeAttr, allPaid: sectionPaid } = sectionChrome(state, payableLines)
+  const total = lineItemsSum(items)
   const enteredTotal = entries.reduce((s, e) => s + e.amount, 0)
-  const canBulkPaid = Boolean(existing?.id) && entries.length > 0
+  const canBulkPaid = Boolean(existing?.id) && items.length > 0
 
   function updateItem(idx: number, field: keyof LineItem, raw: string) {
     setItems(prev => {
+      const current = prev[idx]
+      if (!current || entryIsPaidLocked(current)) return prev
       const next = [...prev]
-      next[idx] = { ...next[idx], [field]: (field === 'role' || field === 'source') ? raw : (parseFloat(raw) || 0) }
+      next[idx] = { ...current, [field]: (field === 'role' || field === 'source') ? raw : (parseFloat(raw) || 0) }
       return next
     })
   }
@@ -882,11 +884,15 @@ function VenueStaffRow({
   function addItem() {
     setItems(prev => {
       const next = [...prev, {
+        id: crypto.randomUUID(),
         role: '',
         rate: 0,
         hours: 1,
         headcount: 1,
         source: enteredByLabel(profile?.full_name) ?? '',
+        confirmed: false,
+        paid: false,
+        paid_at: null,
       }]
       setEditingIdx(next.length - 1)
       return next
@@ -894,8 +900,67 @@ function VenueStaffRow({
   }
 
   function removeItem(idx: number) {
+    const current = items[idx]
+    if (current && entryIsPaidLocked(current)) {
+      setError('Paid role is locked — un-pay before removing')
+      return
+    }
     setItems(prev => prev.filter((_, i) => i !== idx))
     setEditingIdx(prev => (prev == null ? null : prev === idx ? null : prev > idx ? prev - 1 : prev))
+  }
+
+  async function persistRoles(next: LineItem[], extra: Record<string, unknown> = {}) {
+    if (!existing?.id) {
+      setItems(next)
+      return null
+    }
+    setItems(next)
+    setError(null)
+    setSaving(true)
+    try {
+      const data = await patchCostField(existing.id, {
+        line_items: next,
+        ...extra,
+      })
+      const saved = normalizeLineItems(data.line_items) ?? next
+      setItems(saved)
+      onSaved(data)
+      setDraftSelect(sectionEditSelectValue(
+        sectionPayableLines('venue_staff', data.entries as Entry[] | null, saved),
+        (data.state as FieldState) ?? persistedState,
+      ))
+      return data
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Save failed'
+      setError(msg)
+      console.error('Venue staff role persist failed:', err)
+      return null
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function toggleRoleConfirmed(idx: number) {
+    const current = items[idx]
+    if (!current || entryIsPaidLocked(current)) return
+    const next = [...items]
+    next[idx] = { ...current, confirmed: !current.confirmed }
+    void persistRoles(next)
+  }
+
+  function toggleRolePaid(idx: number) {
+    const current = items[idx]
+    if (!current) return
+    if (current.paid) {
+      const next = [...items]
+      next[idx] = { ...current, paid: false, paid_at: null }
+      void persistRoles(next)
+      return
+    }
+    if (!canMarkEntryPaid(current)) return
+    const next = [...items]
+    next[idx] = { ...current, paid: true, paid_at: new Date().toISOString() }
+    void persistRoles(next)
   }
 
   async function handleSave() {
@@ -909,20 +974,29 @@ function VenueStaffRow({
           const data = await patchCostField(existing.id, {
             section_payment: 'paid',
             line_items: items,
-            value: numVal,
           })
+          const saved = normalizeLineItems(data.line_items) ?? items
+          setItems(saved)
           onSaved(data)
-          setDraftSelect(sectionEditSelectValue(data.entries as Entry[] | null, (data.state as FieldState) ?? persistedState))
+          setDraftSelect(sectionEditSelectValue(
+            sectionPayableLines('venue_staff', data.entries as Entry[] | null, saved),
+            (data.state as FieldState) ?? persistedState,
+          ))
         } else {
           const body: Record<string, unknown> = {
             value: numVal,
             state: draftSelect,
             line_items: items,
           }
-          if (hasBulkPaidSnapshot(entries)) body.section_payment = 'restore'
+          if (hasBulkPaidSnapshot(payableLines)) body.section_payment = 'restore'
           const data = await patchCostField(existing.id, body)
+          const saved = normalizeLineItems(data.line_items) ?? items
+          setItems(saved)
           onSaved(data)
-          setDraftSelect(sectionEditSelectValue(data.entries as Entry[] | null, (data.state as FieldState) ?? draftSelect))
+          setDraftSelect(sectionEditSelectValue(
+            sectionPayableLines('venue_staff', data.entries as Entry[] | null, saved),
+            (data.state as FieldState) ?? draftSelect,
+          ))
         }
       } else {
         if (draftSelect === SECTION_BULK_PAID_VALUE) {
@@ -948,8 +1022,13 @@ function VenueStaffRow({
             paid_at: null,
           }],
         })
+        const saved = normalizeLineItems(data.line_items) ?? items
+        setItems(saved)
         onSaved(data)
-        setDraftSelect(sectionEditSelectValue(data.entries as Entry[] | null, (data.state as FieldState) ?? draftSelect))
+        setDraftSelect(sectionEditSelectValue(
+          sectionPayableLines('venue_staff', data.entries as Entry[] | null, saved),
+          (data.state as FieldState) ?? draftSelect,
+        ))
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Save failed'
@@ -978,7 +1057,9 @@ function VenueStaffRow({
           <span
             data-testid="cost-field-state"
             title={sectionPaid
-              ? 'All lines PAID — shown as CONFIRMED. Figure-source accuracy is unchanged.'
+              ? (items.length > 0
+                ? 'All planned roles PAID — shown as CONFIRMED. Figure-source accuracy is unchanged.'
+                : 'All lines PAID — shown as CONFIRMED. Figure-source accuracy is unchanged.')
               : undefined}
             className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}
           >{chipLabel}</span>
@@ -1011,6 +1092,8 @@ function VenueStaffRow({
             <div className="mb-3">
               {/* Desktop header — Role | Notes / Source of Data | rates (EntryRow-style notes column) */}
               <div className={`hidden sm:grid ${STAFF_GRID} gap-1.5 mb-1.5 text-xs text-slate-500 px-0.5`}>
+                <span />
+                <span>Paid</span>
                 <span>Role / Description</span>
                 <span>{NOTES_SOURCE_OF_DATA_LABEL}</span>
                 <span>Rate $/hr</span>
@@ -1023,23 +1106,68 @@ function VenueStaffRow({
               <div className="space-y-3">
                 {items.map((item, idx) => {
                   const rowTotal = (item.rate || 0) * (item.hours || 0) * (item.headcount || 0)
-                  const isEditing = editingIdx === idx
+                  const locked = entryIsPaidLocked(item)
+                  const attested = entryIsAttested(item)
+                  const showPaidControl = canMarkEntryPaid(item) || Boolean(item.paid)
+                  const isEditing = editingIdx === idx && !locked
                   const sourceLabel = formatNotesSource({
                     notes: item.source,
                     fieldKey: 'venue_staff',
                     editorDisplayName,
                     allowFieldSourceFallback: false,
                   })
+                  const tickBtn = (
+                    <button
+                      type="button"
+                      data-testid="role-confirm-tick"
+                      aria-pressed={attested}
+                      aria-disabled={locked}
+                      disabled={locked}
+                      onClick={() => toggleRoleConfirmed(idx)}
+                      title={locked ? 'Paid — un-pay to change confirmation' : attested ? 'Mark as estimate' : 'Mark as confirmed'}
+                      className={`flex-shrink-0 text-xs font-bold w-5 h-5 flex items-center justify-center rounded transition-colors disabled:cursor-not-allowed ${
+                        attested ? 'text-green-400 bg-green-900/40' : 'text-slate-600 bg-slate-800 hover:text-slate-400'
+                      }`}
+                    >
+                      {attested ? '✓' : '·'}
+                    </button>
+                  )
+                  const payBtn = showPaidControl ? (
+                    <button
+                      type="button"
+                      data-testid="role-paid-toggle"
+                      aria-pressed={Boolean(item.paid)}
+                      onClick={() => toggleRolePaid(idx)}
+                      title={item.paid ? 'Paid — un-pay to unlock role' : 'Mark paid (locks role)'}
+                      className={`flex-shrink-0 text-[10px] font-bold px-1.5 h-5 rounded border transition-colors ${
+                        item.paid
+                          ? `${PAID_BADGE.bg} ${PAID_BADGE.text} ${PAID_BADGE.border}`
+                          : 'text-slate-500 bg-slate-800 border-slate-700 hover:text-teal-300 hover:border-teal-800'
+                      }`}
+                    >
+                      {item.paid ? 'PAID' : 'Pay'}
+                    </button>
+                  ) : (
+                    <span className="flex-shrink-0 w-[34px]" aria-hidden />
+                  )
                   return (
-                    <div key={idx} className="bg-slate-900/40 sm:bg-transparent rounded-lg sm:rounded-none p-2 sm:p-0 border border-slate-700/40 sm:border-0 group/role">
+                    <div
+                      key={item.id || idx}
+                      data-testid="role-row"
+                      data-paid={item.paid ? 'true' : 'false'}
+                      data-locked={locked ? 'true' : 'false'}
+                      className={`bg-slate-900/40 sm:bg-transparent rounded-lg sm:rounded-none p-2 sm:p-0 border border-slate-700/40 sm:border-0 group/role ${locked ? 'opacity-90' : ''}`}
+                    >
                       {isEditing ? (
                         <>
                           {/* Mobile edit card */}
                           <div className="flex items-start gap-2 sm:hidden mb-2">
+                            {tickBtn}
                             <input type="text" value={item.role} onChange={e => updateItem(idx, 'role', e.target.value)} placeholder="Role title (e.g. Usher)" autoFocus
                               className="flex-1 bg-slate-900 border border-amber-400/50 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-amber-400 min-w-0" />
                             <button onClick={() => removeItem(idx)} className="text-slate-600 hover:text-red-400 text-sm transition-colors pt-1.5 shrink-0">✕</button>
                           </div>
+                          <div className="sm:hidden mb-2 pl-[26px]">{payBtn}</div>
                           <div className="sm:hidden mb-2">
                             <div className="text-slate-500 text-xs mb-0.5">{NOTES_INPUT_LABEL}</div>
                             <input type="text" value={item.source || ''} onChange={e => updateItem(idx, 'source', e.target.value)}
@@ -1068,6 +1196,8 @@ function VenueStaffRow({
 
                           {/* Desktop edit grid */}
                           <div className={`hidden sm:grid ${STAFF_GRID} gap-1.5 items-center`}>
+                            {tickBtn}
+                            {payBtn}
                             <input type="text" value={item.role} onChange={e => updateItem(idx, 'role', e.target.value)} placeholder="e.g. Usher" autoFocus
                               className="bg-slate-900 border border-amber-400/50 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 min-w-0" />
                             <input type="text" value={item.source || ''} onChange={e => updateItem(idx, 'source', e.target.value)}
@@ -1092,12 +1222,34 @@ function VenueStaffRow({
                         <>
                           {/* Read-only — pencil required to edit title */}
                           <div className="flex items-start gap-2 sm:hidden mb-1">
+                            {tickBtn}
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm text-white truncate">{item.role || 'Untitled role'}</div>
+                              <div className={`text-sm truncate ${attested ? 'text-white' : 'text-slate-400'}`}>{item.role || 'Untitled role'}</div>
                             </div>
-                            <button onClick={() => setEditingIdx(idx)} title="Edit role" className="text-slate-600 hover:text-amber-400 text-sm transition-colors pt-0.5 shrink-0">✎</button>
-                            <button onClick={() => removeItem(idx)} className="text-slate-600 hover:text-red-400 text-sm transition-colors pt-0.5 shrink-0">✕</button>
+                            {locked ? (
+                              <span data-testid="role-paid-lock-mobile" title="Locked — receipt recorded. Un-pay to edit." className="text-teal-500/80 text-sm" aria-label="Role locked (paid)">🔒</span>
+                            ) : (
+                              <button onClick={() => setEditingIdx(idx)} title="Edit role" className="text-slate-600 hover:text-amber-400 text-sm transition-colors pt-0.5 shrink-0">✎</button>
+                            )}
+                            <button onClick={() => removeItem(idx)} disabled={locked} className="text-slate-600 hover:text-red-400 text-sm transition-colors pt-0.5 shrink-0 disabled:opacity-20 disabled:cursor-not-allowed">✕</button>
                           </div>
+                          {showPaidControl && (
+                            <div className="sm:hidden mb-1.5 pl-[26px]">
+                              <button
+                                type="button"
+                                data-testid="role-paid-toggle-mobile"
+                                aria-pressed={Boolean(item.paid)}
+                                onClick={() => toggleRolePaid(idx)}
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-colors ${
+                                  item.paid
+                                    ? `${PAID_BADGE.bg} ${PAID_BADGE.text} ${PAID_BADGE.border}`
+                                    : 'text-slate-500 bg-slate-800 border-slate-700'
+                                }`}
+                              >
+                                {item.paid ? 'PAID · locked' : 'Mark paid (locks role)'}
+                              </button>
+                            </div>
+                          )}
                           {sourceLabel ? (
                             <div className="sm:hidden mb-1.5">
                               <div className="text-[10px] uppercase tracking-wide text-slate-600">{NOTES_SOURCE_OF_DATA_LABEL}</div>
@@ -1112,14 +1264,20 @@ function VenueStaffRow({
                           {rowTotal > 0 && <div className="text-amber-400/80 text-xs font-medium mt-1 sm:hidden">{fmt(rowTotal)}</div>}
 
                           <div className={`hidden sm:grid ${STAFF_GRID} gap-1.5 items-center`}>
-                            <div className="text-xs text-white truncate">{item.role || 'Untitled role'}</div>
+                            {tickBtn}
+                            {payBtn}
+                            <div className={`text-xs truncate ${attested ? 'text-white' : 'text-slate-400'}`}>{item.role || 'Untitled role'}</div>
                             <div className="text-xs text-slate-500 truncate" title={sourceLabel || undefined}>{sourceLabel || '—'}</div>
                             <div className="text-xs text-slate-400 tabular-nums">{item.rate || 0}</div>
                             <div className="text-xs text-slate-400 tabular-nums">{item.hours || 0}</div>
                             <div className="text-xs text-slate-400 tabular-nums">{item.headcount || 0}</div>
                             <div className="text-right text-slate-300 text-xs font-medium pr-1">{rowTotal > 0 ? fmt(rowTotal) : '—'}</div>
-                            <button onClick={() => setEditingIdx(idx)} title="Edit role" className="text-slate-600 hover:text-amber-400 text-xs transition-colors text-center opacity-0 group-hover/role:opacity-100">✎</button>
-                            <button onClick={() => removeItem(idx)} className="text-slate-600 hover:text-red-400 text-xs transition-colors text-center opacity-0 group-hover/role:opacity-100">✕</button>
+                            {locked ? (
+                              <span data-testid="role-paid-lock" title="Locked — receipt recorded. Un-pay to edit." className="text-teal-500/80 text-xs text-center" aria-label="Role locked (paid)">🔒</span>
+                            ) : (
+                              <button onClick={() => setEditingIdx(idx)} title="Edit role" className="text-slate-600 hover:text-amber-400 text-xs transition-colors text-center opacity-0 group-hover/role:opacity-100">✎</button>
+                            )}
+                            <button onClick={() => removeItem(idx)} disabled={locked} title={locked ? 'Paid — un-pay to remove' : 'Remove role'} className="text-slate-600 hover:text-red-400 text-xs transition-colors text-center opacity-0 group-hover/role:opacity-100 disabled:opacity-20 disabled:cursor-not-allowed">✕</button>
                           </div>
                         </>
                       )}
@@ -1896,7 +2054,7 @@ export default function CostFieldsTab({
           </div>
           <div className="flex items-start gap-2 text-xs -mt-1 mb-1">
             <span className={`px-1.5 py-0.5 rounded border shrink-0 ${PAID_BADGE.bg} ${PAID_BADGE.text} ${PAID_BADGE.border}`}>{PAID_BADGE.label}</span>
-            <span className="text-slate-500 leading-snug pt-0.5">Receipt recorded — locks the line. Per-line Pay still needs a confirm tick. Edit → MARK ALL AS PAID marks every line paid (unticked lines are confirmed by that action). Un-pay or undo via the dropdown to unlock.</span>
+            <span className="text-slate-500 leading-snug pt-0.5">Receipt recorded — locks the line or planned role. Per-line / per-role Pay still needs a confirm tick. Edit → MARK ALL AS PAID marks every line (or role) paid (unticked rows are confirmed by that action). Un-pay or undo via the dropdown to unlock.</span>
           </div>
           <p className="text-slate-600 text-xs -mt-2">Use ▼ on any cost field to drill into the breakdown and add individual line items as they come in.</p>
 
