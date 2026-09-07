@@ -2,12 +2,18 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import {
+  allEntriesConfirmed,
   canEditCostFields,
+  CONFIRMED_FIELD_STATE,
   ensureMinimumEntry,
   entriesSum,
   ENTRY_EXEMPT_FIELD_KEYS,
+  isNonConfirmedFieldState,
+  isUnconfirmedEntriesSeed,
   normalizeEntries,
+  pickPriorStateFromAuditRows,
   productionCanEditFieldKey,
+  rolledUpCostFieldState,
 } from '@/lib/cost-fields'
 import {
   COST_FIELD_AUDIT_FIELDS,
@@ -30,6 +36,23 @@ function lineItemsSum(items: LineItem[] | null | undefined): number {
     (sum, item) => sum + (Number(item.rate) || 0) * (Number(item.hours) || 0) * (Number(item.headcount) || 0),
     0,
   )
+}
+
+async function lastNonConfirmedStateBeforeConfirm(
+  supabase: ReturnType<typeof createAdminClient>,
+  costFieldId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('audit_log')
+    .select('field_name, old_value, new_value, changed_at')
+    .eq('table_name', 'cost_fields')
+    .eq('record_id', costFieldId)
+    .eq('new_value', CONFIRMED_FIELD_STATE)
+    .order('changed_at', { ascending: false })
+    .limit(20)
+
+  if (error || !data?.length) return null
+  return pickPriorStateFromAuditRows(data)
 }
 
 /**
@@ -118,6 +141,25 @@ export async function PATCH(
     // venue_staff: planned roles (line_items) remain primary when saving roles;
     // when entries are explicitly patched, sync value to sum(entries).
     updates.value = entriesSum(entries)
+
+    // W1.1: line-item confirm ticks roll up to cost_fields.state (`known` = CONFIRMED).
+    if (
+      !ENTRY_EXEMPT_FIELD_KEYS.has(existing.field_key)
+      && !isUnconfirmedEntriesSeed(existing.entries as Parameters<typeof isUnconfirmedEntriesSeed>[0], entries)
+    ) {
+      const currentState = String(updates.state ?? existing.state ?? '')
+      let prior: string | null = isNonConfirmedFieldState(currentState) ? currentState : null
+      if (currentState === CONFIRMED_FIELD_STATE && !allEntriesConfirmed(entries)) {
+        prior = (await lastNonConfirmedStateBeforeConfirm(supabase, id)) ?? prior
+      }
+      const nextState = rolledUpCostFieldState({
+        entries,
+        currentState,
+        priorNonConfirmedState: prior,
+        fieldKey: existing.field_key,
+      })
+      if (nextState !== currentState) updates.state = nextState
+    }
   }
 
   // Explicit value only accepted when entries are not being patched —
