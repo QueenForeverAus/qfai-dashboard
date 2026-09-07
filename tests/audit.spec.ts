@@ -6,7 +6,7 @@ const PAGES = [
   { path: '/runs', name: 'runs-list' },
   { path: '/calculator', name: 'calculator' },
   { path: '/factors', name: 'factors' },
-  { path: '/settlement', name: 'settlement' },
+  { path: '/settlements', name: 'settlements' },
   { path: '/emails', name: 'emails' },
   { path: '/admin', name: 'admin' },
   { path: '/settings', name: 'settings' },

@@ -10,8 +10,8 @@ import { useProfile, canAccessPage } from '@/lib/profile-context'
 
 const navItems = [
   { href: '/',           label: 'Mission Control', icon: '⚡' },
-  { href: '/runs',       label: 'Tour Desk',       icon: '🎸' },
-  { href: '/settlement', label: 'Settlement',       icon: '💰' },
+  { href: '/runs',        label: 'Tour Desk',     icon: '🎸' },
+  { href: '/settlements', label: 'Settlements',    icon: '💰' },
   { href: '/factors',    label: 'Factors',          icon: '⚙' },
   { href: '/feedback',   label: 'Feedback',         icon: '💬' },
   { href: '/admin',      label: 'Admin',            icon: '🛠' },
