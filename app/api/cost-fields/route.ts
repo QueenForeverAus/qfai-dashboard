@@ -14,6 +14,7 @@ import {
   productionCanEditFieldKey,
   stampPaidAt,
 } from '@/lib/cost-fields'
+import { rejectIfBookedCostFrozen } from '@/lib/booked-cost-freeze-persist'
 
 /**
  * POST /api/cost-fields — create a cost field row (authenticated).
@@ -50,6 +51,9 @@ export async function POST(req: NextRequest) {
       { status: 403 },
     )
   }
+
+  const frozen = await rejectIfBookedCostFrozen(supabase, String(body.run_id))
+  if (frozen) return frozen
 
   const state = body.state ?? 'guess'
   const allowed = ['known', 'estimated', 'guess', 'pending', 'auto_calc']

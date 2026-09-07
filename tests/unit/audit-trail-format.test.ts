@@ -529,6 +529,19 @@ test('auditEntryDiffs writes per-line amount / GST / paid / add', () => {
   assert.ok(!names.includes('entries'))
 })
 
+test('BOOKED cost freeze narrative is a plain sentence and not Finalise', () => {
+  assert.equal(
+    sentence({
+      table_name: 'runs',
+      record_id: 'run-1',
+      field_name: 'BOOKED cost freeze',
+      old_value: 'live Run Costing',
+      new_value: 'Gareth froze the Run Costing sheet for R12 at BOOKED (12 cost lines snapshot). Sell-through stays editable.',
+    }),
+    'Gareth froze the Run Costing sheet for R12 at BOOKED (12 cost lines snapshot). Sell-through stays editable.',
+  )
+})
+
 test('Finalise Costing narrative is a plain sentence', () => {
   assert.equal(
     sentence({

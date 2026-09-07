@@ -14,6 +14,8 @@ import { resolveEditorDisplayNames } from '@/lib/cost-entry-source'
 import { formatAuditTrailEvents } from '@/lib/audit-trail-format'
 import { ADVANCEMENT_CHECKLIST } from '@/lib/advancement-checklist'
 import { insideFactorsFromRows, type KnownInsideLine } from '@/lib/pnl-run-costing'
+import { isRunCostSheetFrozen } from '@/lib/booked-cost-freeze'
+import { captureBookedCostSnapshotIfNeeded } from '@/lib/booked-cost-freeze-persist'
 
 type Show = {
   id: string
@@ -139,8 +141,20 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
   const typedShows = (shows ?? []) as Show[]
   const rawFields = (costFields ?? []) as CostFieldRow[]
 
+  const costSheetFrozen = isRunCostSheetFrozen(run)
+
+  if (costSheetFrozen) {
+    await captureBookedCostSnapshotIfNeeded({
+      admin: supabase,
+      runId: run.id,
+      runCode: run.code,
+      nextStatus: run.status,
+      prevStatus: run.status,
+    })
+  }
+
   let typedFields = rawFields
-  if (rawFields.length === 0 && typedShows.length > 0) {
+  if (!costSheetFrozen && rawFields.length === 0 && typedShows.length > 0) {
     const { seedRunDefaults } = await import('@/lib/defaults/seed-run')
     await seedRunDefaults(supabase, run.id, run.code, typedShows)
     // Re-fetch after seeding
@@ -157,7 +171,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
       .eq('run_id', run.id)
       .order('show_order')
     if (updatedShows) typedShows.splice(0, typedShows.length, ...updatedShows as Show[])
-  } else if (rawFields.length > 0) {
+  } else if (!costSheetFrozen && rawFields.length > 0) {
     // Backfill: empty entries → ≥1 default; diverging value → value = sum(entries)
     // Also create missing defined fields (e.g. backline_hire on G2 R01 where seed skipped it).
     const { RUN_DEFAULTS } = await import('@/lib/defaults/run-defaults')
@@ -275,6 +289,14 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
             <span className={`px-2 py-0.5 rounded text-xs font-medium uppercase ${STATUS_STYLES[run.status] ?? STATUS_STYLES.confirmed}`}>
               {formatBookingStatus(run.status)}
             </span>
+            {costSheetFrozen && (
+              <span
+                data-testid="booked-cost-freeze-badge"
+                className="px-2 py-0.5 rounded text-xs font-medium uppercase bg-emerald-950/70 text-emerald-300 border border-emerald-800"
+              >
+                Frozen costs
+              </span>
+            )}
           </div>
           <h1 className="text-white text-2xl font-bold">{run.name}</h1>
           <p className="text-slate-400 text-sm mt-1">
@@ -310,6 +332,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
       <CostFieldsTab
         runId={run.id}
         runCode={run.code}
+        costSheetFrozen={costSheetFrozen}
         runName={run.name}
         region={run.region}
         startDate={startDate}

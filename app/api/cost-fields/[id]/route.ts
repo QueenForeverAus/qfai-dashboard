@@ -48,6 +48,7 @@ import {
   writeAuditLog,
 } from '@/lib/audit-log'
 import { staffDisplayName } from '@/lib/cost-entry-source'
+import { rejectIfBookedCostFrozen } from '@/lib/booked-cost-freeze-persist'
 
 async function lastNonConfirmedStateBeforeConfirm(
   supabase: ReturnType<typeof createAdminClient>,
@@ -109,6 +110,9 @@ export async function PATCH(
       { status: 403 },
     )
   }
+
+  const frozen = await rejectIfBookedCostFrozen(supabase, existing.run_id as string | null)
+  if (frozen) return frozen
 
   const body = await req.json()
   const updates: Record<string, unknown> = {
