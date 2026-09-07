@@ -62,6 +62,10 @@ import {
   type InsideFactorValues,
   type KnownInsideLine,
 } from '@/lib/pnl-run-costing'
+import {
+  BOOKED_COST_FREEZE_BADGE,
+  BOOKED_COST_FREEZE_BANNER,
+} from '@/lib/booked-cost-freeze'
 
 type FieldState = CostFieldState
 
@@ -148,10 +152,12 @@ function SectionEditSelect({
   value,
   onChange,
   canBulkPaid,
+  disabled = false,
 }: {
   value: SectionEditValue
   onChange: (next: SectionEditValue) => void
   canBulkPaid: boolean
+  disabled?: boolean
 }) {
   const bulkEnabled = canBulkPaid || value === SECTION_BULK_PAID_VALUE
   return (
@@ -159,7 +165,8 @@ function SectionEditSelect({
       data-testid="cost-field-edit-select"
       value={value}
       onChange={(e) => onChange(e.target.value as SectionEditValue)}
-      className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-amber-400"
+      disabled={disabled}
+      className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-amber-400 disabled:opacity-40 disabled:cursor-not-allowed"
     >
       <option value="known">Confirmed</option>
       <option value="estimated">Estimate</option>
@@ -285,6 +292,7 @@ function EntryRow({
   onStubUpdate,
   onAttachFile,
   stubBusy,
+  costSheetFrozen = false,
 }: {
   entry: Entry
   onUpdate: (updated: Entry) => void
@@ -296,6 +304,7 @@ function EntryRow({
   onStubUpdate: (updated: Entry) => void
   onAttachFile: (file: File) => void
   stubBusy?: boolean
+  costSheetFrozen?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [desc, setDesc] = useState(entry.description)
@@ -303,7 +312,7 @@ function EntryRow({
   const [amount, setAmount] = useState(entry.amount.toString())
   const [gst, setGst] = useState(entry.gst_included)
 
-  const locked = entryIsPaidLocked(entry)
+  const locked = entryIsPaidLocked(entry) || costSheetFrozen
   const attested = entryIsAttested(entry)
   const showPaidControl = canMarkEntryPaid(entry) || entry.paid
 
@@ -319,6 +328,7 @@ function EntryRow({
   }
 
   function togglePaid() {
+    if (costSheetFrozen) return
     if (entry.paid) {
       onUpdate({ ...entry, paid: false, paid_at: null })
       return
@@ -360,6 +370,7 @@ function EntryRow({
           filename={entry.attachment_filename}
           quoteNote={entry.quote_note}
           busy={stubBusy}
+          disabled={costSheetFrozen}
           testIdPrefix={`cost-entry-${entry.id}`}
           onNoteCommit={note => onStubUpdate({ ...entry, quote_note: note })}
           onAttach={onAttachFile}
@@ -400,6 +411,7 @@ function EntryRow({
             type="button"
             data-testid="entry-paid-toggle"
             aria-pressed={entry.paid}
+            disabled={costSheetFrozen}
             onClick={togglePaid}
             title={entry.paid ? 'Paid — un-pay to unlock line' : 'Mark paid (locks line)'}
             className={`flex-shrink-0 text-[10px] font-bold px-1.5 h-5 rounded border transition-colors ${
@@ -504,6 +516,7 @@ function EntryRow({
               type="button"
               data-testid="entry-paid-toggle-mobile"
               aria-pressed={entry.paid}
+              disabled={costSheetFrozen}
               onClick={togglePaid}
               title={entry.paid ? 'Paid — un-pay to unlock line' : 'Mark paid (locks line)'}
               className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-colors ${
@@ -526,6 +539,7 @@ function EntryRow({
         filename={entry.attachment_filename}
         quoteNote={entry.quote_note}
         busy={stubBusy}
+        disabled={costSheetFrozen}
         testIdPrefix={`cost-entry-${entry.id}`}
         onNoteCommit={note => onStubUpdate({ ...entry, quote_note: note })}
         onAttach={onAttachFile}
@@ -549,6 +563,7 @@ function EntryPanel({
   fieldSource,
   editorDisplayName,
   runId,
+  costSheetFrozen = false,
 }: {
   fieldId: string
   fieldKey: string
@@ -558,6 +573,7 @@ function EntryPanel({
   fieldSource?: string | null
   editorDisplayName?: string | null
   runId: string
+  costSheetFrozen?: boolean
 }) {
   const { profile } = useProfile()
   const [desc, setDesc] = useState('')
@@ -572,6 +588,10 @@ function EntryPanel({
   const gstContent = entries.filter(e => e.gst_included).reduce((sum, e) => sum + e.amount / 11, 0)
 
   async function persist(updated: Entry[]) {
+    if (costSheetFrozen) {
+      setError(BOOKED_COST_FREEZE_BANNER)
+      return
+    }
     if (updated.length === 0) {
       setError('At least one entry is required')
       return
@@ -691,6 +711,7 @@ function EntryPanel({
                 onStubUpdate={updated => updateEntry(i, updated)}
                 onAttachFile={file => { void attachEntryFile(i, file) }}
                 stubBusy={saving}
+                costSheetFrozen={costSheetFrozen}
               />
             ))}
           </div>
@@ -713,7 +734,7 @@ function EntryPanel({
       )}
 
       {/* Add new entry */}
-      <div className="space-y-1.5">
+      {!costSheetFrozen && <div className="space-y-1.5">
         <input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description"
           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
         <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
@@ -731,7 +752,7 @@ function EntryPanel({
             {saving ? '…' : '+ Add'}
           </button>
         </div>
-      </div>
+      </div>}
     </div>
   )
 }
@@ -746,6 +767,7 @@ function FieldRow({
   onSaved,
   onEntriesUpdated,
   editorDisplayName,
+  costSheetFrozen = false,
 }: {
   runId: string
   showId: string | null
@@ -754,6 +776,7 @@ function FieldRow({
   onSaved: (updated: CostFieldRow) => void
   onEntriesUpdated: (updated: CostFieldRow) => void
   editorDisplayName?: string | null
+  costSheetFrozen?: boolean
 }) {
   const [isEditing, setIsEditing] = useState(false)
   const persistedState = (existing?.state as FieldState) ?? fieldDef.defaultState
@@ -770,6 +793,7 @@ function FieldRow({
   const canBulkPaid = Boolean(existing?.id) && entries.length > 0 && !ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
 
   async function handleSaveState() {
+    if (costSheetFrozen) return
     if (saving) return
     setSaving(true)
     setError(null)
@@ -842,6 +866,7 @@ function FieldRow({
                 value={draftSelect}
                 onChange={setDraftSelect}
                 canBulkPaid={canBulkPaid}
+                disabled={costSheetFrozen}
               />
               <span className={`text-sm font-medium ${styles.text}`}>{fmt(displayTotal)}</span>
               <button
@@ -880,7 +905,9 @@ function FieldRow({
                   {PAID_BADGE.label}
                 </span>
               )}
-              <button onClick={() => { setDraftSelect(persistedSelect); setIsEditing(true) }} data-testid="cost-field-edit" className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
+              {!costSheetFrozen && (
+                <button onClick={() => { setDraftSelect(persistedSelect); setIsEditing(true) }} data-testid="cost-field-edit" className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
+              )}
             </>
           )}
           {/* Receipts toggle — show for all fields that have an ID */}
@@ -907,6 +934,7 @@ function FieldRow({
           editorDisplayName={editorDisplayName}
           onEntriesUpdated={onEntriesUpdated}
           runId={runId}
+          costSheetFrozen={costSheetFrozen}
         />
       )}
     </div>
@@ -924,6 +952,7 @@ function VenueStaffRow({
   onSaved,
   onEntriesUpdated,
   editorDisplayName,
+  costSheetFrozen = false,
 }: {
   runId: string
   showId: string
@@ -931,6 +960,7 @@ function VenueStaffRow({
   onSaved: (updated: CostFieldRow) => void
   onEntriesUpdated: (updated: CostFieldRow) => void
   editorDisplayName?: string | null
+  costSheetFrozen?: boolean
 }) {
   const { profile } = useProfile()
   const [open, setOpen] = useState(false)
@@ -954,7 +984,7 @@ function VenueStaffRow({
   function updateItem(idx: number, field: keyof LineItem, raw: string) {
     setItems(prev => {
       const current = prev[idx]
-      if (!current || entryIsPaidLocked(current)) return prev
+      if (!current || entryIsPaidLocked(current) || costSheetFrozen) return prev
       const next = [...prev]
       next[idx] = { ...current, [field]: (field === 'role' || field === 'source') ? raw : (parseFloat(raw) || 0) }
       return next
@@ -962,6 +992,7 @@ function VenueStaffRow({
   }
 
   function addItem() {
+    if (costSheetFrozen) return
     setItems(prev => {
       const next = [...prev, {
         id: crypto.randomUUID(),
@@ -980,6 +1011,7 @@ function VenueStaffRow({
   }
 
   function removeItem(idx: number) {
+    if (costSheetFrozen) return
     const current = items[idx]
     if (current && entryIsPaidLocked(current)) {
       setError('Paid role is locked — un-pay before removing')
@@ -990,6 +1022,10 @@ function VenueStaffRow({
   }
 
   async function persistRoles(next: LineItem[], extra: Record<string, unknown> = {}) {
+    if (costSheetFrozen) {
+      setError(BOOKED_COST_FREEZE_BANNER)
+      return null
+    }
     if (!existing?.id) {
       setItems(next)
       return null
@@ -1022,7 +1058,7 @@ function VenueStaffRow({
 
   function toggleRoleConfirmed(idx: number) {
     const current = items[idx]
-    if (!current || entryIsPaidLocked(current)) return
+    if (!current || entryIsPaidLocked(current) || costSheetFrozen) return
     const next = [...items]
     next[idx] = { ...current, confirmed: !current.confirmed }
     void persistRoles(next)
@@ -1030,7 +1066,7 @@ function VenueStaffRow({
 
   function toggleRolePaid(idx: number) {
     const current = items[idx]
-    if (!current) return
+    if (!current || costSheetFrozen) return
     if (current.paid) {
       const next = [...items]
       next[idx] = { ...current, paid: false, paid_at: null }
@@ -1044,6 +1080,7 @@ function VenueStaffRow({
   }
 
   async function handleSave() {
+    if (costSheetFrozen) return
     if (saving) return
     setSaving(true)
     setError(null)
@@ -1153,7 +1190,9 @@ function VenueStaffRow({
             </span>
           )}
           {!open && (
-            <button onClick={() => setOpen(true)} className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
+            <button onClick={() => setOpen(true)} className="text-slate-600 hover:text-amber-400 text-xs transition-colors">
+              {costSheetFrozen ? 'View' : 'Edit'}
+            </button>
           )}
           <button
             onClick={() => setOpen(o => !o)}
@@ -1186,7 +1225,7 @@ function VenueStaffRow({
               <div className="space-y-3">
                 {items.map((item, idx) => {
                   const rowTotal = (item.rate || 0) * (item.hours || 0) * (item.headcount || 0)
-                  const locked = entryIsPaidLocked(item)
+                  const locked = entryIsPaidLocked(item) || costSheetFrozen
                   const attested = entryIsAttested(item)
                   const showPaidControl = canMarkEntryPaid(item) || Boolean(item.paid)
                   const isEditing = editingIdx === idx && !locked
@@ -1367,22 +1406,27 @@ function VenueStaffRow({
               </div>
             </div>
           ) : (
-            <p className="text-slate-600 text-xs mb-3">No planned roles yet — add one below.</p>
+            <p className="text-slate-600 text-xs mb-3">{costSheetFrozen ? 'No planned roles on the frozen sheet.' : 'No planned roles yet — add one below.'}</p>
           )}
 
           <div className="flex items-center justify-between gap-3">
-            <button onClick={addItem} className="text-amber-400 hover:text-amber-300 text-xs transition-colors shrink-0">+ Add role</button>
+            {!costSheetFrozen && <button onClick={addItem} className="text-amber-400 hover:text-amber-300 text-xs transition-colors shrink-0">+ Add role</button>}
             <div className="flex items-center gap-3">
-              <SectionEditSelect
-                value={draftSelect}
-                onChange={setDraftSelect}
-                canBulkPaid={canBulkPaid}
-              />
+              {!costSheetFrozen && (
+                <SectionEditSelect
+                  value={draftSelect}
+                  onChange={setDraftSelect}
+                  canBulkPaid={canBulkPaid}
+                  disabled={costSheetFrozen}
+                />
+              )}
               {total > 0 && <span className="text-slate-400 text-xs whitespace-nowrap">Total: <span className="text-white font-medium">{fmt(total)}</span></span>}
-              <button onClick={handleSave} disabled={saving}
-                className="bg-amber-400 text-slate-900 text-xs font-semibold px-3 py-1.5 rounded hover:bg-amber-300 disabled:opacity-50 transition-colors shrink-0">
-                {saving ? '…' : 'Save'}
-              </button>
+              {!costSheetFrozen && (
+                <button onClick={handleSave} disabled={saving}
+                  className="bg-amber-400 text-slate-900 text-xs font-semibold px-3 py-1.5 rounded hover:bg-amber-300 disabled:opacity-50 transition-colors shrink-0">
+                  {saving ? '…' : 'Save'}
+                </button>
+              )}
             </div>
           </div>
 
@@ -1406,6 +1450,7 @@ function VenueStaffRow({
                     editorDisplayName={editorDisplayName}
                     onEntriesUpdated={onEntriesUpdated}
                     runId={runId}
+                    costSheetFrozen={costSheetFrozen}
                   />
                 </div>
               )}
@@ -1575,6 +1620,7 @@ export default function CostFieldsTab({
   editorDisplayNameByFieldId = {},
   insideFactors = {},
   remittanceLines = [],
+  costSheetFrozen = false,
 }: {
   runId: string
   runCode: string
@@ -1591,6 +1637,7 @@ export default function CostFieldsTab({
   editorDisplayNameByFieldId?: Record<string, string>
   insideFactors?: InsideFactorValues
   remittanceLines?: KnownInsideLine[]
+  costSheetFrozen?: boolean
 }) {
   const { effectiveRole, profile } = useProfile()
   const hasTabAccess = canAccessTab(effectiveRole, 'costs')
@@ -1634,6 +1681,7 @@ export default function CostFieldsTab({
   useEffect(() => {
     if (ensureOnceRef.current) return
     if (!hasTabAccess) return
+    if (costSheetFrozen) return
     if (!canEditCostFields(effectiveRole)) return
     ensureOnceRef.current = true
 
@@ -1822,7 +1870,8 @@ export default function CostFieldsTab({
       return sum + Math.round(tickets * 1.10)
     }, 0)
     const socialAdsField = fieldMap.get(runFieldKey('social_ads_var'))
-    if (socialAdsField) {
+    // Live calc still drives the UI; do not write the frozen cost sheet.
+    if (socialAdsField && !costSheetFrozen) {
       await supabase.from('cost_fields').update({ value: newSocialAds }).eq('id', socialAdsField.id)
       setFields(prev => prev.map(f => f.id === socialAdsField.id ? { ...f, value: newSocialAds } : f))
     }
@@ -1931,6 +1980,21 @@ export default function CostFieldsTab({
       {/* COST FIELDS TAB — one sheet: owners get revenue top + P&L bottom; middle costing unchanged */}
       {hasTabAccess && activeTab === 'costs' && (
         <div className="space-y-6">
+          {costSheetFrozen && (
+            <div
+              data-testid="booked-cost-freeze-banner"
+              role="status"
+              className="rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2.5"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-1.5 py-0.5 rounded border border-emerald-700 bg-emerald-900/50 text-emerald-300 text-[10px] font-bold uppercase tracking-wide">
+                  {BOOKED_COST_FREEZE_BADGE}
+                </span>
+              </div>
+              <p className="text-emerald-200/90 text-xs leading-snug">{BOOKED_COST_FREEZE_BANNER}</p>
+            </div>
+          )}
+
           {showOwnerPnl && (
             <PnlRevenueBlock
               shows={showsState}
@@ -2002,6 +2066,7 @@ export default function CostFieldsTab({
                               editorDisplayNameByFieldId,
                               profile,
                             )}
+                            costSheetFrozen={costSheetFrozen}
                           />
                         ) : (
                           <FieldRow
@@ -2017,6 +2082,7 @@ export default function CostFieldsTab({
                               editorDisplayNameByFieldId,
                               profile,
                             )}
+                            costSheetFrozen={costSheetFrozen}
                           />
                         )
                       )}
@@ -2059,6 +2125,7 @@ export default function CostFieldsTab({
                         editorDisplayNameByFieldId,
                         profile,
                       )}
+                      costSheetFrozen={costSheetFrozen}
                     />
                   ))}
                 </div>

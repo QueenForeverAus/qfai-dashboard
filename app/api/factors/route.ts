@@ -90,8 +90,10 @@ export async function PATCH(req: NextRequest) {
     }
 
     const today = new Date().toISOString().slice(0, 10)
-    const { data: runs } = await supabase.from('runs').select('id, code')
+    const { data: runs } = await supabase.from('runs').select('id, code, status')
     for (const run of runs ?? []) {
+      // BOOKED cost freeze: do not rewrite live cost lines on a frozen sheet.
+      if (run.status === 'confirmed') continue
       const defaults = RUN_DEFAULTS[run.code] ?? null
 
       // Only fetch upcoming shows — don't cascade to shows that have already happened

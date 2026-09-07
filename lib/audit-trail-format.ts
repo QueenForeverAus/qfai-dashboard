@@ -20,6 +20,7 @@ import {
   AUDIT_FIELD_BAND_COST_STATUS,
   AUDIT_FIELD_FINALISE_COSTING,
 } from './settlements.ts'
+import { AUDIT_FIELD_BOOKED_COST_FREEZE } from './booked-cost-freeze.ts'
 import {
   AUDIT_FIELD_QUOTE_ATTACHMENT,
   AUDIT_FIELD_QUOTE_NOTE,
@@ -153,6 +154,9 @@ const SKIP_FIELDS = new Set([
   'updated_by',
   'show_pack_published_at',
   'show_pack_published_by',
+  'booked_cost_snapshot',
+  'booked_cost_frozen_at',
+  'booked_cost_frozen_by',
 ])
 
 const NARRATIVE_FIELDS = new Set([
@@ -162,6 +166,7 @@ const NARRATIVE_FIELDS = new Set([
   AUDIT_FIELD_SECTION_CONFIRMED,
   AUDIT_FIELD_LINE_MOVED,
   AUDIT_FIELD_FINALISE_COSTING,
+  AUDIT_FIELD_BOOKED_COST_FREEZE,
   AUDIT_FIELD_BAND_COST_ADDED,
   AUDIT_FIELD_BAND_COST_STATUS,
   AUDIT_FIELD_REMITTANCE_ADDED,

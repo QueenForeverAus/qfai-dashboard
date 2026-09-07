@@ -2,6 +2,8 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { auditFieldDiffs, setAuditActor, writeAuditLog } from '@/lib/audit-log'
+import { captureBookedCostSnapshotIfNeeded } from '@/lib/booked-cost-freeze-persist'
+import { staffDisplayName } from '@/lib/cost-entry-source'
 
 const ALLOWED_STATUSES = ['proposed', 'confirmed', 'declined', 'booking', 'show_week', 'post_show', 'settled']
 
@@ -22,7 +24,7 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
   const supabase = createAdminClient()
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('profiles').select('role, full_name').eq('id', user.id).single()
   if (!profile || !['owner', 'admin'].includes(profile.role)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
@@ -56,6 +58,18 @@ export async function PATCH(
       ['status'],
     ),
   )
+
+  if (data) {
+    await captureBookedCostSnapshotIfNeeded({
+      admin: supabase,
+      runId: data.id,
+      runCode: data.code,
+      nextStatus: data.status,
+      prevStatus: existing?.status ?? null,
+      actorId: user.id,
+      actorName: staffDisplayName(profile.full_name),
+    })
+  }
 
   // Queue a calendar update task when confirming a run
   if (status === 'confirmed' && data) {

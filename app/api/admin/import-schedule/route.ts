@@ -403,8 +403,26 @@ export async function PUT(req: NextRequest) {
   }
 
   for (const r of body.run_status_changes ?? []) {
+    const { data: before } = await supabase
+      .from('runs')
+      .select('id, code, status')
+      .eq('id', r.run_id)
+      .maybeSingle()
     const { error } = await supabase.from('runs').update({ status: r.new_status }).eq('id', r.run_id)
-    if (!error) runsUpdated++
+    if (!error) {
+      runsUpdated++
+      if (r.new_status === 'confirmed') {
+        const { captureBookedCostSnapshotIfNeeded } = await import('@/lib/booked-cost-freeze-persist')
+        await captureBookedCostSnapshotIfNeeded({
+          admin: supabase,
+          runId: r.run_id,
+          runCode: r.run_code,
+          nextStatus: r.new_status,
+          prevStatus: before?.status ?? r.old_status ?? null,
+          actorName: 'Schedule import',
+        })
+      }
+    }
   }
 
   // Reclassify region for every run touched by show patches (and status-change runs)
