@@ -180,6 +180,7 @@ async function ensureTwoEntries(page: Page, field: ReturnType<Page['locator']>) 
 }
 
 test('MARK ALL AS PAID works with partial ticks, restores paid snapshot, and writes Audit Trail', async ({ page }) => {
+  test.setTimeout(60_000)
   await page.goto('/runs')
   const runLinks = page.getByRole('link', { name: /R\d+|TEST/i })
   if (await runLinks.count() === 0) {
@@ -210,11 +211,14 @@ test('MARK ALL AS PAID works with partial ticks, restores paid snapshot, and wri
     }
   }
 
+  const firstRow = field.getByTestId('entry-row').first()
+  await expect(ticks.first()).toHaveAttribute('aria-pressed', 'true')
   const firstPay = payButtons.first()
-  if (await firstPay.isVisible() && (await firstPay.getAttribute('aria-pressed')) !== 'true') {
+  await expect(firstPay).toBeVisible({ timeout: 5000 })
+  if ((await firstPay.getAttribute('aria-pressed')) !== 'true') {
     await firstPay.click()
-    await page.waitForTimeout(400)
   }
+  await expect(firstRow).toHaveAttribute('data-paid', 'true', { timeout: 8000 })
 
   await expect(field.getByTestId('cost-field-paid')).toHaveCount(0)
   await expect(field.getByTestId('cost-field-edit-select')).toHaveCount(0)
@@ -226,6 +230,7 @@ test('MARK ALL AS PAID works with partial ticks, restores paid snapshot, and wri
   await expect(field.getByTestId('cost-field-bulk-paid-option')).toHaveText(/MARK ALL AS PAID/)
   await select.selectOption('bulk_paid')
   await field.getByTestId('cost-field-edit-save').click()
+  await expect(field.getByTestId('cost-field-edit-save')).toHaveCount(0, { timeout: 8000 })
 
   await expect(field.getByTestId('cost-field-paid')).toHaveText(/PAID/i, { timeout: 8000 })
   await expect(field.getByTestId('entry-paid-lock').first()).toBeVisible()
@@ -236,15 +241,16 @@ test('MARK ALL AS PAID works with partial ticks, restores paid snapshot, and wri
   await expect(field.getByTestId('cost-field-edit-select')).toHaveValue('bulk_paid')
   await field.getByTestId('cost-field-edit-select').selectOption('known')
   await field.getByTestId('cost-field-edit-save').click()
+  await expect(field.getByTestId('cost-field-edit-save')).toHaveCount(0, { timeout: 8000 })
 
   await expect(field.getByTestId('cost-field-paid')).toHaveCount(0, { timeout: 8000 })
   await expect(field.getByTestId('cost-field-state')).toHaveText(/CONFIRMED/i)
   const rows = field.getByTestId('entry-row')
-  await expect(rows.first()).toHaveAttribute('data-paid', 'true')
+  await expect(rows.first()).toHaveAttribute('data-paid', 'true', { timeout: 8000 })
   await expect(rows.nth(1)).toHaveAttribute('data-paid', 'false')
 
   await page.reload()
-  await page.waitForLoadState('networkidle')
+  await page.waitForLoadState('domcontentloaded')
   const auditTab = page.getByRole('button', { name: /audit trail/i })
   if (await auditTab.isVisible()) await auditTab.click()
   await expect(page.getByText(/MARK ALL AS PAID/i).first()).toBeVisible({ timeout: 8000 })

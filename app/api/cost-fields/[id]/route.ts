@@ -209,12 +209,9 @@ export async function PATCH(
       snapshotRestored = true
       restoreBefore = existingEntries
       restoreAfter = entries
-    } else if (sectionPayment === SECTION_PAYMENT_RESTORE) {
-      return NextResponse.json(
-        { error: 'No MARK ALL AS PAID snapshot to restore' },
-        { status: 400 },
-      )
     }
+    // No snapshot: treat restore as a no-op so Edit→Confirmed still applies
+    // figure-source state (double-save / already undone).
   }
 
   if (entriesProvided) {

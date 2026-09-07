@@ -677,6 +677,7 @@ function FieldRow({
   const canBulkPaid = Boolean(existing?.id) && entries.length > 0 && !ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
 
   async function handleSaveState() {
+    if (saving) return
     setSaving(true)
     setError(null)
     try {
@@ -878,6 +879,7 @@ function VenueStaffRow({
   }
 
   async function handleSave() {
+    if (saving) return
     setSaving(true)
     setError(null)
     const numVal = total === 0 ? null : total
