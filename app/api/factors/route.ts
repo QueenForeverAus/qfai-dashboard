@@ -62,10 +62,15 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'key and value required' }, { status: 400 })
   }
 
+  const parsed = value === '' || value === null ? null : parseFloat(value)
+  if (parsed != null && Number.isNaN(parsed)) {
+    return NextResponse.json({ error: 'value must be a number or empty' }, { status: 400 })
+  }
+
   const supabase = createAdminClient()
   const { data: updated, error } = await supabase
     .from('run_factors')
-    .update({ value: parseFloat(value), updated_at: new Date().toISOString() })
+    .update({ value: parsed, updated_at: new Date().toISOString() })
     .eq('key', key)
     .select()
     .single()

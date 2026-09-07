@@ -39,13 +39,8 @@ test('audit: run detail + all tabs', async ({ page }) => {
   await page.waitForLoadState('networkidle')
   await page.screenshot({ path: 'test-results/audit-run-detail.png', fullPage: true })
 
-  // P&L Calculator tab
-  const plTab = page.getByRole('button', { name: /p&l calculator/i })
-  if (await plTab.isVisible()) {
-    await plTab.click()
-    await page.waitForTimeout(500)
-    await page.screenshot({ path: 'test-results/audit-run-pl.png', fullPage: true })
-  }
+  // P&L Calculator tab is killed — revenue + summary live on Run Costing for owners
+  await expect(page.getByRole('button', { name: /p&l calculator/i })).toHaveCount(0)
 
   // Run Costing tab
   const costTab = page.getByRole('button', { name: /run costing/i })

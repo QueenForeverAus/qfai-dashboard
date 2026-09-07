@@ -9,13 +9,14 @@ type Factor = {
   key: string
   label: string
   category: string
-  value: number
+  value: number | null
   unit: string
   description: string | null
   updated_at: string
 }
 
-function fmt(val: number, unit: string) {
+function fmt(val: number | null, unit: string) {
+  if (val == null || Number.isNaN(Number(val))) return 'Not seeded'
   if (unit.startsWith('$') && !unit.includes('/')) return `$${val.toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
   if (unit === '%') return `${val}%`
   return `${val} ${unit}`
@@ -27,7 +28,7 @@ function fmtDate(ts: string) {
 
 function FactorRow({ factor, onUpdated }: { factor: Factor; onUpdated: (updated: Factor) => void }) {
   const [editing, setEditing] = useState(false)
-  const [val, setVal] = useState(factor.value.toString())
+  const [val, setVal] = useState(factor.value == null ? '' : factor.value.toString())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -65,7 +66,7 @@ function FactorRow({ factor, onUpdated }: { factor: Factor; onUpdated: (updated:
               type="number"
               value={val}
               onChange={e => setVal(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setEditing(false); setVal(factor.value.toString()) } }}
+              onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setEditing(false); setVal(factor.value == null ? '' : factor.value.toString()) } }}
               className="w-28 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-amber-400 text-right"
               step="any"
             />
@@ -77,7 +78,7 @@ function FactorRow({ factor, onUpdated }: { factor: Factor; onUpdated: (updated:
               {saving ? '…' : 'Save'}
             </button>
             <button
-              onClick={() => { setEditing(false); setVal(factor.value.toString()); setError(null) }}
+              onClick={() => { setEditing(false); setVal(factor.value == null ? '' : factor.value.toString()); setError(null) }}
               className="text-slate-500 hover:text-slate-300 text-xs px-1 transition-colors"
             >
               ✕
@@ -112,7 +113,7 @@ export default function FactorsClient({ initialFactors }: { initialFactors: Fact
     return acc
   }, {})
 
-  const categoryOrder = ['Revenue', 'Travel & Accommodation', 'Crew & Operations', 'Production', 'Marketing']
+  const categoryOrder = ['Revenue', 'Ticketing / Inside Costs', 'Travel & Accommodation', 'Crew & Operations', 'Production', 'Marketing']
   const orderedCategories = [
     ...categoryOrder.filter(c => byCategory[c]),
     ...Object.keys(byCategory).filter(c => !categoryOrder.includes(c)),

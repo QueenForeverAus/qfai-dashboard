@@ -38,7 +38,7 @@ export default async function FactorsPage() {
           Rule inputs that flow through to all ESTIMATE fields across every run. Edit a value here and it cascades automatically to any run that uses that factor.
         </p>
         <p className="text-amber-400/70 text-xs mt-2">
-          Owner-only — not visible to crew or production.
+          Owner-only — not visible to crew or production. Ticketing / Inside Costs standing $/% may stay unseeded until Finance sets defaults after Gareth picks them. Those keys are estimated silent defaults only — remittance/contract known wins. Never treat hist 7.3% as known.
         </p>
       </div>
 

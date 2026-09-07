@@ -12,6 +12,7 @@ import { formatBookingStatus } from '@/lib/format-booking-status'
 import { resolveEditorDisplayNames } from '@/lib/cost-entry-source'
 import { formatAuditTrailEvents } from '@/lib/audit-trail-format'
 import { ADVANCEMENT_CHECKLIST } from '@/lib/advancement-checklist'
+import { insideFactorsFromRows, type KnownInsideLine } from '@/lib/pnl-run-costing'
 
 type Show = {
   id: string
@@ -29,6 +30,8 @@ type Show = {
   ticket_outlook_status: 'empty' | 'draft' | 'confirmed'
   ticket_outlook_as_of: string | null
   ticket_outlook_sources: unknown
+  booking_fee_per_payer?: number | null
+  cc_fee_pct?: number | null
 }
 
 type CostFieldRow = {
@@ -98,7 +101,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
   if (!run) notFound()
 
   const auditOr = `run_id.eq.${run.id},record_id.eq.${run.id}`
-  const [{ data: shows }, { data: costFields }, auditResult, { data: advancementRows }] = await Promise.all([
+  const [{ data: shows }, { data: costFields }, auditResult, { data: advancementRows }, { data: factorsRaw }, remittanceResult, agentResult] = await Promise.all([
     supabase.from('shows').select('*').eq('run_id', run.id).order('show_order'),
     supabase.from('cost_fields').select('*').eq('run_id', run.id).order('show_id', { ascending: true, nullsFirst: false }),
     (async () => {
@@ -120,6 +123,14 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
     supabase.from('advancement_items').select('id, label, item_key').eq('run_id', run.id).then(res => (
       res.error ? { data: [] as Array<{ id: string; label: string | null; item_key: string | null }> } : res
     )),
+    supabase.from('run_factors').select('key, value, category').in('key', [
+      'booking_fee_per_payer',
+      'cc_fee_pct',
+      'inside_cc_fee_pct',
+      'ticketing_inside_pct',
+    ]),
+    supabase.from('remittance_lines').select('show_id, description, amount').eq('run_id', run.id),
+    supabase.from('agent_settlement_lines').select('show_id, description, amount').eq('run_id', run.id),
   ])
   const auditRows = auditResult.data
 
@@ -305,6 +316,19 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
         shows={typedShows}
         initialFields={typedFields}
         isOwnerOrAdmin={isOwnerOrAdmin}
+        insideFactors={insideFactorsFromRows(factorsRaw ?? [])}
+        remittanceLines={[
+          ...((remittanceResult.error ? [] : remittanceResult.data) ?? []).map(l => ({
+            showId: l.show_id ?? null,
+            description: String(l.description ?? ''),
+            amount: Number(l.amount) || 0,
+          })),
+          ...((agentResult.error ? [] : agentResult.data) ?? []).map(l => ({
+            showId: l.show_id ?? null,
+            description: String(l.description ?? ''),
+            amount: Number(l.amount) || 0,
+          })),
+        ] satisfies KnownInsideLine[]}
         ticketOutlookSummary={run.ticket_outlook_summary ?? null}
         editorDisplayNameByFieldId={editorDisplayNameByFieldId}
         auditRows={formatAuditTrailEvents(
