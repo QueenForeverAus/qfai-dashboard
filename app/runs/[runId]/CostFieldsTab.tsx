@@ -1767,10 +1767,9 @@ export default function CostFieldsTab({
   ]
   const unlock = pnlSlidersUnlocked(unlockLines)
   const slidersUnlocked = unlock.unlocked
-  const incompleteFields = unlock.blocking.map(b => {
-    const labelled = unlockLines.find(l => l.fieldKey === b.fieldKey && l.category === b.category && l.state === b.state)
-    return labelled?.label ?? b.fieldKey
-  })
+  const incompleteFields = unlockLines
+    .filter(line => !pnlSlidersUnlocked([line]).unlocked)
+    .map(line => line.label)
   const isDataComplete = slidersUnlocked
   const ownerVenuePnls = showsState.map(show =>
     venuePnl({
