@@ -63,6 +63,44 @@ test('cost field entry saves and persists after refresh', async ({ page }) => {
   await expect(page.getByText(/\d+ receipts?/)).not.toBeVisible()
 })
 
+test('confirming every line rolls the section up to CONFIRMED; unticking restores it', async ({ page }) => {
+  await page.goto('/runs')
+  const runLinks = page.getByRole('link', { name: /R\d+|TEST/i })
+  if (await runLinks.count() === 0) {
+    test.skip(true, 'No runs available on staging — seed one first')
+    return
+  }
+
+  await runLinks.first().click()
+  await page.waitForURL(/\/runs\//)
+
+  const costingTab = page.getByRole('button', { name: /run costing/i })
+  if (await costingTab.isVisible()) await costingTab.click()
+
+  const field = page.locator('[data-testid="cost-field-venue_hire"]').first()
+  await expect(field).toBeVisible({ timeout: 8000 })
+
+  await field.locator('button').filter({ hasText: /▼/ }).click()
+
+  const ticks = field.getByTestId('entry-confirm-tick')
+  await expect(ticks.first()).toBeVisible({ timeout: 5000 })
+
+  const count = await ticks.count()
+  for (let i = 0; i < count; i++) {
+    const tick = ticks.nth(i)
+    if ((await tick.getAttribute('aria-pressed')) !== 'true') {
+      await tick.click()
+      await page.waitForTimeout(400)
+    }
+  }
+
+  await expect(field.getByTestId('cost-field-state')).toHaveText(/CONFIRMED/i, { timeout: 8000 })
+  await expect(field.getByText('All confirmed ✓')).toBeVisible()
+
+  await ticks.first().click()
+  await expect(field.getByTestId('cost-field-state')).not.toHaveText(/CONFIRMED/i, { timeout: 8000 })
+})
+
 test('entries label shows "entries" not "receipts"', async ({ page }) => {
   await page.goto('/runs')
   const runLinks = page.getByRole('link', { name: /R\d+|TEST/i })

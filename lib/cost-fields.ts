@@ -9,6 +9,22 @@ export type CostEntry = {
   confirmed: boolean
 }
 
+/** Section badge CONFIRMED — existing cost_fields.state value, not a parallel status. */
+export const CONFIRMED_FIELD_STATE = 'known' as const
+
+export const COST_FIELD_STATES = ['known', 'estimated', 'guess', 'pending', 'auto_calc'] as const
+export type CostFieldState = (typeof COST_FIELD_STATES)[number]
+
+export function isCostFieldState(value: string | null | undefined): value is CostFieldState {
+  return value != null && (COST_FIELD_STATES as readonly string[]).includes(value)
+}
+
+export function isNonConfirmedFieldState(
+  value: string | null | undefined,
+): value is Exclude<CostFieldState, 'known'> {
+  return isCostFieldState(value) && value !== CONFIRMED_FIELD_STATE
+}
+
 export type CostFieldDef = {
   key: string
   label: string
@@ -76,6 +92,66 @@ export function roleCanSeeCostField(role: string | undefined, fieldKey: string):
 export function entriesSum(entries: CostEntry[] | null | undefined): number {
   if (!entries?.length) return 0
   return entries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+}
+
+/** True when the section has ≥1 line and every line-item confirm tick is checked. */
+export function allEntriesConfirmed(entries: CostEntry[] | null | undefined): boolean {
+  return Array.isArray(entries) && entries.length > 0 && entries.every(e => e.confirmed)
+}
+
+/**
+ * Page-open seed: empty entries → one or more unconfirmed placeholders.
+ * Do not treat that write as an un-confirm (would flip a manual CONFIRMED badge).
+ */
+export function isUnconfirmedEntriesSeed(
+  existingEntries: CostEntry[] | null | undefined,
+  nextEntries: CostEntry[] | null | undefined,
+): boolean {
+  if (existingEntries && existingEntries.length > 0) return false
+  if (!nextEntries?.length) return false
+  return nextEntries.every(e => !e.confirmed)
+}
+
+/** Default non-confirmed state for a defined field — never `known`. */
+export function fallbackNonConfirmedState(fieldKey: string): Exclude<CostFieldState, 'known'> {
+  const def = [...DEFINED_RUN_COST_FIELDS, ...DEFINED_SHOW_COST_FIELDS].find(f => f.key === fieldKey)
+  const raw = def?.defaultState
+  if (raw && raw !== CONFIRMED_FIELD_STATE && raw !== 'auto_calc') return raw
+  return 'estimated'
+}
+
+/**
+ * Read the last pre-confirm state from audit_log rows (newest first).
+ * Accepts both writeAuditLog (`state`) and trigger names (`flights.state`).
+ */
+export function pickPriorStateFromAuditRows(
+  rows: Array<{ field_name?: string | null; old_value?: string | null; new_value?: string | null }>,
+): string | null {
+  for (const row of rows) {
+    const name = row.field_name ?? ''
+    if (name !== 'state' && !name.endsWith('.state')) continue
+    if (row.new_value !== CONFIRMED_FIELD_STATE) continue
+    if (isNonConfirmedFieldState(row.old_value)) return row.old_value
+  }
+  return null
+}
+
+/**
+ * Roll line-item ticks up to cost_fields.state (`known` = CONFIRMED).
+ * Unticking any line restores priorNonConfirmedState, else the field default.
+ */
+export function rolledUpCostFieldState(opts: {
+  entries: CostEntry[] | null | undefined
+  currentState: string
+  priorNonConfirmedState?: string | null
+  fieldKey?: string
+}): string {
+  const { entries, currentState, priorNonConfirmedState, fieldKey } = opts
+  if (!Array.isArray(entries) || entries.length === 0) return currentState
+  if (allEntriesConfirmed(entries)) return CONFIRMED_FIELD_STATE
+  if (currentState !== CONFIRMED_FIELD_STATE) return currentState
+  if (isNonConfirmedFieldState(priorNonConfirmedState)) return priorNonConfirmedState
+  return fieldKey ? fallbackNonConfirmedState(fieldKey) : 'estimated'
 }
 
 function newEntryId(): string {

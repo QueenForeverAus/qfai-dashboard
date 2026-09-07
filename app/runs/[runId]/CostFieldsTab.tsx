@@ -16,6 +16,7 @@ import {
   activeBandForTickets,
 } from '@/lib/capacity-bands'
 import {
+  allEntriesConfirmed,
   entriesSum as sumEntries,
   ensureMinimumEntry,
   ENTRY_EXEMPT_FIELD_KEYS,
@@ -274,6 +275,9 @@ function EntryRow({
       {/* Desktop: Description | Notes / Source of Data | Amount | GST | actions — matches header columns */}
       <div className="hidden sm:flex items-center gap-1.5">
         <button
+          type="button"
+          data-testid="entry-confirm-tick"
+          aria-pressed={entry.confirmed}
           onClick={toggleConfirmed}
           title={entry.confirmed ? 'Mark as estimate' : 'Mark as confirmed'}
           className={`flex-shrink-0 text-xs font-bold w-5 h-5 flex items-center justify-center rounded transition-colors ${
@@ -313,6 +317,9 @@ function EntryRow({
       <div className="sm:hidden space-y-1">
         <div className="flex items-center gap-1.5">
           <button
+            type="button"
+            data-testid="entry-confirm-tick"
+            aria-pressed={entry.confirmed}
             onClick={toggleConfirmed}
             title={entry.confirmed ? 'Mark as estimate' : 'Mark as confirmed'}
             className={`flex-shrink-0 text-xs font-bold w-5 h-5 flex items-center justify-center rounded transition-colors ${
@@ -366,7 +373,7 @@ function EntryPanel({
   fieldKey: string
   fieldLabel: string
   entries: Entry[]
-  onEntriesUpdated: (entries: Entry[], value: number) => void
+  onEntriesUpdated: (updated: CostFieldRow) => void
   fieldSource?: string | null
   editorDisplayName?: string | null
 }) {
@@ -393,7 +400,7 @@ function EntryPanel({
       const data = await patchCostField(fieldId, { entries: updated })
       const nextEntries = (data.entries as Entry[]) ?? updated
       const nextValue = data.value != null ? Number(data.value) : entriesSum(nextEntries)
-      onEntriesUpdated(nextEntries, nextValue)
+      onEntriesUpdated({ ...data, entries: nextEntries, value: nextValue })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Save failed'
       setError(msg)
@@ -472,7 +479,7 @@ function EntryPanel({
               {confirmed > 0 && confirmed < total && (
                 <span className="text-green-600">Confirmed: <span className="text-green-400 font-medium">{fmt(confirmed)}</span></span>
               )}
-              {confirmed === total && total > 0 && (
+              {allEntriesConfirmed(entries) && (
                 <span className="text-green-400 font-medium">All confirmed ✓</span>
               )}
             </div>
@@ -521,7 +528,7 @@ function FieldRow({
   fieldDef: { key: string; label: string; category: string; defaultState: FieldState }
   existing: CostFieldRow | undefined
   onSaved: (updated: CostFieldRow) => void
-  onEntriesUpdated: (fieldId: string, entries: Entry[], value: number) => void
+  onEntriesUpdated: (updated: CostFieldRow) => void
   editorDisplayName?: string | null
 }) {
   const [isEditing, setIsEditing] = useState(false)
@@ -529,6 +536,11 @@ function FieldRow({
   const [saving, setSaving] = useState(false)
   const [entriesOpen, setEntriesOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isEditing) return
+    if (existing?.state) setState(existing.state as FieldState)
+  }, [existing?.id, existing?.state, isEditing])
 
   const styles = stateStyles(state)
   const entries = existing?.entries ?? []
@@ -573,7 +585,7 @@ function FieldRow({
   }
 
   return (
-    <div className={`rounded-lg border ${styles.bg} ${styles.border}`}>
+    <div data-testid={`cost-field-${fieldDef.key}`} className={`rounded-lg border ${styles.bg} ${styles.border}`}>
       {/* Main row */}
       <div className="flex items-center gap-3 px-3 py-2.5">
         <div className="flex-1 min-w-0">
@@ -621,7 +633,7 @@ function FieldRow({
               <span className={`text-sm font-medium ${styles.text}`}>
                 {displayTotal != null ? fmt(displayTotal) : '—'}
               </span>
-              <span className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}>{styles.label}</span>
+              <span data-testid="cost-field-state" className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}>{styles.label}</span>
               <button onClick={() => setIsEditing(true)} data-testid="cost-field-edit" className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
             </>
           )}
@@ -647,7 +659,7 @@ function FieldRow({
           entries={entries}
           fieldSource={existing.source}
           editorDisplayName={editorDisplayName}
-          onEntriesUpdated={(updated, value) => onEntriesUpdated(existing.id, updated, value)}
+          onEntriesUpdated={onEntriesUpdated}
         />
       )}
     </div>
@@ -670,7 +682,7 @@ function VenueStaffRow({
   showId: string
   existing: CostFieldRow | undefined
   onSaved: (updated: CostFieldRow) => void
-  onEntriesUpdated: (fieldId: string, entries: Entry[], value: number) => void
+  onEntriesUpdated: (updated: CostFieldRow) => void
   editorDisplayName?: string | null
 }) {
   const { profile } = useProfile()
@@ -681,6 +693,10 @@ function VenueStaffRow({
   const [state, setState] = useState<FieldState>((existing?.state as FieldState) ?? 'guess')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (existing?.state) setState(existing.state as FieldState)
+  }, [existing?.id, existing?.state])
 
   const styles = stateStyles(state)
   const total = items.reduce((sum, item) => sum + (item.rate || 0) * (item.hours || 0) * (item.headcount || 0), 0)
@@ -757,7 +773,7 @@ function VenueStaffRow({
   }
 
   return (
-    <div className={`rounded-lg border ${styles.bg} ${styles.border}`}>
+    <div data-testid="cost-field-venue_staff" className={`rounded-lg border ${styles.bg} ${styles.border}`}>
       {/* Header row */}
       <div className="flex items-center gap-3 px-3 py-2.5">
         <div className="flex-1 min-w-0">
@@ -771,7 +787,7 @@ function VenueStaffRow({
         </div>
         <div className="flex items-center gap-2">
           <span className={`text-sm font-medium ${styles.text}`}>{total > 0 ? fmt(total) : '—'}</span>
-          <span className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}>{styles.label}</span>
+          <span data-testid="cost-field-state" className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}>{styles.label}</span>
           {!open && (
             <button onClick={() => setOpen(true)} className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
           )}
@@ -950,7 +966,7 @@ function VenueStaffRow({
                     entries={entries}
                     fieldSource={existing.source}
                     editorDisplayName={editorDisplayName}
-                    onEntriesUpdated={(updated, value) => onEntriesUpdated(existing.id, updated, value)}
+                    onEntriesUpdated={onEntriesUpdated}
                   />
                 </div>
               )}
@@ -1245,8 +1261,8 @@ export default function CostFieldsTab({
     })
   }
 
-  function handleEntriesUpdated(fieldId: string, entries: Entry[], value: number) {
-    setFields(prev => prev.map(f => f.id === fieldId ? { ...f, entries, value } : f))
+  function handleEntriesUpdated(updated: CostFieldRow) {
+    handleSaved(updated)
   }
 
   function showFieldKey(showId: string, key: string) { return `${showId}:${key}` }
