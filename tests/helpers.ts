@@ -4,6 +4,11 @@ export const TEST_EMAIL = 'test@queenforever.com.au'
 export const TEST_PASS  = 'TestQF2026!'
 
 export async function login(page: Page) {
+  const share = process.env.PLAYWRIGHT_SHARE_URL
+  if (share) {
+    await page.goto(share)
+    await page.waitForLoadState('domcontentloaded')
+  }
   await page.goto('/login')
   await page.locator('input[type="email"]').fill(TEST_EMAIL)
   await page.locator('input[type="password"]').fill(TEST_PASS)
