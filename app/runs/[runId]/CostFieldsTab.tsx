@@ -17,8 +17,11 @@ import {
 } from '@/lib/capacity-bands'
 import {
   allEntriesConfirmed,
+  allEntriesPaid,
+  canMarkEntryPaid,
   entriesSum as sumEntries,
   ensureMinimumEntry,
+  entryIsPaidLocked,
   ENTRY_EXEMPT_FIELD_KEYS,
   DEFINED_RUN_COST_FIELDS,
   DEFINED_SHOW_COST_FIELDS,
@@ -53,7 +56,11 @@ type Entry = {
   amount: number
   gst_included: boolean
   confirmed: boolean
+  paid?: boolean
+  paid_at?: string | null
 }
+
+const PAID_BADGE = { bg: 'bg-teal-900/40', text: 'text-teal-300', border: 'border-teal-800', label: 'PAID' }
 
 type Show = {
   id: string
@@ -228,13 +235,27 @@ function EntryRow({
   const [amount, setAmount] = useState(entry.amount.toString())
   const [gst, setGst] = useState(entry.gst_included)
 
+  const locked = entryIsPaidLocked(entry)
+  const showPaidControl = canMarkEntryPaid(entry) || entry.paid
+
   function save() {
+    if (locked) return
     onUpdate({ ...entry, description: desc, notes, amount: parseFloat(amount) || 0, gst_included: gst })
     setEditing(false)
   }
 
   function toggleConfirmed() {
+    if (locked) return
     onUpdate({ ...entry, confirmed: !entry.confirmed })
+  }
+
+  function togglePaid() {
+    if (entry.paid) {
+      onUpdate({ ...entry, paid: false, paid_at: null })
+      return
+    }
+    if (!canMarkEntryPaid(entry)) return
+    onUpdate({ ...entry, paid: true, paid_at: new Date().toISOString() })
   }
 
   const notesRef = formatNotesSource({
@@ -244,7 +265,7 @@ function EntryRow({
     editorDisplayName,
   })
 
-  if (editing) {
+  if (editing && !locked) {
     return (
       <div className="py-1.5 border-t border-slate-700/30 first:border-0 space-y-1.5">
         <input autoFocus value={desc} onChange={e => setDesc(e.target.value)}
@@ -271,20 +292,43 @@ function EntryRow({
   }
 
   return (
-    <div className="py-1.5 border-t border-slate-700/30 first:border-0 group">
-      {/* Desktop: Description | Notes / Source of Data | Amount | GST | actions — matches header columns */}
+    <div
+      data-testid="entry-row"
+      data-paid={entry.paid ? 'true' : 'false'}
+      data-locked={locked ? 'true' : 'false'}
+      className={`py-1.5 border-t border-slate-700/30 first:border-0 group ${locked ? 'opacity-90' : ''}`}>
+      {/* Desktop: Confirm | Paid | Description | Notes / Source of Data | Amount | GST | actions */}
       <div className="hidden sm:flex items-center gap-1.5">
         <button
           type="button"
           data-testid="entry-confirm-tick"
           aria-pressed={entry.confirmed}
+          aria-disabled={locked}
+          disabled={locked}
           onClick={toggleConfirmed}
-          title={entry.confirmed ? 'Mark as estimate' : 'Mark as confirmed'}
-          className={`flex-shrink-0 text-xs font-bold w-5 h-5 flex items-center justify-center rounded transition-colors ${
+          title={locked ? 'Paid — un-pay to change confirmation' : entry.confirmed ? 'Mark as estimate' : 'Mark as confirmed'}
+          className={`flex-shrink-0 text-xs font-bold w-5 h-5 flex items-center justify-center rounded transition-colors disabled:cursor-not-allowed ${
             entry.confirmed ? 'text-green-400 bg-green-900/40' : 'text-slate-600 bg-slate-800 hover:text-slate-400'
           }`}>
           {entry.confirmed ? '✓' : '·'}
         </button>
+        {showPaidControl ? (
+          <button
+            type="button"
+            data-testid="entry-paid-toggle"
+            aria-pressed={entry.paid}
+            onClick={togglePaid}
+            title={entry.paid ? 'Paid — un-pay to unlock line' : 'Mark paid (locks line)'}
+            className={`flex-shrink-0 text-[10px] font-bold px-1.5 h-5 rounded border transition-colors ${
+              entry.paid
+                ? `${PAID_BADGE.bg} ${PAID_BADGE.text} ${PAID_BADGE.border}`
+                : 'text-slate-500 bg-slate-800 border-slate-700 hover:text-teal-300 hover:border-teal-800'
+            }`}>
+            {entry.paid ? 'PAID' : 'Pay'}
+          </button>
+        ) : (
+          <span className="flex-shrink-0 w-[34px]" aria-hidden />
+        )}
         <span className={`flex-1 min-w-0 text-xs truncate ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
           {entry.description || '—'}
         </span>
@@ -301,13 +345,23 @@ function EntryRow({
           className={`flex-shrink-0 text-xs w-6 text-center ${entry.gst_included ? 'text-slate-600' : 'text-orange-500/80'}`}>
           {entry.gst_included ? 'inc' : 'ex'}
         </span>
-        <button onClick={() => setEditing(true)}
-          title="Edit entry"
-          className="flex-shrink-0 w-4 text-slate-700 hover:text-amber-400 text-xs transition-colors sm:opacity-0 sm:group-hover:opacity-100">
-          ✎
-        </button>
-        <button onClick={onRemove} disabled={!canRemove}
-          title={canRemove ? 'Remove entry' : 'Cannot remove the last entry'}
+        {locked ? (
+          <span
+            data-testid="entry-paid-lock"
+            title="Locked — receipt recorded. Un-pay to edit."
+            className="flex-shrink-0 w-4 text-teal-500/80 text-xs text-center"
+            aria-label="Line locked (paid)">
+            🔒
+          </span>
+        ) : (
+          <button onClick={() => setEditing(true)}
+            title="Edit entry"
+            className="flex-shrink-0 w-4 text-slate-700 hover:text-amber-400 text-xs transition-colors sm:opacity-0 sm:group-hover:opacity-100">
+            ✎
+          </button>
+        )}
+        <button onClick={onRemove} disabled={!canRemove || locked}
+          title={locked ? 'Paid — un-pay to remove' : canRemove ? 'Remove entry' : 'Cannot remove the last entry'}
           className="flex-shrink-0 w-4 text-slate-700 hover:text-red-400 text-xs transition-colors sm:opacity-0 sm:group-hover:opacity-100 disabled:opacity-20 disabled:hover:text-slate-700 disabled:cursor-not-allowed">
           ✕
         </button>
@@ -320,9 +374,11 @@ function EntryRow({
             type="button"
             data-testid="entry-confirm-tick-mobile"
             aria-pressed={entry.confirmed}
+            aria-disabled={locked}
+            disabled={locked}
             onClick={toggleConfirmed}
-            title={entry.confirmed ? 'Mark as estimate' : 'Mark as confirmed'}
-            className={`flex-shrink-0 text-xs font-bold w-5 h-5 flex items-center justify-center rounded transition-colors ${
+            title={locked ? 'Paid — un-pay to change confirmation' : entry.confirmed ? 'Mark as estimate' : 'Mark as confirmed'}
+            className={`flex-shrink-0 text-xs font-bold w-5 h-5 flex items-center justify-center rounded transition-colors disabled:cursor-not-allowed ${
               entry.confirmed ? 'text-green-400 bg-green-900/40' : 'text-slate-600 bg-slate-800 hover:text-slate-400'
             }`}>
             {entry.confirmed ? '✓' : '·'}
@@ -338,17 +394,44 @@ function EntryRow({
             className={`flex-shrink-0 text-xs w-6 text-center ${entry.gst_included ? 'text-slate-600' : 'text-orange-500/80'}`}>
             {entry.gst_included ? 'inc' : 'ex'}
           </span>
-          <button onClick={() => setEditing(true)}
-            title="Edit entry"
-            className="flex-shrink-0 text-slate-700 hover:text-amber-400 text-xs transition-colors">
-            ✎
-          </button>
-          <button onClick={onRemove} disabled={!canRemove}
-            title={canRemove ? 'Remove entry' : 'Cannot remove the last entry'}
+          {locked ? (
+            <span
+              data-testid="entry-paid-lock-mobile"
+              title="Locked — receipt recorded. Un-pay to edit."
+              className="flex-shrink-0 text-teal-500/80 text-xs"
+              aria-label="Line locked (paid)">
+              🔒
+            </span>
+          ) : (
+            <button onClick={() => setEditing(true)}
+              title="Edit entry"
+              className="flex-shrink-0 text-slate-700 hover:text-amber-400 text-xs transition-colors">
+              ✎
+            </button>
+          )}
+          <button onClick={onRemove} disabled={!canRemove || locked}
+            title={locked ? 'Paid — un-pay to remove' : canRemove ? 'Remove entry' : 'Cannot remove the last entry'}
             className="flex-shrink-0 text-slate-700 hover:text-red-400 text-xs transition-colors disabled:opacity-20 disabled:hover:text-slate-700 disabled:cursor-not-allowed">
             ✕
           </button>
         </div>
+        {showPaidControl && (
+          <div className="pl-[26px]">
+            <button
+              type="button"
+              data-testid="entry-paid-toggle-mobile"
+              aria-pressed={entry.paid}
+              onClick={togglePaid}
+              title={entry.paid ? 'Paid — un-pay to unlock line' : 'Mark paid (locks line)'}
+              className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-colors ${
+                entry.paid
+                  ? `${PAID_BADGE.bg} ${PAID_BADGE.text} ${PAID_BADGE.border}`
+                  : 'text-slate-500 bg-slate-800 border-slate-700'
+              }`}>
+              {entry.paid ? 'PAID · locked' : 'Mark paid (locks line)'}
+            </button>
+          </div>
+        )}
         {notesRef ? (
           <div className="pl-[26px]">
             <div className="text-[10px] uppercase tracking-wide text-slate-600">{NOTES_SOURCE_OF_DATA_LABEL}</div>
@@ -417,6 +500,10 @@ function EntryPanel({
   }
 
   function removeEntry(idx: number) {
+    if (entries[idx] && entryIsPaidLocked(entries[idx])) {
+      setError('Paid line is locked — un-pay before removing')
+      return
+    }
     if (entries.length <= 1) {
       setError('Cannot remove the last entry — set amount to $0 instead')
       return
@@ -434,6 +521,8 @@ function EntryPanel({
       amount: parseFloat(amount),
       gst_included: gst,
       confirmed: false,
+      paid: false,
+      paid_at: null,
     }
     await persist([...entries, newEntry])
     setDesc('')
@@ -453,6 +542,7 @@ function EntryPanel({
         <>
           <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-600 mb-0.5">
             <span className="w-5" />
+            <span className="w-[34px]">Paid</span>
             <span className="flex-1">Description</span>
             <span className="flex-1">{NOTES_SOURCE_OF_DATA_LABEL}</span>
             <span className="w-20 text-right">Amount</span>
@@ -479,8 +569,11 @@ function EntryPanel({
               {confirmed > 0 && confirmed < total && (
                 <span className="text-green-600">Confirmed: <span className="text-green-400 font-medium">{fmt(confirmed)}</span></span>
               )}
-              {allEntriesConfirmed(entries) && (
+              {allEntriesConfirmed(entries) && !allEntriesPaid(entries) && (
                 <span className="text-green-400 font-medium">All confirmed ✓</span>
+              )}
+              {allEntriesPaid(entries) && (
+                <span className="text-teal-300 font-medium">All paid — lines locked</span>
               )}
             </div>
             {gstContent > 0 && <span className="text-slate-600 text-xs">GST component: {fmt(gstContent)}</span>}
@@ -541,6 +634,7 @@ function FieldRow({
   const state = isEditing ? draftState : persistedState
   const styles = stateStyles(state)
   const entries = existing?.entries ?? []
+  const sectionPaid = allEntriesPaid(entries)
   const displayTotal = entries.length > 0 ? entriesSum(entries) : (existing?.value ?? null)
 
   async function handleSaveState() {
@@ -566,6 +660,8 @@ function FieldRow({
             amount: 0,
             gst_included: !NO_GST_DEFAULTS.has(fieldDef.key),
             confirmed: false,
+            paid: false,
+            paid_at: null,
           }],
         })
         onSaved(data)
@@ -631,6 +727,15 @@ function FieldRow({
                 {displayTotal != null ? fmt(displayTotal) : '—'}
               </span>
               <span data-testid="cost-field-state" className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}>{styles.label}</span>
+              {sectionPaid && (
+                <span
+                  data-testid="cost-field-paid"
+                  title="Payment/receipt status — lines locked. Distinct from CONFIRMED (operator attestation)."
+                  className={`text-xs px-1.5 py-0.5 rounded border ${PAID_BADGE.bg} ${PAID_BADGE.text} ${PAID_BADGE.border} whitespace-nowrap`}
+                >
+                  {PAID_BADGE.label}
+                </span>
+              )}
               <button onClick={() => { setDraftState(persistedState); setIsEditing(true) }} data-testid="cost-field-edit" className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
             </>
           )}
@@ -697,6 +802,7 @@ function VenueStaffRow({
   const styles = stateStyles(state)
   const total = items.reduce((sum, item) => sum + (item.rate || 0) * (item.hours || 0) * (item.headcount || 0), 0)
   const entries = existing?.entries ?? []
+  const sectionPaid = allEntriesPaid(entries)
   const enteredTotal = entries.reduce((s, e) => s + e.amount, 0)
 
   function updateItem(idx: number, field: keyof LineItem, raw: string) {
@@ -757,6 +863,8 @@ function VenueStaffRow({
             amount: numVal ?? 0,
             gst_included: true,
             confirmed: false,
+            paid: false,
+            paid_at: null,
           }],
         })
         onSaved(data)
@@ -788,6 +896,15 @@ function VenueStaffRow({
         <div className="flex items-center gap-2">
           <span className={`text-sm font-medium ${styles.text}`}>{total > 0 ? fmt(total) : '—'}</span>
           <span data-testid="cost-field-state" className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}>{styles.label}</span>
+          {sectionPaid && (
+            <span
+              data-testid="cost-field-paid"
+              title="Payment/receipt status — lines locked. Distinct from CONFIRMED (operator attestation)."
+              className={`text-xs px-1.5 py-0.5 rounded border ${PAID_BADGE.bg} ${PAID_BADGE.text} ${PAID_BADGE.border} whitespace-nowrap`}
+            >
+              {PAID_BADGE.label}
+            </span>
+          )}
           {!open && (
             <button onClick={() => setOpen(true)} className="text-slate-600 hover:text-amber-400 text-xs transition-colors">Edit</button>
           )}
@@ -1680,7 +1797,7 @@ export default function CostFieldsTab({
           {/* Legend */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs mb-1">
             {([
-              { key: 'known',     desc: 'Confirmed — cost is locked in' },
+              { key: 'known',     desc: 'CONFIRMED — figure accuracy / lines attested. Not payment.' },
               { key: 'estimated', desc: 'Rough figure known; update to CONFIRMED when ready' },
               { key: 'pending',   desc: 'Income-dependent: box office, Harbour commission, per-ticket fees' },
               { key: 'guess',     desc: 'External data still needed before run go/no-go decision' },
@@ -1693,6 +1810,10 @@ export default function CostFieldsTab({
                 </div>
               )
             })}
+          </div>
+          <div className="flex items-start gap-2 text-xs -mt-1 mb-1">
+            <span className={`px-1.5 py-0.5 rounded border shrink-0 ${PAID_BADGE.bg} ${PAID_BADGE.text} ${PAID_BADGE.border}`}>{PAID_BADGE.label}</span>
+            <span className="text-slate-500 leading-snug pt-0.5">Receipt recorded — locks the line. Only after a line confirm tick (not Edit→Confirmed alone). Un-pay to unlock.</span>
           </div>
           <p className="text-slate-600 text-xs -mt-2">Use ▼ on any cost field to drill into the breakdown and add individual line items as they come in.</p>
 

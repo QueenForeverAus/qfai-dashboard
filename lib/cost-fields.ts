@@ -6,8 +6,27 @@ export type CostEntry = {
   notes: string
   amount: number
   gst_included: boolean
+  /** W1.1 operator attestation that this line was checked — not payment. */
   confirmed: boolean
+  /**
+   * W1.2 cash/receipt. Wave 2 bank/Amex match will set the same fields.
+   * Omit / false = not paid. Never implied by cost_fields.state === 'known'
+   * (figure accuracy / Edit→Confirmed).
+   */
+  paid?: boolean
+  paid_at?: string | null
 }
+
+/** Fields frozen while a line is PAID. Un-pay first to edit. */
+export const PAID_LOCKED_ENTRY_FIELDS = [
+  'description',
+  'notes',
+  'amount',
+  'gst_included',
+  'confirmed',
+] as const
+
+export type PaidLockedEntryField = (typeof PAID_LOCKED_ENTRY_FIELDS)[number]
 
 /** Section badge CONFIRMED — existing cost_fields.state value, not a parallel status. */
 export const CONFIRMED_FIELD_STATE = 'known' as const
@@ -99,6 +118,82 @@ export function allEntriesConfirmed(entries: CostEntry[] | null | undefined): bo
   return Array.isArray(entries) && entries.length > 0 && entries.every(e => e.confirmed)
 }
 
+/** Payment roll-up: every line is PAID. Distinct from CONFIRMED (`state === known`). */
+export function allEntriesPaid(entries: CostEntry[] | null | undefined): boolean {
+  return Array.isArray(entries) && entries.length > 0 && entries.every(e => e.paid)
+}
+
+/** Line is locked after receipt. Un-pay to edit amount/description/notes/confirm. */
+export function entryIsPaidLocked(entry: Pick<CostEntry, 'paid'> | null | undefined): boolean {
+  return Boolean(entry?.paid)
+}
+
+/**
+ * PAID is available only after operator attestation on the line.
+ * Do not gate on cost_fields.state === 'known' (Edit→Confirmed / figure accuracy).
+ */
+export function canMarkEntryPaid(entry: Pick<CostEntry, 'confirmed' | 'paid'>): boolean {
+  return entry.confirmed === true
+}
+
+export function parsePaidAt(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const ms = Date.parse(trimmed)
+  return Number.isNaN(ms) ? null : trimmed
+}
+
+/** Stamp paid_at when marking PAID; clear on un-pay. Preserves existing / client paid_at. */
+export function stampPaidAt(
+  next: CostEntry[],
+  previous: CostEntry[] | null | undefined,
+  now = new Date().toISOString(),
+): CostEntry[] {
+  const prevById = new Map((previous ?? []).map(e => [e.id, e]))
+  return next.map((entry) => {
+    if (!entry.paid) return { ...entry, paid_at: null }
+    const prior = prevById.get(entry.id)
+    return { ...entry, paid_at: entry.paid_at ?? prior?.paid_at ?? now }
+  })
+}
+
+function lockedFieldChanged(prev: CostEntry, next: CostEntry, field: PaidLockedEntryField): boolean {
+  if (field === 'amount') return Number(prev.amount) !== Number(next.amount)
+  return prev[field] !== next[field]
+}
+
+/**
+ * Reject edits to a still-paid line, paying without attestation, or deleting a paid line.
+ * Un-paying in the same payload unlocks (Wave 2 bank match can call the same lock).
+ */
+export function paidLockViolation(
+  existing: CostEntry[] | null | undefined,
+  next: CostEntry[],
+): string | null {
+  const prevById = new Map((existing ?? []).map(e => [e.id, e]))
+
+  for (const row of next) {
+    if (row.paid && !row.confirmed) {
+      return 'Cannot mark a line PAID until it is confirmed (operator attestation)'
+    }
+    const prev = prevById.get(row.id)
+    if (!prev?.paid || !row.paid) continue
+    const changed = PAID_LOCKED_ENTRY_FIELDS.some(field => lockedFieldChanged(prev, row, field))
+    if (changed) {
+      return 'Paid line is locked — un-pay before editing amount, description, notes, or confirm'
+    }
+  }
+
+  for (const prev of existing ?? []) {
+    if (prev.paid && !next.some(row => row.id === prev.id)) {
+      return 'Cannot remove a paid line — un-pay first'
+    }
+  }
+
+  return null
+}
+
 /**
  * Page-open seed: empty entries → one or more unconfirmed placeholders.
  * Do not treat that write as an un-confirm (would flip a manual CONFIRMED badge).
@@ -137,8 +232,9 @@ export function pickPriorStateFromAuditRows(
 }
 
 /**
- * Roll line-item ticks up to cost_fields.state (`known` = CONFIRMED).
+ * Roll line-item ticks up to cost_fields.state (`known` = CONFIRMED attestation).
  * Unticking any line restores priorNonConfirmedState, else the field default.
+ * PAID is not a cost_fields.state — do not write `paid` here (figure accuracy stays).
  */
 export function rolledUpCostFieldState(opts: {
   entries: CostEntry[] | null | undefined
@@ -181,6 +277,8 @@ export function ensureMinimumEntry(
     amount,
     gst_included: true,
     confirmed: false,
+    paid: false,
+    paid_at: null,
   }]
 }
 
@@ -190,6 +288,7 @@ export function normalizeEntries(raw: unknown): CostEntry[] | null {
   if (!Array.isArray(raw)) return []
   return raw.map((e) => {
     const row = e as Record<string, unknown>
+    const paid = Boolean(row.paid)
     return {
       id: typeof row.id === 'string' && row.id ? row.id : newEntryId(),
       description: String(row.description ?? ''),
@@ -197,6 +296,8 @@ export function normalizeEntries(raw: unknown): CostEntry[] | null {
       amount: Number(row.amount) || 0,
       gst_included: Boolean(row.gst_included),
       confirmed: Boolean(row.confirmed),
+      paid,
+      paid_at: paid ? parsePaidAt(row.paid_at) : null,
     }
   })
 }

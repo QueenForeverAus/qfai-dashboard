@@ -17,6 +17,8 @@ function entry(confirmed: boolean, amount = 10): CostEntry {
     amount,
     gst_included: true,
     confirmed,
+    paid: false,
+    paid_at: null,
   }
 }
 
