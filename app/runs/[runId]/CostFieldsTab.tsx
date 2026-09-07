@@ -19,8 +19,12 @@ import {
   allEntriesConfirmed,
   allEntriesPaid,
   canMarkEntryPaid,
+  CONFIRMED_FIELD_STATE,
+  displayCostFieldChipLabel,
+  displayCostFieldChromeState,
   entriesSum as sumEntries,
   ensureMinimumEntry,
+  entryIsAttested,
   entryIsPaidLocked,
   ENTRY_EXEMPT_FIELD_KEYS,
   DEFINED_RUN_COST_FIELDS,
@@ -110,6 +114,20 @@ const STATE_STYLES: Record<string, { bg: string; text: string; border: string; l
 
 function stateStyles(state: string | null | undefined) {
   return STATE_STYLES[state ?? ''] ?? STATE_STYLES.pending
+}
+
+/** Display overlay: all-PAID uses confirmed chrome + chip. Stored state is unchanged. */
+function sectionChrome(figureState: string, entries: Entry[]) {
+  const chromeState = displayCostFieldChromeState(figureState, entries)
+  const styles = stateStyles(chromeState)
+  const chipLabel = displayCostFieldChipLabel(figureState, entries, styles.label)
+  return {
+    chromeState,
+    styles,
+    chipLabel,
+    allPaid: allEntriesPaid(entries),
+    chromeAttr: chromeState === CONFIRMED_FIELD_STATE ? 'confirmed' : chromeState,
+  }
 }
 
 function figureStateFromSelect(value: SectionEditValue, fallback: FieldState): FieldState {
@@ -270,6 +288,7 @@ function EntryRow({
   const [gst, setGst] = useState(entry.gst_included)
 
   const locked = entryIsPaidLocked(entry)
+  const attested = entryIsAttested(entry)
   const showPaidControl = canMarkEntryPaid(entry) || entry.paid
 
   function save() {
@@ -336,15 +355,15 @@ function EntryRow({
         <button
           type="button"
           data-testid="entry-confirm-tick"
-          aria-pressed={entry.confirmed}
+          aria-pressed={attested}
           aria-disabled={locked}
           disabled={locked}
           onClick={toggleConfirmed}
-          title={locked ? 'Paid — un-pay to change confirmation' : entry.confirmed ? 'Mark as estimate' : 'Mark as confirmed'}
+          title={locked ? 'Paid — un-pay to change confirmation' : attested ? 'Mark as estimate' : 'Mark as confirmed'}
           className={`flex-shrink-0 text-xs font-bold w-5 h-5 flex items-center justify-center rounded transition-colors disabled:cursor-not-allowed ${
-            entry.confirmed ? 'text-green-400 bg-green-900/40' : 'text-slate-600 bg-slate-800 hover:text-slate-400'
+            attested ? 'text-green-400 bg-green-900/40' : 'text-slate-600 bg-slate-800 hover:text-slate-400'
           }`}>
-          {entry.confirmed ? '✓' : '·'}
+          {attested ? '✓' : '·'}
         </button>
         {showPaidControl ? (
           <button
@@ -363,7 +382,7 @@ function EntryRow({
         ) : (
           <span className="flex-shrink-0 w-[34px]" aria-hidden />
         )}
-        <span className={`flex-1 min-w-0 text-xs truncate ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
+        <span className={`flex-1 min-w-0 text-xs truncate ${attested ? 'text-white' : 'text-slate-400'}`}>
           {entry.description || '—'}
         </span>
         <span
@@ -371,7 +390,7 @@ function EntryRow({
           className="flex-1 min-w-0 text-xs text-slate-500 truncate">
           {notesRef || '—'}
         </span>
-        <span className={`flex-shrink-0 w-20 text-right text-xs font-medium tabular-nums ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
+        <span className={`flex-shrink-0 w-20 text-right text-xs font-medium tabular-nums ${attested ? 'text-white' : 'text-slate-400'}`}>
           {fmt(entry.amount)}
         </span>
         <span
@@ -407,20 +426,20 @@ function EntryRow({
           <button
             type="button"
             data-testid="entry-confirm-tick-mobile"
-            aria-pressed={entry.confirmed}
+            aria-pressed={attested}
             aria-disabled={locked}
             disabled={locked}
             onClick={toggleConfirmed}
-            title={locked ? 'Paid — un-pay to change confirmation' : entry.confirmed ? 'Mark as estimate' : 'Mark as confirmed'}
+            title={locked ? 'Paid — un-pay to change confirmation' : attested ? 'Mark as estimate' : 'Mark as confirmed'}
             className={`flex-shrink-0 text-xs font-bold w-5 h-5 flex items-center justify-center rounded transition-colors disabled:cursor-not-allowed ${
-              entry.confirmed ? 'text-green-400 bg-green-900/40' : 'text-slate-600 bg-slate-800 hover:text-slate-400'
+              attested ? 'text-green-400 bg-green-900/40' : 'text-slate-600 bg-slate-800 hover:text-slate-400'
             }`}>
-            {entry.confirmed ? '✓' : '·'}
+            {attested ? '✓' : '·'}
           </button>
-          <span className={`flex-1 min-w-0 text-xs truncate ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
+          <span className={`flex-1 min-w-0 text-xs truncate ${attested ? 'text-white' : 'text-slate-400'}`}>
             {entry.description || '—'}
           </span>
-          <span className={`flex-shrink-0 text-xs font-medium tabular-nums ${entry.confirmed ? 'text-white' : 'text-slate-400'}`}>
+          <span className={`flex-shrink-0 text-xs font-medium tabular-nums ${attested ? 'text-white' : 'text-slate-400'}`}>
             {fmt(entry.amount)}
           </span>
           <span
@@ -668,8 +687,7 @@ function FieldRow({
   const [error, setError] = useState<string | null>(null)
 
   const state = figureStateFromSelect(isEditing ? draftSelect : persistedSelect, persistedState)
-  const styles = stateStyles(state)
-  const sectionPaid = allEntriesPaid(entries)
+  const { styles, chipLabel, chromeAttr, allPaid: sectionPaid } = sectionChrome(state, entries)
   const displayTotal = entries.length > 0 ? entriesSum(entries) : (existing?.value ?? null)
   const canBulkPaid = Boolean(existing?.id) && entries.length > 0 && !ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
 
@@ -725,7 +743,7 @@ function FieldRow({
   }
 
   return (
-    <div data-testid={`cost-field-${fieldDef.key}`} className={`rounded-lg border ${styles.bg} ${styles.border}`}>
+    <div data-testid={`cost-field-${fieldDef.key}`} data-chrome={chromeAttr} className={`rounded-lg border ${styles.bg} ${styles.border}`}>
       {/* Main row */}
       <div className="flex items-center gap-3 px-3 py-2.5">
         <div className="flex-1 min-w-0">
@@ -768,7 +786,13 @@ function FieldRow({
               <span className={`text-sm font-medium ${styles.text}`}>
                 {displayTotal != null ? fmt(displayTotal) : '—'}
               </span>
-              <span data-testid="cost-field-state" className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}>{styles.label}</span>
+              <span
+                data-testid="cost-field-state"
+                title={sectionPaid
+                  ? 'All lines PAID — shown as CONFIRMED. Figure-source accuracy is unchanged.'
+                  : undefined}
+                className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}
+              >{chipLabel}</span>
               {sectionPaid && (
                 <span
                   data-testid="cost-field-paid"
@@ -842,9 +866,8 @@ function VenueStaffRow({
   const [error, setError] = useState<string | null>(null)
 
   const state = figureStateFromSelect(draftSelect, persistedState)
-  const styles = stateStyles(state)
+  const { styles, chipLabel, chromeAttr, allPaid: sectionPaid } = sectionChrome(state, entries)
   const total = items.reduce((sum, item) => sum + (item.rate || 0) * (item.hours || 0) * (item.headcount || 0), 0)
-  const sectionPaid = allEntriesPaid(entries)
   const enteredTotal = entries.reduce((s, e) => s + e.amount, 0)
   const canBulkPaid = Boolean(existing?.id) && entries.length > 0
 
@@ -938,7 +961,7 @@ function VenueStaffRow({
   }
 
   return (
-    <div data-testid="cost-field-venue_staff" className={`rounded-lg border ${styles.bg} ${styles.border}`}>
+    <div data-testid="cost-field-venue_staff" data-chrome={chromeAttr} className={`rounded-lg border ${styles.bg} ${styles.border}`}>
       {/* Header row */}
       <div className="flex items-center gap-3 px-3 py-2.5">
         <div className="flex-1 min-w-0">
@@ -952,7 +975,13 @@ function VenueStaffRow({
         </div>
         <div className="flex items-center gap-2">
           <span className={`text-sm font-medium ${styles.text}`}>{total > 0 ? fmt(total) : '—'}</span>
-          <span data-testid="cost-field-state" className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}>{styles.label}</span>
+          <span
+            data-testid="cost-field-state"
+            title={sectionPaid
+              ? 'All lines PAID — shown as CONFIRMED. Figure-source accuracy is unchanged.'
+              : undefined}
+            className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}
+          >{chipLabel}</span>
           {sectionPaid && (
             <span
               data-testid="cost-field-paid"

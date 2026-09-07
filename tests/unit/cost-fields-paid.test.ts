@@ -1,13 +1,21 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  ALL_PAID_SECTION_CHIP_LABEL,
   allEntriesConfirmed,
   allEntriesPaid,
   canMarkEntryPaid,
+  CONFIRMED_FIELD_STATE,
+  displayCostFieldChipLabel,
+  displayCostFieldChromeState,
+  ensurePaidLinesConfirmed,
+  entryIsAttested,
   entryIsPaidLocked,
   normalizeEntries,
   paidLockViolation,
+  paymentDidNotChangeAttestationTicks,
   rolledUpCostFieldState,
+  shouldSkipConfirmRollup,
   stampPaidAt,
   type CostEntry,
 } from '../../lib/cost-fields.ts'
@@ -173,4 +181,66 @@ test('entryIsPaidLocked is the line lock, not section state', () => {
   assert.equal(entryIsPaidLocked({ paid: true }), true)
   assert.equal(entryIsPaidLocked({ paid: false }), false)
   assert.equal(entryIsPaidLocked(null), false)
+})
+
+test('all-PAID display overlay uses confirmed chrome + CONFIRMED chip without writing state', () => {
+  const paidGuess = [
+    entry({ id: 'a', confirmed: true, paid: true }),
+    entry({ id: 'b', confirmed: true, paid: true }),
+  ]
+  assert.equal(ALL_PAID_SECTION_CHIP_LABEL, 'CONFIRMED')
+  assert.equal(displayCostFieldChromeState('guess', paidGuess), CONFIRMED_FIELD_STATE)
+  assert.equal(displayCostFieldChipLabel('guess', paidGuess, 'GUESS'), ALL_PAID_SECTION_CHIP_LABEL)
+  assert.equal(displayCostFieldChromeState('estimated', paidGuess), CONFIRMED_FIELD_STATE)
+  assert.equal(
+    rolledUpCostFieldState({ entries: paidGuess, currentState: 'guess' }),
+    'known',
+  )
+})
+
+test('un-pay drops the display overlay back to stored figure-source state', () => {
+  const mixed = [
+    entry({ id: 'a', confirmed: true, paid: true }),
+    entry({ id: 'b', confirmed: true, paid: false }),
+  ]
+  assert.equal(allEntriesPaid(mixed), false)
+  assert.equal(displayCostFieldChromeState('guess', mixed), 'guess')
+  assert.equal(displayCostFieldChipLabel('guess', mixed, 'GUESS'), 'GUESS')
+  assert.equal(displayCostFieldChromeState('estimated', mixed), 'estimated')
+  assert.equal(displayCostFieldChipLabel('estimated', mixed, 'ESTIMATE'), 'ESTIMATE')
+})
+
+test('paid lines count as attested; ensurePaidLinesConfirmed ticks them', () => {
+  assert.equal(entryIsAttested({ confirmed: false, paid: true }), true)
+  assert.equal(entryIsAttested({ confirmed: true, paid: false }), true)
+  assert.equal(entryIsAttested({ confirmed: false, paid: false }), false)
+
+  const repaired = ensurePaidLinesConfirmed([
+    entry({ id: 'a', confirmed: false, paid: true }),
+    entry({ id: 'b', confirmed: true, paid: false }),
+  ])
+  assert.equal(repaired.entries[0].confirmed, true)
+  assert.equal(repaired.newlyConfirmed.length, 1)
+  assert.equal(repaired.newlyConfirmed[0].id, 'a')
+  assert.equal(repaired.entries[1].confirmed, true)
+})
+
+test('payment-only confirm flips skip figure-source rollup', () => {
+  const before = [
+    entry({ id: 'a', confirmed: true, paid: false }),
+    entry({ id: 'b', confirmed: false, paid: false }),
+  ]
+  const afterPayImplied = [
+    entry({ id: 'a', confirmed: true, paid: true }),
+    entry({ id: 'b', confirmed: true, paid: true }),
+  ]
+  assert.equal(paymentDidNotChangeAttestationTicks(before, afterPayImplied), true)
+  assert.equal(shouldSkipConfirmRollup({ paymentImpliedConfirmsOnly: true }), true)
+
+  const afterRealConfirm = [
+    entry({ id: 'a', confirmed: true, paid: false }),
+    entry({ id: 'b', confirmed: true, paid: false }),
+  ]
+  assert.equal(paymentDidNotChangeAttestationTicks(before, afterRealConfirm), false)
+  assert.equal(allEntriesConfirmed(afterRealConfirm), true)
 })

@@ -152,6 +152,79 @@ export function allEntriesPaid(entries: CostEntry[] | null | undefined): boolean
   return Array.isArray(entries) && entries.length > 0 && entries.every(e => e.paid)
 }
 
+/**
+ * W1.1 attestation for display: a paid line counts as confirmed.
+ * Does not write cost_fields.state — use allEntriesConfirmed for stored roll-up.
+ */
+export function entryIsAttested(entry: Pick<CostEntry, 'confirmed' | 'paid'>): boolean {
+  return entry.confirmed === true || entry.paid === true
+}
+
+/** Tick paid-but-unticked lines so attestation matches the lock. Returns newly confirmed rows. */
+export function ensurePaidLinesConfirmed(entries: CostEntry[]): {
+  entries: CostEntry[]
+  newlyConfirmed: CostEntry[]
+} {
+  const newlyConfirmed: CostEntry[] = []
+  const next = entries.map((entry) => {
+    if (!entry.paid || entry.confirmed) return entry
+    newlyConfirmed.push(entry)
+    return { ...entry, confirmed: true }
+  })
+  return { entries: next, newlyConfirmed }
+}
+
+/**
+ * Display-only chip when every line is PAID. Gareth locked CONFIRMED.
+ * Flip this constant if Finance later wants the word PAID — chrome stays confirmed-green.
+ */
+export const ALL_PAID_SECTION_CHIP_LABEL = 'CONFIRMED' as const
+
+/**
+ * Card chrome key for STATE_STYLES. All-PAID overlays `known` (green) without
+ * changing stored figure-source state.
+ */
+export function displayCostFieldChromeState(
+  storedState: string | null | undefined,
+  entries: CostEntry[] | null | undefined,
+): string {
+  if (allEntriesPaid(entries)) return CONFIRMED_FIELD_STATE
+  return storedState ?? 'pending'
+}
+
+/** Header status chip. All-PAID uses ALL_PAID_SECTION_CHIP_LABEL (display only). */
+export function displayCostFieldChipLabel(
+  storedState: string | null | undefined,
+  entries: CostEntry[] | null | undefined,
+  storedLabel: string,
+): string {
+  if (allEntriesPaid(entries)) return ALL_PAID_SECTION_CHIP_LABEL
+  return storedLabel
+}
+
+/**
+ * True when confirm ticks did not change, or only flipped true on lines that
+ * are now PAID (implied attestation). Payment-only edits must not write state.
+ */
+export function paymentDidNotChangeAttestationTicks(
+  previous: CostEntry[] | null | undefined,
+  next: CostEntry[],
+): boolean {
+  const prevById = new Map((previous ?? []).map(e => [e.id, e]))
+  for (const prev of previous ?? []) {
+    if (!next.some(row => row.id === prev.id)) return false
+  }
+  for (const row of next) {
+    const prev = prevById.get(row.id)
+    const was = prev?.confirmed === true
+    const now = row.confirmed === true
+    if (was === now) continue
+    if (was && !now) return false
+    if (!was && now && !row.paid) return false
+  }
+  return true
+}
+
 /** Line is locked after receipt. Un-pay to edit amount/description/notes/confirm. */
 export function entryIsPaidLocked(entry: Pick<CostEntry, 'paid'> | null | undefined): boolean {
   return Boolean(entry?.paid)
@@ -277,18 +350,21 @@ export function preservePaidSnapshots(next: CostEntry[], previous: CostEntry[] |
   })
 }
 
-/** Skip W1.1 confirm→state rollup so bulk pay / snapshot restore cannot clobber figure-source state. */
+/** Skip W1.1 confirm→state rollup so payment actions cannot clobber figure-source state. */
 export function shouldSkipConfirmRollup(opts: {
   bulkPaidApplied?: boolean
   snapshotRestored?: boolean
+  paymentImpliedConfirmsOnly?: boolean
 }): boolean {
-  return Boolean(opts.bulkPaidApplied || opts.snapshotRestored)
+  return Boolean(opts.bulkPaidApplied || opts.snapshotRestored || opts.paymentImpliedConfirmsOnly)
 }
 
 /** Portal Audit Trail `field_name` for section MARK ALL AS PAID. */
 export const AUDIT_FIELD_BULK_PAID = 'MARK ALL AS PAID'
 /** Portal Audit Trail `field_name` for undo / leaving bulk-PAID (paid-flag restore). */
 export const AUDIT_FIELD_PAID_RESTORE = 'PAID snapshot restore'
+/** Portal Audit Trail `field_name` when PAID implied confirm-ticks (state unchanged). */
+export const AUDIT_FIELD_PAID_ALSO_CONFIRMED = 'PAID also confirmed'
 /** Portal Audit Trail `field_name` when confirm ticks roll a section up to KNOWN. */
 export const AUDIT_FIELD_SECTION_CONFIRMED = 'section confirmed'
 /** Portal Audit Trail `field_name` when a line is classifier-moved between sections. */
@@ -348,11 +424,40 @@ export function formatBulkPaidAuditCopy(opts: {
     sentence += `; ${unconfirmed.length} ${verb} not confirm-ticked: ${joinAuditLabels(unconfirmed.map(entryAuditLabel))} [ids: ${unconfirmed.map(e => e.id).join(', ')}]`
   }
   sentence += ').'
+  const alsoConfirmed = formatAllPaidAlsoConfirmedSentence({
+    actorName: actor,
+    sectionLabel: opts.sectionLabel,
+    confirmedCount: unconfirmed.length,
+  })
+  if (alsoConfirmed) sentence += ` ${alsoConfirmed}`
   return {
     fieldName: AUDIT_FIELD_BULK_PAID,
     oldValue: `${alreadyPaid} of ${lineCount} ${lineCount === 1 ? 'line' : 'lines'} already paid`,
     newValue: sentence,
   }
+}
+
+function actorPossessive(name: string): string {
+  const actor = name.trim() || 'Someone'
+  return /s$/i.test(actor) ? `${actor}'` : `${actor}'s`
+}
+
+/**
+ * Plain sentence when all-PAID implied confirm-ticks (does not rewrite figure-source state).
+ * Example: “Gareth's MARK ALL AS PAID also confirmed 2 lines in Venue Hire.”
+ */
+export function formatAllPaidAlsoConfirmedSentence(opts: {
+  actorName: string
+  sectionLabel: string
+  confirmedCount: number
+  actionLabel?: string
+}): string | null {
+  if (opts.confirmedCount <= 0) return null
+  const n = opts.confirmedCount
+  const lines = `${n} ${n === 1 ? 'line' : 'lines'}`
+  const section = (opts.sectionLabel || 'this section').trim()
+  const action = (opts.actionLabel ?? 'MARK ALL AS PAID').trim() || 'MARK ALL AS PAID'
+  return `${actorPossessive(opts.actorName)} ${action} also confirmed ${lines} in ${section}.`
 }
 
 /**

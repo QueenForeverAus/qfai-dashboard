@@ -12,6 +12,7 @@ import { auditEntryDiffs } from '../../lib/audit-log.ts'
 import {
   AUDIT_FIELD_BULK_PAID,
   AUDIT_FIELD_LINE_MOVED,
+  AUDIT_FIELD_PAID_ALSO_CONFIRMED,
   AUDIT_FIELD_PAID_RESTORE,
   AUDIT_FIELD_SECTION_CONFIRMED,
 } from '../../lib/cost-fields.ts'
@@ -171,11 +172,29 @@ test('MARK ALL AS PAID and restore reuse W1.2b sentences', () => {
     sentence({
       field_name: AUDIT_FIELD_BULK_PAID,
       old_value: '0 of 12 lines already paid',
-      new_value: 'Gareth marked all lines in Ground Transport as PAID (12 lines; 2 were not confirm-ticked).',
+      new_value: "Gareth marked all lines in Ground Transport as PAID (12 lines; 2 were not confirm-ticked). Gareth's MARK ALL AS PAID also confirmed 2 lines in Ground Transport.",
       record_id: 'cf-ground',
       changed_by_name: 'Gareth',
     }),
     /Gareth marked all lines in Ground Transport as PAID/,
+  )
+  assert.match(
+    sentence({
+      field_name: AUDIT_FIELD_BULK_PAID,
+      new_value: "Gareth marked all lines in Venue Hire as PAID (2 lines; 1 was not confirm-ticked). Gareth's MARK ALL AS PAID also confirmed 1 line in Venue Hire.",
+      record_id: 'cf-ground',
+      changed_by_name: 'Gareth',
+    }),
+    /also confirmed 1 line in Venue Hire/,
+  )
+  assert.equal(
+    sentence({
+      field_name: AUDIT_FIELD_PAID_ALSO_CONFIRMED,
+      new_value: "Gareth's Pay also confirmed 1 line in Venue Hire.",
+      record_id: 'cf-ground',
+      changed_by_name: 'Gareth',
+    }),
+    "Gareth's Pay also confirmed 1 line in Venue Hire.",
   )
   assert.equal(
     sentence({
