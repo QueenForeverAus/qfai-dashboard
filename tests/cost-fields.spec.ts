@@ -194,8 +194,28 @@ test('MARK ALL AS PAID works with partial ticks, restores paid snapshot, and wri
   const field = await openVenueHire(page)
   await ensureTwoEntries(page, field)
 
+  await field.getByTestId('cost-field-edit').click()
+  const resetSelect = field.getByTestId('cost-field-edit-select')
+  await expect(resetSelect).toBeVisible()
+  if ((await resetSelect.inputValue()) === 'bulk_paid') {
+    await resetSelect.selectOption('known')
+    await field.getByTestId('cost-field-edit-save').click()
+    await expect(field.getByTestId('cost-field-edit-save')).toHaveCount(0, { timeout: 8000 })
+  } else {
+    await field.locator('button').filter({ hasText: '✕' }).first().click()
+  }
+
   const ticks = field.getByTestId('entry-confirm-tick')
   const payButtons = field.getByTestId('entry-paid-toggle')
+  const payReset = await payButtons.count()
+  for (let i = 0; i < payReset; i++) {
+    const btn = payButtons.nth(i)
+    if (!(await btn.isVisible())) continue
+    if ((await btn.getAttribute('aria-pressed')) === 'true') {
+      await btn.click()
+      await page.waitForTimeout(400)
+    }
+  }
   const count = await ticks.count()
   for (let i = 0; i < count; i++) {
     const tick = ticks.nth(i)
