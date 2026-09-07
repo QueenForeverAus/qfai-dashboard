@@ -51,6 +51,7 @@ export async function POST(
         line_key: line.line_key,
         line_kind: kindForKey(line.line_key),
         amount: line.amount,
+        notes: line.notes ?? null,
         status: 'confirmed' as const,
         source: 'harbour_fixture' as const,
         paid: false,

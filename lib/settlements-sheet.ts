@@ -39,7 +39,7 @@ export const COL1_HEADER = 'Line'
 export const COL2_HEADER = 'Expected (Advancing)'
 export const COL3_HEADER = 'Actuals'
 export const COL3_PLACEHOLDER_NOTE =
-  'Venue settlement figures enter as confirmed. Challenge drafts a Harbour email (never auto-sent). Band costs copy from Advancing and stay editable until PAID.'
+  'Venue settlement figures enter as confirmed. Challenge drafts a Harbour email (never auto-sent). Band costs copy from Advancing and stay editable until PAID. One Expected bucket can roll up many Actuals.'
 export const COL3_CELL = '—'
 
 export const PRE_SHOW_BLOCK_COPY =

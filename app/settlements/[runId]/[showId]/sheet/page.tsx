@@ -35,6 +35,7 @@ export default async function SettlementShowSheetPage({
       remittanceKnownLines={data.remittanceKnownLines}
       actuals={data.actuals}
       challenges={data.challenges}
+      bandCosts={data.bandCosts}
     />
   )
 }

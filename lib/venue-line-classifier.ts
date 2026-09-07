@@ -14,7 +14,7 @@ import {
 export type VenueLineKind = 'venue_marketing' | 'production_costs' | 'venue_staff' | 'unknown'
 
 const MARKETING_RE =
-  /\b(marketing|levy|promo|promotional|advertising|advert|campaign|brochure|poster|posters|signage|edm|email\s*blast|foyer\s*poster|selling)\b/i
+  /\b(marketing|levy|promo|promotional|advertising|advert|campaign|brochure|poster|posters|signage|edm|email\s*blast|foyer\s*poster|selling|banner|facebook|\bfb\b|flyer)\b/i
 
 const GEAR_RE =
   /\b(package|packages|a\/?v|audio.?visual|mic|mics|microphone|projector|screen|smoke|lighting\s*hire|light(?:ing)?\s*(?:hire|package|equip)|house\s*pa|\bpa\b|backline|equipment|equip\b|small\s*equip|tech\s*package|production\s*package|vision|staging|sound\s*(?:hire|package|system)|speaker|speakers|monitor(?:s)?|rigging|hazer|fog)\b/i

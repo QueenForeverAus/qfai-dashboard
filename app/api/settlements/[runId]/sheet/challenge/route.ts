@@ -109,17 +109,27 @@ export async function POST(
       .eq('id', body.actual_id)
       .eq('run_id', run.id)
   } else if (body.line_key) {
+    const parentKey = String(body.line_key)
     let q = admin
       .from('settlement_actual_lines')
-      .update({
-        status: 'challenged',
-        challenge_id: challenge.id,
-        updated_at: new Date().toISOString(),
-      })
+      .select('id, line_key')
       .eq('run_id', run.id)
-      .eq('line_key', body.line_key)
     q = showId ? q.eq('show_id', showId) : q.is('show_id', null)
-    await q
+    const { data: rows } = await q
+    const targets = (rows ?? []).filter(row =>
+      row.line_key === parentKey || String(row.line_key).startsWith(`${parentKey}::`),
+    )
+    if (targets.length) {
+      await admin
+        .from('settlement_actual_lines')
+        .update({
+          status: 'challenged',
+          challenge_id: challenge.id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('run_id', run.id)
+        .in('id', targets.map(r => r.id))
+    }
   }
 
   const copy = formatChallengeDraftAuditCopy({

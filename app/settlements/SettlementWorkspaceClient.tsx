@@ -28,6 +28,14 @@ import {
 import type { AgentSettlementLine } from '@/lib/remittance'
 import QuoteInvoiceStub from '@/components/QuoteInvoiceStub'
 import SettlementsTabBar from './SettlementsTabBar'
+import {
+  DISTRIBUTE_BLOCKED_NOTE,
+  DISTRIBUTE_CONTROL_LABEL,
+  DISTRIBUTE_GATE_LABEL,
+  DISTRIBUTE_GATE_RULE,
+  DISTRIBUTE_STUB_NOTE,
+  distributeGateFromSources,
+} from '@/lib/settlements-distribute-gate'
 
 type Show = {
   id: string
@@ -87,12 +95,20 @@ export default function SettlementWorkspaceClient({
   const [agentDesc, setAgentDesc] = useState('')
   const [agentAmount, setAgentAmount] = useState('')
   const [agentShowId, setAgentShowId] = useState(focusedShowId ?? '')
+  const [distResult, setDistResult] = useState<string | null>(null)
 
   const finalised = isCostingFinalised(settlement)
   const snapshotFields = settlement?.costing_snapshot?.fields ?? []
   const leftFields = fieldsForShow(finalised ? snapshotFields : liveFields, focusedShowId)
   const focusedShow = shows.find(s => s.id === focusedShowId) ?? null
   const gate = bandCostCloseGate(lines)
+  const distGate = useMemo(
+    () => distributeGateFromSources({
+      fields: liveFields,
+      wave1BandCosts: lines,
+    }),
+    [liveFields, lines],
+  )
 
   const showGroups = useMemo(() => {
     const groups: { key: string; title: string; fields: CostingSnapshotField[] }[] = []
@@ -471,6 +487,38 @@ export default function SettlementWorkspaceClient({
               <p data-testid="close-gate-summary" className={`text-xs mt-1 ${gate.ready ? 'text-teal-300' : 'text-orange-300'}`}>
                 {gate.ready ? '✓' : '○'} {gate.summary}
               </p>
+            </div>
+
+            <div className="rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2" data-testid="distribute-gate" data-ready={distGate.ready ? 'true' : 'false'}>
+              <div className="text-[10px] uppercase tracking-wide text-slate-500">{DISTRIBUTE_GATE_LABEL}</div>
+              <p className="text-slate-300 text-sm mt-0.5" data-testid="distribute-gate-rule">{DISTRIBUTE_GATE_RULE}</p>
+              <p data-testid="distribute-gate-summary" className={`text-xs mt-1 ${distGate.ready ? 'text-teal-300' : 'text-orange-300'}`}>
+                {distGate.ready ? '✓' : '○'} {distGate.summary}
+              </p>
+              <button
+                type="button"
+                disabled={busy || !distGate.ready}
+                data-testid="distribute-funds"
+                onClick={async () => {
+                  setBusy(true)
+                  setError(null)
+                  setDistResult(null)
+                  try {
+                    const res = await fetch(`/api/settlements/${run.id}/distribute`, { method: 'POST' })
+                    const body = await res.json().catch(() => ({}))
+                    if (!res.ok) throw new Error(body.error || DISTRIBUTE_BLOCKED_NOTE)
+                    setDistResult(body.message || DISTRIBUTE_STUB_NOTE)
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : DISTRIBUTE_BLOCKED_NOTE)
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+                className="mt-2 text-[11px] font-semibold px-3 py-1.5 rounded bg-amber-400 text-slate-900 hover:bg-amber-300 disabled:opacity-40"
+              >
+                {DISTRIBUTE_CONTROL_LABEL}
+              </button>
+              {distResult && <p className="text-teal-300 text-xs mt-1" data-testid="distribute-stub-note">{distResult}</p>}
             </div>
 
             {lines.length === 0 ? (
