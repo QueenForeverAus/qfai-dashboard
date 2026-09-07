@@ -98,7 +98,14 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
   if (!run) notFound()
 
   const auditOr = `run_id.eq.${run.id},record_id.eq.${run.id}`
-  const [{ data: shows }, { data: costFields }, auditResult, { data: advancementRows }] = await Promise.all([
+  const [
+    { data: shows },
+    { data: costFields },
+    auditResult,
+    { data: advancementRows },
+    factorsResult,
+    remittanceResult,
+  ] = await Promise.all([
     supabase.from('shows').select('*').eq('run_id', run.id).order('show_order'),
     supabase.from('cost_fields').select('*').eq('run_id', run.id).order('show_id', { ascending: true, nullsFirst: false }),
     (async () => {
@@ -120,8 +127,25 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
     supabase.from('advancement_items').select('id, label, item_key').eq('run_id', run.id).then(res => (
       res.error ? { data: [] as Array<{ id: string; label: string | null; item_key: string | null }> } : res
     )),
+    supabase
+      .from('run_factors')
+      .select('key, value')
+      .in('key', ['booking_fee_per_payer', 'inside_cc_fee_pct', 'ticketing_inside_pct']),
+    supabase
+      .from('remittance_lines')
+      .select('show_id, line_type, description, notes, amount')
+      .eq('run_id', run.id)
+      .then(res => (res.error ? { data: [] as Array<{ show_id: string | null; line_type: string | null; description: string | null; notes: string | null; amount: number | null }> } : res)),
   ])
   const auditRows = auditResult.data
+  const insideFactorRows = (factorsResult.data ?? []) as Array<{ key: string; value: unknown }>
+  const remittanceInsideLines = (remittanceResult.data ?? []) as Array<{
+    show_id: string | null
+    line_type: string | null
+    description: string | null
+    notes: string | null
+    amount: number | null
+  }>
 
   // Auto-seed defaults on first view
   const typedShows = (shows ?? []) as Show[]
@@ -307,6 +331,8 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
         isOwnerOrAdmin={isOwnerOrAdmin}
         ticketOutlookSummary={run.ticket_outlook_summary ?? null}
         editorDisplayNameByFieldId={editorDisplayNameByFieldId}
+        insideFactorRows={insideFactorRows}
+        remittanceInsideLines={remittanceInsideLines}
         auditRows={formatAuditTrailEvents(
           typedAudit.map(r => ({
             id: r.id,

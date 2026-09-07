@@ -16,6 +16,8 @@ type Props = {
   capacity: number | null | undefined
   capacityBands?: unknown | null
   className?: string
+  /** Locked until cost lines leave FIGURES NEEDED. */
+  disabled?: boolean
 }
 
 /**
@@ -23,7 +25,7 @@ type Props = {
  * Track segments follow Harbour capacity bands; labels sit at seat boundaries.
  * Falls back to a plain gold slider when bands are empty.
  */
-export default function BandedSellSlider({ value, onChange, capacity, capacityBands, className }: Props) {
+export default function BandedSellSlider({ value, onChange, capacity, capacityBands, className, disabled = false }: Props) {
   const bands = normalizeCapacityBands(capacityBands)
   const topCap = topBandSeats(bands, capacity) ?? 0
   const tickets = topCap > 0 ? Math.round(topCap * (value / 100)) : 0
@@ -39,8 +41,9 @@ export default function BandedSellSlider({ value, onChange, capacity, capacityBa
           min={0}
           max={100}
           value={value}
+          disabled={disabled}
           onChange={e => onChange(parseInt(e.target.value, 10))}
-          className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-700 accent-amber-400"
+          className={`w-full h-1.5 rounded-lg appearance-none bg-slate-700 accent-amber-400 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
           style={{ maxWidth: '100%' }}
         />
       </div>
@@ -98,8 +101,9 @@ export default function BandedSellSlider({ value, onChange, capacity, capacityBa
           min={0}
           max={100}
           value={value}
+          disabled={disabled}
           onChange={e => onChange(parseInt(e.target.value, 10))}
-          className="absolute left-0 right-0 w-full appearance-none cursor-pointer bg-transparent"
+          className={`absolute left-0 right-0 w-full appearance-none bg-transparent ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
           style={{
             top: 0,
             height: 8,

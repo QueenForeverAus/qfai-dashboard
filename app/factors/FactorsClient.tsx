@@ -3,6 +3,7 @@
 import { formatDateAU } from '@/lib/dates'
 
 import { useState } from 'react'
+import { INSIDE_FACTOR_CATEGORY, normalizeFactorCategory } from '@/lib/pnl'
 
 type Factor = {
   id: string
@@ -107,12 +108,20 @@ export default function FactorsClient({ initialFactors }: { initialFactors: Fact
   }
 
   const byCategory = factors.reduce<Record<string, Factor[]>>((acc, f) => {
-    if (!acc[f.category]) acc[f.category] = []
-    acc[f.category].push(f)
+    const category = normalizeFactorCategory(f.category)
+    if (!acc[category]) acc[category] = []
+    acc[category].push({ ...f, category })
     return acc
   }, {})
 
-  const categoryOrder = ['Revenue', 'Travel & Accommodation', 'Crew & Operations', 'Production', 'Marketing']
+  const categoryOrder = [
+    'Revenue',
+    INSIDE_FACTOR_CATEGORY,
+    'Travel & Accommodation',
+    'Crew & Operations',
+    'Production',
+    'Marketing',
+  ]
   const orderedCategories = [
     ...categoryOrder.filter(c => byCategory[c]),
     ...Object.keys(byCategory).filter(c => !categoryOrder.includes(c)),
