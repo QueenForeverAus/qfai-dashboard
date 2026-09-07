@@ -23,10 +23,15 @@ export type CostEntry = {
   paid_snapshot?: PaidStatusSnapshot | null
 }
 
-/** Prior `paid` / `paid_at` for one line. Restore writes these only. */
+/**
+ * Prior paid flags for one line. Restore writes `paid` / `paid_at` only.
+ * `confirmed` is the tick at bulk-PAID time (audit). Never restored.
+ */
 export type PaidStatusSnapshot = {
   paid: boolean
   paid_at: string | null
+  /** Tick state when MARK ALL AS PAID ran. Audit only — not restored. */
+  confirmed: boolean
 }
 
 /** Fields frozen while a line is PAID. Un-pay first to edit. */
@@ -174,14 +179,24 @@ export function parsePaidSnapshot(raw: unknown): PaidStatusSnapshot | null {
   return {
     paid: Boolean(row.paid),
     paid_at: parsePaidAt(row.paid_at),
+    confirmed: row.confirmed === undefined ? true : Boolean(row.confirmed),
   }
 }
 
-export function snapshotPaidStatus(entry: Pick<CostEntry, 'paid' | 'paid_at'>): PaidStatusSnapshot {
+export function snapshotPaidStatus(entry: Pick<CostEntry, 'paid' | 'paid_at' | 'confirmed'>): PaidStatusSnapshot {
   return {
     paid: Boolean(entry.paid),
     paid_at: entry.paid ? parsePaidAt(entry.paid_at) : null,
+    confirmed: entry.confirmed === true,
   }
+}
+
+/** Line ids that were unticked when MARK ALL AS PAID captured the snapshot. */
+export function untickedIdsFromPaidSnapshots(entries: CostEntry[] | null | undefined): string[] {
+  if (!Array.isArray(entries)) return []
+  return entries
+    .filter(e => e.paid_snapshot != null && e.paid_snapshot.confirmed === false)
+    .map(e => e.id)
 }
 
 /** True when a section bulk-PAID snapshot is still pending restore (undo). */
@@ -326,7 +341,7 @@ export function formatBulkPaidAuditCopy(opts: {
   let sentence = `${actor} marked all lines in ${scope} as PAID (${lines}`
   if (unconfirmed.length > 0) {
     const verb = unconfirmed.length === 1 ? 'was' : 'were'
-    sentence += `; ${unconfirmed.length} ${verb} not confirm-ticked: ${joinAuditLabels(unconfirmed.map(entryAuditLabel))}`
+    sentence += `; ${unconfirmed.length} ${verb} not confirm-ticked: ${joinAuditLabels(unconfirmed.map(entryAuditLabel))} [ids: ${unconfirmed.map(e => e.id).join(', ')}]`
   }
   sentence += ').'
   return {

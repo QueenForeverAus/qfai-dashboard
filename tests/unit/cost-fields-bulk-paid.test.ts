@@ -10,6 +10,7 @@ import {
   normalizeEntries,
   preservePaidSnapshots,
   restorePaidSnapshot,
+  untickedIdsFromPaidSnapshots,
   rolledUpCostFieldState,
   sectionEditSelectValue,
   SECTION_BULK_PAID_VALUE,
@@ -40,11 +41,12 @@ test('applyBulkMarkAllPaid confirms and pays every line, including unticked ones
   assert.equal(next[0].paid, true)
   assert.equal(next[0].confirmed, true)
   assert.equal(next[0].paid_at, '2026-01-01T00:00:00.000Z')
-  assert.deepEqual(next[0].paid_snapshot, { paid: true, paid_at: '2026-01-01T00:00:00.000Z' })
+  assert.deepEqual(next[0].paid_snapshot, { paid: true, paid_at: '2026-01-01T00:00:00.000Z', confirmed: true })
   assert.equal(next[1].paid, true)
   assert.equal(next[1].confirmed, true)
   assert.equal(next[1].paid_at, '2026-09-07T00:00:00.000Z')
-  assert.deepEqual(next[1].paid_snapshot, { paid: false, paid_at: null })
+  assert.deepEqual(next[1].paid_snapshot, { paid: false, paid_at: null, confirmed: false })
+  assert.deepEqual(untickedIdsFromPaidSnapshots(next), ['b'])
 })
 
 test('second bulk keeps the original paid snapshot', () => {
@@ -53,7 +55,7 @@ test('second bulk keeps the original paid snapshot', () => {
     '2026-09-07T00:00:00.000Z',
   )
   const second = applyBulkMarkAllPaid(first, '2026-09-08T00:00:00.000Z')
-  assert.deepEqual(second[0].paid_snapshot, { paid: false, paid_at: null })
+  assert.deepEqual(second[0].paid_snapshot, { paid: false, paid_at: null, confirmed: false })
 })
 
 test('restorePaidSnapshot restores paid flags only and clears snapshot', () => {
@@ -102,10 +104,10 @@ test('normalizeEntries preserves paid_snapshot', () => {
       confirmed: true,
       paid: true,
       paid_at: '2026-09-01T12:00:00.000Z',
-      paid_snapshot: { paid: false, paid_at: null },
+      paid_snapshot: { paid: false, paid_at: null, confirmed: false },
     },
   ])
-  assert.deepEqual(rows?.[0].paid_snapshot, { paid: false, paid_at: null })
+  assert.deepEqual(rows?.[0].paid_snapshot, { paid: false, paid_at: null, confirmed: false })
 })
 
 test('bulk pay / restore skip confirm rollup so figure-source state is not clobbered', () => {
@@ -142,6 +144,7 @@ test('MARK ALL AS PAID audit copy is plain language and calls out unticked lines
   assert.match(copy.newValue, /Rider/)
   assert.match(copy.newValue, /Extra usher/)
   assert.match(copy.newValue, /bbbbbbbb/)
+  assert.match(copy.newValue, /ids: bbbbbbbb-2222, cccccccc-3333/)
 })
 
 test('restore audit copy lists lines that became unpaid again', () => {
