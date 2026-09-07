@@ -27,5 +27,5 @@ test('R12 Remittance: enter hire $1 off, see variance, open challenge draft (not
   await expect(page.getByTestId('challenge-draft-preview')).toBeVisible({ timeout: 8000 })
   await expect(page.getByText(/draft only — not sent/i).first()).toBeVisible()
   await expect(page.getByText(/Harbour/i).first()).toBeVisible()
-  await expect(page.getByText(/auto-send/i)).toHaveCount(0).catch(() => {})
+  await expect(page.getByTestId('challenge-draft-preview')).toContainText(/not sent/i)
 })
