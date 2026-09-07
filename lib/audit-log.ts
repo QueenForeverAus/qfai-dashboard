@@ -32,9 +32,20 @@ export type AuditEntryLike = {
   gst_included?: boolean | null
   confirmed?: boolean | null
   paid?: boolean | null
+  quote_note?: string | null
+  attachment_filename?: string | null
 }
 
-const ENTRY_AUDIT_KEYS = ['amount', 'description', 'notes', 'gst_included', 'confirmed', 'paid'] as const
+const ENTRY_AUDIT_KEYS = [
+  'amount',
+  'description',
+  'notes',
+  'gst_included',
+  'confirmed',
+  'paid',
+  'quote_note',
+  'attachment_filename',
+] as const
 
 export type AuditLineItemLike = {
   id: string

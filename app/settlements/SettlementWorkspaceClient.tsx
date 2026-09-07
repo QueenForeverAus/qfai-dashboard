@@ -25,6 +25,7 @@ import {
   type RunSettlementRow,
 } from '@/lib/settlements'
 import type { AgentSettlementLine } from '@/lib/remittance'
+import QuoteInvoiceStub from '@/components/QuoteInvoiceStub'
 import SettlementsTabBar from './SettlementsTabBar'
 
 type Show = {
@@ -78,6 +79,8 @@ export default function SettlementWorkspaceClient({
   const [desc, setDesc] = useState('')
   const [amount, setAmount] = useState('')
   const [notes, setNotes] = useState('')
+  const [quoteNote, setQuoteNote] = useState('')
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [lineShowId, setLineShowId] = useState(focusedShowId ?? '')
   const [agentLines, setAgentLines] = useState(agentSettlementLines)
   const [agentDesc, setAgentDesc] = useState('')
@@ -138,21 +141,58 @@ export default function SettlementWorkspaceClient({
           description,
           amount: Number(amount) || 0,
           notes: notes.trim(),
+          quote_note: quoteNote.trim(),
           show_id: lineShowId || null,
         }),
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body.error || 'Could not add band cost')
-      setLines(prev => [...prev, body.line])
+      let line = body.line as BandCostLine
+      if (pendingFile) {
+        line = await attachToLine(line, pendingFile)
+      }
+      setLines(prev => [...prev, line])
       setDesc('')
       setAmount('')
       setNotes('')
+      setQuoteNote('')
+      setPendingFile(null)
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not add band cost')
     } finally {
       setBusy(false)
     }
+  }
+
+  async function patchLine(line: BandCostLine, payload: Record<string, unknown>): Promise<BandCostLine> {
+    const res = await fetch(`/api/settlements/${run.id}/band-costs/${line.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(body.error || 'Could not update band cost')
+    return body.line as BandCostLine
+  }
+
+  async function uploadStub(file: File) {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('run_id', run.id)
+    const res = await fetch('/api/quote-invoice-stubs', { method: 'POST', body: form })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(body.error || 'Could not attach file')
+    return body as { path: string; filename: string; mime: string }
+  }
+
+  async function attachToLine(line: BandCostLine, file: File): Promise<BandCostLine> {
+    const stub = await uploadStub(file)
+    return patchLine(line, {
+      attachment_path: stub.path,
+      attachment_filename: stub.filename,
+      attachment_mime: stub.mime,
+    })
   }
 
   async function setLineStatus(line: BandCostLine, status: 'paid' | 'waived' | 'open') {
@@ -163,14 +203,8 @@ export default function SettlementWorkspaceClient({
         status === 'paid' ? { paid: true, waived: false }
           : status === 'waived' ? { paid: false, waived: true }
             : { paid: false, waived: false }
-      const res = await fetch(`/api/settlements/${run.id}/band-costs/${line.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body.error || 'Could not update band cost')
-      setLines(prev => prev.map(l => l.id === line.id ? body.line : l))
+      const updated = await patchLine(line, payload)
+      setLines(prev => prev.map(l => l.id === line.id ? updated : l))
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update band cost')
@@ -313,7 +347,14 @@ export default function SettlementWorkspaceClient({
                         <ul className="mt-1.5 space-y-0.5">
                           {field.entries.map(entry => (
                             <li key={entry.id} className="flex justify-between gap-2 text-xs text-slate-500">
-                              <span className="truncate">{entry.description || 'Line'}</span>
+                              <span className="truncate">
+                                {entry.description || 'Line'}
+                                {entry.attachment_filename ? (
+                                  <span className="ml-1.5 text-[10px] font-semibold px-1 py-0.5 rounded border border-slate-700 text-slate-500">
+                                    {entry.attachment_filename}
+                                  </span>
+                                ) : null}
+                              </span>
                               <span className="tabular-nums shrink-0">{formatSettlementsMoney(entry.amount)}</span>
                             </li>
                           ))}
@@ -473,6 +514,52 @@ export default function SettlementWorkspaceClient({
                         </button>
                       )}
                     </div>
+                    <QuoteInvoiceStub
+                      filename={line.attachment_filename}
+                      quoteNote={line.quote_note}
+                      disabled={busy}
+                      busy={busy}
+                      testIdPrefix={`band-cost-${line.id}`}
+                      onNoteCommit={async note => {
+                        setBusy(true)
+                        setError(null)
+                        try {
+                          const updated = await patchLine(line, { quote_note: note })
+                          setLines(prev => prev.map(l => l.id === line.id ? updated : l))
+                          router.refresh()
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Could not save note')
+                        } finally {
+                          setBusy(false)
+                        }
+                      }}
+                      onAttach={async file => {
+                        setBusy(true)
+                        setError(null)
+                        try {
+                          const updated = await attachToLine(line, file)
+                          setLines(prev => prev.map(l => l.id === line.id ? updated : l))
+                          router.refresh()
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Could not attach file')
+                        } finally {
+                          setBusy(false)
+                        }
+                      }}
+                      onRemove={async () => {
+                        setBusy(true)
+                        setError(null)
+                        try {
+                          const updated = await patchLine(line, { clear_attachment: true })
+                          setLines(prev => prev.map(l => l.id === line.id ? updated : l))
+                          router.refresh()
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Could not remove file')
+                        } finally {
+                          setBusy(false)
+                        }
+                      }}
+                    />
                   </li>
                 ))}
               </ul>
@@ -513,6 +600,24 @@ export default function SettlementWorkspaceClient({
                 aria-label={NOTES_INPUT_LABEL}
                 className="w-full px-3 py-2 rounded-lg text-sm bg-slate-900 border border-slate-600 text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-400"
               />
+              <input
+                data-testid="new-band-cost-quote-note"
+                value={quoteNote}
+                onChange={e => setQuoteNote(e.target.value)}
+                placeholder="Link quote/invoice later"
+                aria-label="Link quote/invoice later"
+                className="w-full px-3 py-2 rounded-lg text-sm bg-slate-900 border border-slate-600 text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-400"
+              />
+              <label className="flex items-center gap-2 text-xs text-slate-400">
+                <input
+                  data-testid="new-band-cost-attach"
+                  type="file"
+                  accept="application/pdf,image/jpeg,image/png,image/webp,image/gif,.pdf,.jpg,.jpeg,.png,.webp,.gif"
+                  className="text-xs text-slate-400 file:mr-2 file:text-[10px] file:font-semibold file:px-2 file:py-1 file:rounded file:border file:border-slate-600 file:bg-slate-900 file:text-slate-300"
+                  onChange={e => setPendingFile(e.target.files?.[0] ?? null)}
+                />
+                {pendingFile ? <span className="text-slate-300 truncate">{pendingFile.name}</span> : <span>Optional PDF or image</span>}
+              </label>
               <button
                 type="button"
                 data-testid="add-band-cost"

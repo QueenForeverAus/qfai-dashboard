@@ -106,6 +106,11 @@ test('close-gate is display-only: all lines PAID or waived', () => {
   assert.equal(closed.ready, true)
   assert.equal(closed.waived, 1)
   assert.equal(closed.paid, 1)
+  assert.equal(
+    bandCostCloseGate([{ paid: true, waived: false }]).ready,
+    true,
+    'missing attachment must not block close-gate',
+  )
 })
 
 test('nudge stub is Finalise + 24h', () => {

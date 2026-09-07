@@ -584,3 +584,31 @@ test('Band Cost added narrative is a plain sentence', () => {
     'Gareth added band cost Uber $45.00 on Concourse (run R12).',
   )
 })
+
+test('quote/invoice stub narratives are plain sentences', () => {
+  assert.equal(
+    sentence({
+      table_name: 'band_cost_lines',
+      record_id: 'bc-1',
+      field_name: 'Quote/invoice attachment',
+      new_value: 'Test Admin added a quote/invoice file uber.pdf on band cost Uber (run R12).',
+    }),
+    'Test Admin added a quote/invoice file uber.pdf on band cost Uber (run R12).',
+  )
+  assert.equal(
+    sentence({
+      field_name: 'entries[line-ushers].quote_note',
+      old_value: '',
+      new_value: 'Waiting on Harbour',
+    }),
+    'Michael updated the quote/invoice note on Ushers.',
+  )
+  assert.equal(
+    sentence({
+      field_name: 'entries[line-ushers].attachment_filename',
+      old_value: '',
+      new_value: 'quote.pdf',
+    }),
+    'Michael added a quote/invoice file quote.pdf on Ushers.',
+  )
+})

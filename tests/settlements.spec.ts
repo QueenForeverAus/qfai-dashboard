@@ -34,12 +34,35 @@ test('Settlements lists runs with nested shows and two-pane workspace', async ({
   await expect(page.getByText('Agent Settlement')).toBeVisible()
   await expect(page.getByText('Band Costs')).toBeVisible()
   await expect(page.getByTestId('close-gate-summary')).toBeVisible()
+  await expect(page.getByTestId('new-band-cost-quote-note')).toBeVisible()
+  await expect(page.getByTestId('new-band-cost-attach')).toBeVisible()
   await expect(page.getByTestId('finalise-costing').or(page.getByTestId('finalised-badge'))).toBeVisible()
   await expect(page.getByTestId('tab-remittance')).toBeVisible()
   await page.getByTestId('tab-remittance').click()
   await page.waitForURL(/\/settlements\/r12\/remittance/i)
   await expect(page.getByTestId('remittance-compare')).toBeVisible()
   await expect(page.getByTestId('add-remittance')).toBeVisible()
+})
+
+test('Band Costs quote/invoice stub attaches a dummy PDF and shows a chip', async ({ page }) => {
+  await page.goto('/settlements/r12')
+  if (!page.url().match(/\/settlements\/r12/i)) {
+    test.skip(true, 'R12 workspace not available')
+    return
+  }
+  await expect(page.getByTestId('settlements-right-pane')).toBeVisible({ timeout: 8000 })
+  const stamp = `W15 stub ${Date.now()}`
+  await page.getByPlaceholder('e.g. Uber from hotel').fill(stamp)
+  await page.getByTestId('settlements-right-pane').getByPlaceholder('Amount').fill('12')
+  await page.getByTestId('new-band-cost-quote-note').fill('Link quote/invoice later')
+  await page.getByTestId('new-band-cost-attach').setInputFiles({
+    name: 'dummy-quote.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4 stub'),
+  })
+  await page.getByTestId('add-band-cost').click()
+  await expect(page.getByText(stamp)).toBeVisible({ timeout: 8000 })
+  await expect(page.getByText('dummy-quote.pdf').first()).toBeVisible()
 })
 
 test('legacy /settlement redirects to Settlements', async ({ page }) => {
