@@ -26,6 +26,7 @@ import {
   type RunSettlementRow,
 } from '@/lib/settlements'
 import type { AgentSettlementLine } from '@/lib/remittance'
+import type { SettlementActualLine } from '@/lib/settlements-sheet-actuals'
 import QuoteInvoiceStub from '@/components/QuoteInvoiceStub'
 import SettlementsTabBar from './SettlementsTabBar'
 import {
@@ -71,6 +72,7 @@ export default function SettlementWorkspaceClient({
   bandCosts,
   focusedShowId,
   agentSettlementLines = [],
+  actuals = [],
 }: {
   run: { id: string; code: string; name: string; status: string; start_date: string | null; end_date: string | null }
   shows: Show[]
@@ -79,6 +81,7 @@ export default function SettlementWorkspaceClient({
   bandCosts: BandCostLine[]
   focusedShowId: string | null
   agentSettlementLines?: AgentSettlementLine[]
+  actuals?: SettlementActualLine[]
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
@@ -106,8 +109,11 @@ export default function SettlementWorkspaceClient({
     () => distributeGateFromSources({
       fields: liveFields,
       wave1BandCosts: lines,
+      sheetBandActuals: actuals
+        .filter(a => a.line_kind === 'band_cost')
+        .map(a => ({ id: a.id, line_key: a.line_key, paid: a.paid, notes: a.notes })),
     }),
-    [liveFields, lines],
+    [liveFields, lines, actuals],
   )
 
   const showGroups = useMemo(() => {
