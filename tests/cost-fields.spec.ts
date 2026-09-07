@@ -253,6 +253,8 @@ test('MARK ALL AS PAID works with partial ticks, restores paid snapshot, and wri
   await expect(field.getByTestId('cost-field-edit-save')).toHaveCount(0, { timeout: 8000 })
 
   await expect(field.getByTestId('cost-field-paid')).toHaveText(/PAID/i, { timeout: 8000 })
+  await expect(field.getByTestId('cost-field-state')).toHaveText(/CONFIRMED/i)
+  await expect(field).toHaveAttribute('data-chrome', 'confirmed')
   await expect(field.getByTestId('entry-paid-lock').first()).toBeVisible()
   const lockCount = await field.getByTestId('entry-paid-lock').count()
   expect(lockCount).toBeGreaterThanOrEqual(2)
@@ -275,7 +277,64 @@ test('MARK ALL AS PAID works with partial ticks, restores paid snapshot, and wri
   if (await auditTab.isVisible()) await auditTab.click()
   await expect(page.getByText(/marked all lines/i).first()).toBeVisible({ timeout: 8000 })
   await expect(page.getByText(/not confirm-ticked/i).first()).toBeVisible()
+  await expect(page.getByText(/also confirmed/i).first()).toBeVisible()
   await expect(page.getByText(/restored the prior PAID snapshot|restored prior PAID snapshot/i).first()).toBeVisible()
+})
+
+test('all-PAID overlay is CONFIRMED green; restore to Guess is not stuck CONFIRMED', async ({ page }) => {
+  test.setTimeout(60_000)
+  await page.goto('/runs')
+  const runLinks = page.getByRole('link', { name: /R\d+|TEST/i })
+  if (await runLinks.count() === 0) {
+    test.skip(true, 'No runs available on staging — seed one first')
+    return
+  }
+
+  await runLinks.first().click()
+  await page.waitForURL(/\/runs\//)
+
+  const field = await openVenueHire(page)
+  await ensureTwoEntries(page, field)
+
+  await field.getByTestId('cost-field-edit').click()
+  const resetSelect = field.getByTestId('cost-field-edit-select')
+  await expect(resetSelect).toBeVisible()
+  await resetSelect.selectOption('guess')
+  await field.getByTestId('cost-field-edit-save').click()
+  await expect(field.getByTestId('cost-field-edit-save')).toHaveCount(0, { timeout: 8000 })
+
+  const payButtons = field.getByTestId('entry-paid-toggle')
+  const payReset = await payButtons.count()
+  for (let i = 0; i < payReset; i++) {
+    const btn = payButtons.nth(i)
+    if (!(await btn.isVisible())) continue
+    if ((await btn.getAttribute('aria-pressed')) === 'true') {
+      await btn.click()
+      await page.waitForTimeout(400)
+    }
+  }
+
+  await expect(field.getByTestId('cost-field-paid')).toHaveCount(0, { timeout: 8000 })
+  await expect(field.getByTestId('cost-field-state')).toHaveText(/GUESS/i)
+  await expect(field).toHaveAttribute('data-chrome', 'guess')
+
+  await field.getByTestId('cost-field-edit').click()
+  await field.getByTestId('cost-field-edit-select').selectOption('bulk_paid')
+  await field.getByTestId('cost-field-edit-save').click()
+  await expect(field.getByTestId('cost-field-edit-save')).toHaveCount(0, { timeout: 8000 })
+
+  await expect(field.getByTestId('cost-field-paid')).toHaveText(/PAID/i, { timeout: 8000 })
+  await expect(field.getByTestId('cost-field-state')).toHaveText(/CONFIRMED/i)
+  await expect(field).toHaveAttribute('data-chrome', 'confirmed')
+
+  await field.getByTestId('cost-field-edit').click()
+  await field.getByTestId('cost-field-edit-select').selectOption('guess')
+  await field.getByTestId('cost-field-edit-save').click()
+  await expect(field.getByTestId('cost-field-edit-save')).toHaveCount(0, { timeout: 8000 })
+
+  await expect(field.getByTestId('cost-field-paid')).toHaveCount(0, { timeout: 8000 })
+  await expect(field.getByTestId('cost-field-state')).toHaveText(/GUESS/i)
+  await expect(field).toHaveAttribute('data-chrome', 'guess')
 })
 
 test('entries label shows "entries" not "receipts"', async ({ page }) => {

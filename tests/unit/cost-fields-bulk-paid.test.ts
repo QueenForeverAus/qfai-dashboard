@@ -4,6 +4,7 @@ import {
   applyBulkMarkAllPaid,
   AUDIT_FIELD_BULK_PAID,
   AUDIT_FIELD_PAID_RESTORE,
+  formatAllPaidAlsoConfirmedSentence,
   formatBulkPaidAuditCopy,
   formatPaidRestoreAuditCopy,
   formatSectionConfirmedAuditCopy,
@@ -147,6 +148,35 @@ test('MARK ALL AS PAID audit copy is plain language and calls out unticked lines
   assert.match(copy.newValue, /Extra usher/)
   assert.match(copy.newValue, /bbbbbbbb/)
   assert.match(copy.newValue, /ids: bbbbbbbb-2222, cccccccc-3333/)
+  assert.match(copy.newValue, /Gareth's MARK ALL AS PAID also confirmed 2 lines in Venue Staff \/ On-costs/)
+})
+
+test('all-PAID also-confirmed sentence is omitted when every line was already ticked', () => {
+  const copy = formatBulkPaidAuditCopy({
+    actorName: 'Gareth',
+    sectionLabel: 'Venue Hire',
+    entries: [
+      entry({ id: 'a', confirmed: true, paid: false }),
+      entry({ id: 'b', confirmed: true, paid: false }),
+    ],
+  })
+  assert.doesNotMatch(copy.newValue, /also confirmed/)
+  assert.equal(
+    formatAllPaidAlsoConfirmedSentence({
+      actorName: 'Gareth',
+      sectionLabel: 'Venue Hire',
+      confirmedCount: 2,
+    }),
+    "Gareth's MARK ALL AS PAID also confirmed 2 lines in Venue Hire.",
+  )
+  assert.equal(
+    formatAllPaidAlsoConfirmedSentence({
+      actorName: 'Gareth',
+      sectionLabel: 'Venue Hire',
+      confirmedCount: 0,
+    }),
+    null,
+  )
 })
 
 test('restore audit copy lists lines that became unpaid again', () => {

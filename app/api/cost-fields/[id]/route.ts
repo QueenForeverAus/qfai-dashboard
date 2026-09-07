@@ -7,17 +7,21 @@ import {
   canEditCostFields,
   CONFIRMED_FIELD_STATE,
   ensureMinimumEntry,
+  ensurePaidLinesConfirmed,
   entriesSum,
   ENTRY_EXEMPT_FIELD_KEYS,
+  formatAllPaidAlsoConfirmedSentence,
   formatBulkPaidAuditCopy,
   formatPaidRestoreAuditCopy,
   formatSectionConfirmedAuditCopy,
+  AUDIT_FIELD_PAID_ALSO_CONFIRMED,
   hasBulkPaidSnapshot,
   isNonConfirmedFieldState,
   isUnconfirmedEntriesSeed,
   normalizeEntries,
   paidLockViolation,
   parseSectionPayment,
+  paymentDidNotChangeAttestationTicks,
   pickPriorStateFromAuditRows,
   preservePaidSnapshots,
   productionCanEditFieldKey,
@@ -164,6 +168,7 @@ export async function PATCH(
   let restoreBefore: CostEntry[] | null = null
   let restoreAfter: CostEntry[] | null = null
   let bulkBefore: CostEntry[] | null = null
+  let paidImpliedConfirms: CostEntry[] = []
 
   if (sectionPayment === SECTION_PAYMENT_PAID) {
     if (ENTRY_EXEMPT_FIELD_KEYS.has(existing.field_key)) {
@@ -183,6 +188,9 @@ export async function PATCH(
     delete updates.state
     let entries = applyBulkMarkAllPaid(existingEntries)
     entries = stampPaidAt(entries, existingEntries)
+    const repaired = ensurePaidLinesConfirmed(entries)
+    entries = repaired.entries
+    paidImpliedConfirms = repaired.newlyConfirmed
     const lockError = paidLockViolation(existingEntries, entries)
     if (lockError) {
       return NextResponse.json({ error: lockError }, { status: 400 })
@@ -231,6 +239,9 @@ export async function PATCH(
     const existingEntries = normalizeEntries(existing.entries) ?? []
     entries = preservePaidSnapshots(entries, existingEntries)
     entries = stampPaidAt(entries, existingEntries)
+    const repaired = ensurePaidLinesConfirmed(entries)
+    entries = repaired.entries
+    paidImpliedConfirms = repaired.newlyConfirmed
     const lockError = paidLockViolation(existingEntries, entries)
     if (lockError) {
       return NextResponse.json({ error: lockError }, { status: 400 })
@@ -244,7 +255,14 @@ export async function PATCH(
   }
 
   const rolledEntries = (updates.entries as ReturnType<typeof normalizeEntries>) ?? null
-  const skipRollup = shouldSkipConfirmRollup({ bulkPaidApplied, snapshotRestored })
+  const existingEntriesForRollup = normalizeEntries(existing.entries) ?? []
+  const skipRollup = shouldSkipConfirmRollup({
+    bulkPaidApplied,
+    snapshotRestored,
+    paymentImpliedConfirmsOnly: Boolean(
+      rolledEntries && paymentDidNotChangeAttestationTicks(existingEntriesForRollup, rolledEntries),
+    ),
+  })
 
   // W1.1: line-item confirm ticks roll up to cost_fields.state (`known` = CONFIRMED).
   // W1.2 PAID does not write cost_fields.state (payment ≠ figure accuracy).
@@ -325,6 +343,20 @@ export async function PATCH(
       runCode,
       entries: bulkBefore,
     })
+  } else if (!snapshotRestored && paidImpliedConfirms.length > 0) {
+    const sentence = formatAllPaidAlsoConfirmedSentence({
+      actorName,
+      sectionLabel,
+      confirmedCount: paidImpliedConfirms.length,
+      actionLabel: 'Pay',
+    })
+    if (sentence) {
+      narrative = {
+        fieldName: AUDIT_FIELD_PAID_ALSO_CONFIRMED,
+        oldValue: `${paidImpliedConfirms.length} ${paidImpliedConfirms.length === 1 ? 'line was' : 'lines were'} not confirm-ticked`,
+        newValue: sentence,
+      }
+    }
   } else if (snapshotRestored && restoreBefore && restoreAfter) {
     narrative = formatPaidRestoreAuditCopy({
       actorName,
