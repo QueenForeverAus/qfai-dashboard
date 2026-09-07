@@ -3,13 +3,13 @@
  * Used when splitting Harbour quotes and planned roles across show cost fields.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { writeAuditLog, auditStringify } from '@/lib/audit-log'
+import { writeAuditLog, auditStringify } from './audit-log.ts'
 import {
   AUDIT_FIELD_LINE_MOVED,
   DEFINED_SHOW_COST_FIELDS,
   entriesSum,
   type CostEntry,
-} from '@/lib/cost-fields'
+} from './cost-fields.ts'
 
 export type VenueLineKind = 'venue_marketing' | 'production_costs' | 'venue_staff' | 'unknown'
 

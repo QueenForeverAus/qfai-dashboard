@@ -36,6 +36,12 @@ export type CostEntry = PayableLine & {
   quote_note?: string | null
   /** Wave 2 Payables document FK — unused in W1.5 UI. */
   payables_document_id?: string | null
+  /** Michael advancing extract — figure source only; never instructions. */
+  advancing_source?: string | null
+  advancing_message_id?: string | null
+  advancing_thread_ref?: string | null
+  advancing_confidence?: string | null
+  advancing_evidence_snippet?: string | null
 }
 
 /**
@@ -48,6 +54,11 @@ export type StaffLineItem = PayableLine & {
   hours: number
   headcount: number
   source?: string
+  advancing_source?: string | null
+  advancing_message_id?: string | null
+  advancing_thread_ref?: string | null
+  advancing_confidence?: string | null
+  advancing_evidence_snippet?: string | null
 }
 
 /**
@@ -812,6 +823,11 @@ export function normalizeLineItems(raw: unknown): StaffLineItem[] | null {
       hours: Number(row.hours) || 0,
       headcount: Number(row.headcount) || 0,
       source: row.source != null ? String(row.source) : '',
+      advancing_source: row.advancing_source != null ? String(row.advancing_source) : null,
+      advancing_message_id: row.advancing_message_id != null ? String(row.advancing_message_id) : null,
+      advancing_thread_ref: row.advancing_thread_ref != null ? String(row.advancing_thread_ref) : null,
+      advancing_confidence: row.advancing_confidence != null ? String(row.advancing_confidence) : null,
+      advancing_evidence_snippet: row.advancing_evidence_snippet != null ? String(row.advancing_evidence_snippet) : null,
     }
   })
 }
@@ -840,6 +856,11 @@ export function normalizeEntries(raw: unknown): CostEntry[] | null {
       payables_document_id: row.payables_document_id != null && String(row.payables_document_id)
         ? String(row.payables_document_id)
         : null,
+      advancing_source: row.advancing_source != null ? String(row.advancing_source) : null,
+      advancing_message_id: row.advancing_message_id != null ? String(row.advancing_message_id) : null,
+      advancing_thread_ref: row.advancing_thread_ref != null ? String(row.advancing_thread_ref) : null,
+      advancing_confidence: row.advancing_confidence != null ? String(row.advancing_confidence) : null,
+      advancing_evidence_snippet: row.advancing_evidence_snippet != null ? String(row.advancing_evidence_snippet) : null,
     }
   })
 }

@@ -51,9 +51,11 @@ import {
   NOTES_INPUT_LABEL,
   enteredByLabel,
   formatNotesSource,
+  isAdvancingSourceNote,
   staffDisplayName,
 } from '@/lib/cost-entry-source'
 import QuoteInvoiceStub from '@/components/QuoteInvoiceStub'
+import ApplyAdvancingExtract from './ApplyAdvancingExtract'
 
 type FieldState = CostFieldState
 
@@ -821,6 +823,11 @@ function FieldRow({
               {entries.length} {entries.length !== 1 ? 'entries' : 'entry'} · total from sub-items
             </div>
           )}
+          {isAdvancingSourceNote(existing?.source) && (
+            <div data-testid="advancing-source-note" className="text-amber-400/70 text-xs mt-0.5 truncate" title={existing?.source ?? undefined}>
+              {existing?.source}
+            </div>
+          )}
           {error && (
             <div className="text-red-400 text-xs mt-0.5" role="alert">{error}</div>
           )}
@@ -934,6 +941,18 @@ function VenueStaffRow({
   const [draftSelect, setDraftSelect] = useState<SectionEditValue>(persistedSelect)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setItems(normalizeLineItems(existing?.line_items) ?? [])
+    setDraftSelect(sectionEditSelectValue(
+      sectionPayableLines(
+        'venue_staff',
+        existing?.entries ?? [],
+        normalizeLineItems(existing?.line_items) ?? [],
+      ),
+      (existing?.state as FieldState) ?? 'guess',
+    ))
+  }, [existing?.id, existing?.state, existing?.line_items, existing?.entries])
 
   const state = figureStateFromSelect(draftSelect, persistedState)
   const { styles, chipLabel, chromeAttr, allPaid: sectionPaid } = sectionChrome(state, payableLines)
@@ -1117,6 +1136,11 @@ function VenueStaffRow({
           <div className="text-slate-300 text-sm">Venue Staff / On-costs</div>
           {enteredTotal > 0 && (
             <div className="text-slate-500 text-xs mt-0.5">{fmt(enteredTotal)} in actuals / entries</div>
+          )}
+          {isAdvancingSourceNote(existing?.source) && (
+            <div data-testid="advancing-source-note" className="text-amber-400/70 text-xs mt-0.5 truncate" title={existing?.source ?? undefined}>
+              {existing?.source}
+            </div>
           )}
           {error && (
             <div className="text-red-400 text-xs mt-0.5" role="alert">{error}</div>
@@ -2128,6 +2152,21 @@ export default function CostFieldsTab({
             <span className="text-slate-500 leading-snug pt-0.5">Receipt recorded — locks the line or planned role. Per-line / per-role Pay still needs a confirm tick. Edit → MARK ALL AS PAID marks every line (or role) paid (unticked rows are confirmed by that action). Un-pay or undo via the dropdown to unlock.</span>
           </div>
           <p className="text-slate-600 text-xs -mt-2">Use ▼ on any cost field to drill into the breakdown and add individual line items as they come in.</p>
+
+          {canEditCostFields(effectiveRole) && (
+            <ApplyAdvancingExtract
+              runId={runId}
+              shows={showsState.map(s => ({ id: s.id, venue_name: s.venue_name, venue_city: s.venue_city }))}
+              canForce={Boolean(isOwnerOrAdmin)}
+              onApplied={rows => {
+                for (const row of rows) {
+                  if (row && typeof row === 'object' && 'id' in row) {
+                    handleSaved(row as CostFieldRow)
+                  }
+                }
+              }}
+            />
+          )}
 
           {/* Per-show sections */}
           {showsState.map((show, idx) => (
