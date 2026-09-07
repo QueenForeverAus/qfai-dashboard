@@ -3,20 +3,36 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { useProfile, canAccessPage } from '@/lib/profile-context'
+import {
+  TOUR_DESK_NAV_CHILDREN,
+  TOUR_DESK_NAV_HEADING,
+  isTourDeskChildActive,
+} from '@/lib/tour-desk-nav'
 
-const navItems = [
+type NavLeaf = { href: string; label: string; icon: string }
+type NavGroup = { label: string; icon: string; children: ReadonlyArray<{ href: string; label: string }> }
+type NavItem = NavLeaf | NavGroup
+
+const navItems: NavItem[] = [
   { href: '/',           label: 'Mission Control', icon: '⚡' },
-  { href: '/runs',        label: 'Tour Desk',     icon: '🎸' },
-  { href: '/settlements', label: 'Settlements',    icon: '💰' },
+  {
+    label: TOUR_DESK_NAV_HEADING,
+    icon: '🎸',
+    children: TOUR_DESK_NAV_CHILDREN,
+  },
   { href: '/factors',    label: 'Factors',          icon: '⚙' },
   { href: '/feedback',   label: 'Feedback',         icon: '💬' },
   { href: '/admin',      label: 'Admin',            icon: '🛠' },
   { href: '/settings',   label: 'Settings',         icon: '🔑' },
 ]
+
+function isGroup(item: NavItem): item is NavGroup {
+  return 'children' in item
+}
 
 function HamburgerIcon({ open }: { open: boolean }) {
   return (
@@ -37,19 +53,107 @@ function HamburgerIcon({ open }: { open: boolean }) {
   )
 }
 
+function leafActive(pathname: string, href: string) {
+  return pathname === href || (href !== '/' && pathname.startsWith(href))
+}
+
+function childClass(active: boolean, mobile: boolean) {
+  if (mobile) {
+    return `flex items-center gap-4 px-5 py-4 rounded-xl text-lg font-medium transition-colors ${
+      active ? 'bg-amber-400/10 text-amber-400' : 'text-slate-200 hover:bg-slate-800 active:bg-slate-700'
+    }`
+  }
+  return `flex items-center gap-2.5 pl-8 pr-3 py-2 rounded-lg text-sm transition-colors ${
+    active
+      ? 'bg-amber-400/10 text-amber-400 font-medium'
+      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+  }`
+}
+
+function leafClass(active: boolean, mobile: boolean) {
+  if (mobile) {
+    return `flex items-center gap-4 px-5 py-5 rounded-xl text-lg font-medium transition-colors ${
+      active ? 'bg-amber-400/10 text-amber-400' : 'text-slate-200 hover:bg-slate-800 active:bg-slate-700'
+    }`
+  }
+  return `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
+    active
+      ? 'bg-amber-400/10 text-amber-400 font-medium'
+      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+  }`
+}
+
 export default function Sidebar() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const router = useRouter()
   const { effectiveRole } = useProfile()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const tab = searchParams.get('tab')
 
-  const visibleItems = navItems.filter(item => canAccessPage(effectiveRole, item.href))
+  const visibleItems = navItems.filter(item => {
+    if (isGroup(item)) {
+      return item.children.some(child => canAccessPage(effectiveRole, child.href))
+    }
+    return canAccessPage(effectiveRole, item.href)
+  })
 
   async function handleSignOut() {
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login')
     router.refresh()
+  }
+
+  function renderItems(mobile: boolean) {
+    return visibleItems.map((item) => {
+      if (isGroup(item)) {
+        const visibleChildren = item.children.filter(child => canAccessPage(effectiveRole, child.href))
+        if (visibleChildren.length === 0) return null
+        return (
+          <div key={item.label} role="group" aria-label={item.label} className={mobile ? 'py-1' : 'pt-1 pb-0.5'}>
+            <div
+              className={
+                mobile
+                  ? 'flex items-center gap-4 px-5 pt-4 pb-1 text-xs font-semibold tracking-widest uppercase text-slate-500'
+                  : 'flex items-center gap-2.5 px-3 pt-2 pb-1 text-[10px] font-semibold tracking-widest uppercase text-slate-500'
+              }
+            >
+              <span className={mobile ? 'text-2xl' : undefined} aria-hidden>{item.icon}</span>
+              {item.label}
+            </div>
+            <div className={mobile ? 'flex flex-col gap-1' : 'space-y-0.5'}>
+              {visibleChildren.map(child => {
+                const active = isTourDeskChildActive({ href: child.href, pathname, tab })
+                return (
+                  <Link
+                    key={child.href}
+                    href={child.href}
+                    onClick={mobile ? () => setMobileOpen(false) : undefined}
+                    className={childClass(active, mobile)}
+                  >
+                    {child.label}
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        )
+      }
+
+      const active = leafActive(pathname, item.href)
+      return (
+        <Link
+          key={item.href}
+          href={item.href}
+          onClick={mobile ? () => setMobileOpen(false) : undefined}
+          className={leafClass(active, mobile)}
+        >
+          <span className={mobile ? 'text-2xl' : undefined}>{item.icon}</span>
+          {item.label}
+        </Link>
+      )
+    })
   }
 
   return (
@@ -66,23 +170,7 @@ export default function Sidebar() {
         </div>
 
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-          {visibleItems.map((item) => {
-            const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
-                  active
-                    ? 'bg-amber-400/10 text-amber-400 font-medium'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <span>{item.icon}</span>
-                {item.label}
-              </Link>
-            )
-          })}
+          {renderItems(false)}
         </nav>
 
         <div className="p-3 border-t border-slate-700">
@@ -127,24 +215,7 @@ export default function Sidebar() {
 
           {/* Nav items — big touch targets, fill the screen */}
           <nav className="flex-1 flex flex-col overflow-y-auto p-4 gap-1">
-            {visibleItems.map((item) => {
-              const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMobileOpen(false)}
-                  className={`flex items-center gap-4 px-5 py-5 rounded-xl text-lg font-medium transition-colors ${
-                    active
-                      ? 'bg-amber-400/10 text-amber-400'
-                      : 'text-slate-200 hover:bg-slate-800 active:bg-slate-700'
-                  }`}
-                >
-                  <span className="text-2xl">{item.icon}</span>
-                  {item.label}
-                </Link>
-              )
-            })}
+            {renderItems(true)}
           </nav>
 
           {/* Sign out at bottom */}

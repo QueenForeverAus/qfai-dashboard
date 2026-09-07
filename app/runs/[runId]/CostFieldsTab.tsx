@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile, canAccessTab } from '@/lib/profile-context'
+import { parseRunDetailTab, runDetailTabUrl, type RunDetailTab } from '@/lib/tour-desk-nav'
 import AdvancementTab from './AdvancementTab'
 import ShowPackTab from './ShowPackTab'
 import TicketOutlookBlock from './TicketOutlookBlock'
@@ -1596,7 +1598,17 @@ export default function CostFieldsTab({
   const hasShowPack = canAccessTab(effectiveRole, 'show_pack')
   const hasOutlook = canAccessTab(effectiveRole, 'outlook')
   const defaultTab = hasTabAccess ? 'costs' : hasOutlook ? 'outlook' : hasAdvancement ? 'advancement' : hasShowPack ? 'show_pack' : 'costs'
-  const [activeTab, setActiveTab] = useState<'costs' | 'outlook' | 'audit' | 'advancement' | 'show_pack'>(defaultTab)
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const urlTab = parseRunDetailTab(searchParams.get('tab'))
+  const startTab: RunDetailTab = (urlTab && canAccessTab(effectiveRole, urlTab)) ? urlTab : defaultTab
+  const [activeTab, setActiveTab] = useState<RunDetailTab>(startTab)
+
+  function selectTab(tab: RunDetailTab) {
+    setActiveTab(tab)
+    router.replace(runDetailTabUrl(pathname, searchParams.toString(), tab), { scroll: false })
+  }
   const showOwnerPnl = canSeeOwnerPnl(effectiveRole)
   const isProduction = effectiveRole === 'production'
   // Which per-show fields production can see (no revenue, no venue hire)
@@ -1830,7 +1842,7 @@ export default function CostFieldsTab({
       <div className="relative mb-6">
         <div className="flex gap-1 border-b border-slate-700 items-end overflow-x-auto scrollbar-thin pb-px pr-6">
           {(['costs', 'outlook', 'audit'] as const).filter(tab => canAccessTab(effectiveRole, tab)).map((tab) => (
-            <button key={tab} onClick={() => setActiveTab(tab)}
+            <button key={tab} onClick={() => selectTab(tab)}
               className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
                 activeTab === tab ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
               }`}>
@@ -1838,7 +1850,7 @@ export default function CostFieldsTab({
             </button>
           ))}
           {hasAdvancement && (
-            <button onClick={() => setActiveTab('advancement')}
+            <button onClick={() => selectTab('advancement')}
               className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
                 activeTab === 'advancement' ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
               }`}>
@@ -1846,7 +1858,7 @@ export default function CostFieldsTab({
             </button>
           )}
           {hasShowPack && (
-            <button onClick={() => setActiveTab('show_pack')}
+            <button onClick={() => selectTab('show_pack')}
               className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
                 activeTab === 'show_pack' ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
               }`}>

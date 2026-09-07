@@ -7,7 +7,10 @@ test.beforeEach(async ({ page }) => {
 
 test('sidebar shows Settlements (post-show) and Tour Desk (pre-show)', async ({ page }) => {
   await page.goto('/runs')
-  await expect(page.getByRole('link', { name: /^tour desk$/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /^tour desk$/i })).toHaveCount(0)
+  await expect(page.getByRole('group', { name: /^tour desk$/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /^run costings$/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /^advancing shows$/i })).toBeVisible()
   await expect(page.getByRole('link', { name: /^settlements$/i })).toBeVisible()
   await expect(page.getByRole('link', { name: /^settlement$/i })).toHaveCount(0)
 })

@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { Suspense } from 'react'
 import CostFieldsTab from './CostFieldsTab'
 import SynopsisBlock from './SynopsisBlock'
 import { buildSynopsis } from '@/lib/synopsis'
@@ -305,6 +306,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
       />
 
       {/* Tabs rendered client-side */}
+      <Suspense fallback={null}>
       <CostFieldsTab
         runId={run.id}
         runCode={run.code}
@@ -362,6 +364,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
           sentence: r.sentence,
         }))}
       />
+      </Suspense>
     </div>
   )
 }

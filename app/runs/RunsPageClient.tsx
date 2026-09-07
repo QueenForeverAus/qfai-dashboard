@@ -2,10 +2,11 @@
 
 import Link from 'next/link'
 import { useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { formatDateAU } from '@/lib/dates'
 import { runDateRangeFromShows } from '@/lib/run-dates'
 import { formatBookingStatus } from '@/lib/format-booking-status'
+import { ADVANCING_SHOWS_NAV_LABEL, runDetailHref } from '@/lib/tour-desk-nav'
 
 const STATUS_STYLES: Record<string, string> = {
   confirmed:   'bg-green-900/40 text-green-400 border-green-800',
@@ -137,6 +138,9 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
   declined?: boolean
   onStatusChange: (runId: string, newStatus: string) => void
 }) {
+  const pathname = usePathname()
+  const advancingEntry = pathname.startsWith('/advancing')
+  const runHref = (code: string) => runDetailHref(code, advancingEntry ? 'advancement' : 'costs')
   if (runs.length === 0) {
     return (
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-8 text-center">
@@ -163,7 +167,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
 
           const nameEl = isPlaceholder || isDeclined
             ? <span className={`text-sm font-medium ${isDeclined ? 'text-slate-500 line-through italic' : 'text-slate-500 italic'}`}>{run.name}</span>
-            : <Link href={`/runs/${run.code.toLowerCase()}`} className="text-white text-sm font-medium hover:text-amber-400 transition-colors">{run.name}</Link>
+            : <Link href={runHref(run.code)} className="text-white text-sm font-medium hover:text-amber-400 transition-colors">{run.name}</Link>
 
           return (
             <div key={run.id} className={`px-4 py-3 ${isPlaceholder || isDeclined ? 'opacity-60' : ''}`}>
@@ -231,7 +235,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
                   {isPlaceholder || isDeclined ? (
                     <span className={`text-slate-500 text-sm italic ${isDeclined ? 'line-through' : ''}`}>{run.name}</span>
                   ) : (
-                    <Link href={`/runs/${run.code.toLowerCase()}`} className="text-white text-sm hover:text-amber-400 transition-colors">
+                    <Link href={runHref(run.code)} className="text-white text-sm hover:text-amber-400 transition-colors">
                       {run.name}
                     </Link>
                   )}
@@ -292,6 +296,8 @@ export default function RunsPageClient({
   const [activeTab, setActiveTab] = useState<Tab>('all')
   const [runs, setRuns] = useState<Run[]>(initialRuns)
   const router = useRouter()
+  const pathname = usePathname()
+  const pageHeading = pathname.startsWith('/advancing') ? ADVANCING_SHOWS_NAV_LABEL : 'Tour Desk'
 
   function handleStatusChange(runId: string, newStatus: string) {
     setRuns(prev => prev.map(r => r.id === runId ? { ...r, status: newStatus } : r))
@@ -327,7 +333,7 @@ export default function RunsPageClient({
     <div className="p-4 sm:p-6">
       {/* Header */}
       <div className="mb-5">
-        <h1 className="text-white text-2xl font-bold tracking-wide mb-2">Tour Desk</h1>
+        <h1 className="text-white text-2xl font-bold tracking-wide mb-2">{pageHeading}</h1>
         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6">
           <div>
             <span className="text-white font-bold mr-2">RUNS: {upcomingRuns.length}</span>

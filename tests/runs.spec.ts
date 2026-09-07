@@ -15,7 +15,11 @@ test('runs list page loads', async ({ page }) => {
 test('sidebar navigation is visible', async ({ page }) => {
   await page.goto('/runs')
   await expect(page.getByRole('link', { name: /mission control/i })).toBeVisible()
-  await expect(page.getByRole('link', { name: /tour desk/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /^tour desk$/i })).toHaveCount(0)
+  await expect(page.getByRole('group', { name: /^tour desk$/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /^run costings$/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /^advancing shows$/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /^settlements$/i })).toBeVisible()
 })
 
 test('shows Tour Desk heading and tabs', async ({ page }) => {

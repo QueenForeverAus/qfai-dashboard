@@ -4,8 +4,8 @@ import { usePathname } from 'next/navigation'
 
 const links = [
   { href: '/', label: 'Mission Control' },
-  { href: '/calculator', label: 'Run Calculator' },
-  { href: '/emails', label: 'Email Drafts' },
+  { href: '/runs', label: 'Run Costings' },
+  { href: '/advancing', label: 'Advancing Shows' },
   { href: '/settlements', label: 'Settlements' },
 ]
 
