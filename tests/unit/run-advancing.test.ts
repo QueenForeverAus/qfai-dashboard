@@ -6,8 +6,11 @@ import {
   ADVANCING_WRITES_BACK_TO_COSTING,
   applyAdvancingChromePatch,
   advancingWriteBackBlocked,
+  ADVANCING_NULL_SHOW_SENTINEL,
+  advancingCopyLineKey,
   buildAdvancingFieldCopies,
   buildAdvancingShowsChrome,
+  dedupeCostFieldsForAdvancingCopy,
   formatRunAdvancingArchiveAuditCopy,
   formatRunAdvancingCopyAuditCopy,
   isAdvancingWorkspaceActive,
@@ -128,6 +131,97 @@ describe('Tour Desk v2 Phase 1 — Run Advancing', () => {
     assert.equal(chrome[0].show_id, 'show-1')
     assert.equal(chrome[0].ticket_price, 89)
     assert.equal(chrome[0].booking_fee_per_payer, 4.5)
+  })
+
+  it('dedupes source cost_fields by show_id+field_key so Advancing copy still succeeds', () => {
+    const stale = {
+      ...venueHire,
+      id: 'cf-hire-stale',
+      value: 1400,
+      updated_at: '2026-08-01T00:00:00.000Z',
+    }
+    const latest = {
+      ...venueHire,
+      id: 'cf-hire-latest',
+      value: 1600,
+      updated_at: '2026-09-08T10:00:00.000Z',
+    }
+    const copies = buildAdvancingFieldCopies('ws-1', 'run-r12', [stale, latest, venueHire])
+    assert.equal(copies.length, 1)
+    assert.equal(copies[0].source_cost_field_id, 'cf-hire-latest')
+    assert.equal(copies[0].value, 1600)
+    assert.equal(copies[0].field_key, 'venue_hire')
+    assert.equal(copies[0].show_id, 'show-1')
+
+    const keys = copies.map(row => advancingCopyLineKey(row))
+    assert.equal(new Set(keys).size, keys.length)
+  })
+
+  it('dedupes null show_id duplicates the way R01 crew_travel_day collides on the unique index', () => {
+    const older = {
+      id: 'cf-travel-older',
+      run_id: 'run-r01',
+      show_id: null,
+      category: 'Crew',
+      field_key: 'crew_travel_day',
+      label: 'Travel Day',
+      value: 200,
+      state: 'guess',
+      source: 'Draft',
+      entries: [],
+      line_items: [],
+      updated_at: '2026-07-01T00:00:00.000Z',
+    }
+    const newer = {
+      ...older,
+      id: 'cf-travel-newer',
+      value: 350,
+      updated_at: '2026-09-08T09:00:00.000Z',
+    }
+    const other = {
+      ...older,
+      id: 'cf-per-diem',
+      field_key: 'crew_per_diem',
+      label: 'Per Diem',
+      value: 80,
+    }
+
+    const winners = dedupeCostFieldsForAdvancingCopy([older, newer, other])
+    assert.equal(winners.length, 2)
+    const travel = winners.find(row => row.field_key === 'crew_travel_day')
+    assert.equal(travel?.id, 'cf-travel-newer')
+    assert.equal(travel?.value, 350)
+    assert.equal(advancingCopyLineKey(older), `${ADVANCING_NULL_SHOW_SENTINEL}:crew_travel_day`)
+    assert.equal(advancingCopyLineKey(newer), advancingCopyLineKey(older))
+
+    const copies = buildAdvancingFieldCopies('ws-r01', 'run-r01', [older, newer, other])
+    assert.equal(copies.length, 2)
+    const keys = copies.map(row => advancingCopyLineKey(row))
+    assert.equal(new Set(keys).size, keys.length)
+    assert.equal(copies.filter(row => row.field_key === 'crew_travel_day').length, 1)
+    assert.equal(
+      copies.find(row => row.field_key === 'crew_travel_day')?.source_cost_field_id,
+      'cf-travel-newer',
+    )
+  })
+
+  it('breaks equal updated_at ties with the highest source id', () => {
+    const a = {
+      ...venueHire,
+      id: 'cf-aaa',
+      value: 1,
+      updated_at: '2026-09-08T00:00:00.000Z',
+    }
+    const b = {
+      ...venueHire,
+      id: 'cf-zzz',
+      value: 2,
+      updated_at: '2026-09-08T00:00:00.000Z',
+    }
+    const copies = buildAdvancingFieldCopies('ws-1', 'run-r12', [a, b])
+    assert.equal(copies.length, 1)
+    assert.equal(copies[0].source_cost_field_id, 'cf-zzz')
+    assert.equal(copies[0].value, 2)
   })
 
   it('merges Advancing chrome onto shows without mutating the source array', () => {
