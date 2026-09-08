@@ -123,6 +123,8 @@ export async function copyRunIntoAdvancingIfNeeded(opts: {
     return { copied: false, workspace: null }
   }
 
+  // Deduped in buildAdvancingFieldCopies — duplicate (show_id, field_key)
+  // rows (e.g. R01 crew_travel_day) collide on advancing_cost_fields_workspace_line_idx.
   const copies = buildAdvancingFieldCopies(
     workspace.id,
     opts.runId,
