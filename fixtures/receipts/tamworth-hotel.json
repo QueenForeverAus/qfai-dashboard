@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "kind": "hotel",
+  "vendor": "Tamworth Hotel",
+  "confirmation_id": "TH-1819",
+  "currency": "AUD",
+  "total_paid": 189,
+  "paid": true,
+  "charge_kind": "charge",
+  "check_in": "2026-09-18",
+  "check_out": "2026-09-19",
+  "locality": "Tamworth",
+  "city": "Tamworth",
+  "address": "152 Ebsworth St, Tamworth NSW 2340",
+  "guest_names": ["Gareth Quinn"]
+}
