@@ -37,6 +37,7 @@ import {
   type CostingSnapshotField,
   type RunSettlementRow,
 } from '@/lib/settlements'
+import { remittanceHref } from '@/lib/settlements-sheet'
 import SettlementsTabBar from './SettlementsTabBar'
 
 type Show = {
@@ -289,7 +290,7 @@ export default function RemittanceWorkspaceClient({
       {shows.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-4">
           <Link
-            href={`/settlements/${run.code.toLowerCase()}/remittance`}
+            href={remittanceHref(run.code)}
             className={`px-2.5 py-1 rounded-md text-xs border ${!focusedShowId ? 'bg-amber-400/10 text-amber-400 border-amber-700' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}
           >
             All shows
@@ -297,7 +298,7 @@ export default function RemittanceWorkspaceClient({
           {shows.map(show => (
             <Link
               key={show.id}
-              href={`/settlements/${run.code.toLowerCase()}/${show.id}/remittance`}
+              href={remittanceHref(run.code, show.id)}
               className={`px-2.5 py-1 rounded-md text-xs border ${focusedShowId === show.id ? 'bg-amber-400/10 text-amber-400 border-amber-700' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}
             >
               {show.venue_name}

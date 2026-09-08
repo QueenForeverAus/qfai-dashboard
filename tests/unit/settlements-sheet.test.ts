@@ -12,6 +12,7 @@ import {
   buildShowSheetLines,
   expectedVenueWaterfall,
   resolveTicketsSold,
+  remittanceHref,
   settlementSheetHref,
   sheetUsesRevenueSliders,
   showHasOccurred,
@@ -161,11 +162,13 @@ test('run sheet opens occurred shows and keeps upcoming out of Col2', () => {
   assert.equal(model.sections[0]?.tickets, 400)
 })
 
-test('rebuild hrefs are additive and do not replace Wave 1', () => {
-  assert.equal(settlementSheetHref('TCOMP1'), '/settlements/tcomp1/sheet')
-  assert.equal(settlementSheetHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1/sheet')
-  assert.equal(wave1SettlementHref('TCOMP1'), '/settlements/tcomp1')
-  assert.equal(wave1SettlementHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1')
+test('sheet is the canonical Settlements front door; Wave-1 and remittance are secondary', () => {
+  assert.equal(settlementSheetHref('TCOMP1'), '/settlements/tcomp1')
+  assert.equal(settlementSheetHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1')
+  assert.equal(wave1SettlementHref('TCOMP1'), '/settlements/tcomp1/agent')
+  assert.equal(wave1SettlementHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1/agent')
+  assert.equal(remittanceHref('TCOMP1'), '/settlements/tcomp1/remittance')
+  assert.equal(remittanceHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1/remittance')
 })
 
 test('Col3 copy is Phase 4 actuals, not a placeholder-only note', () => {
