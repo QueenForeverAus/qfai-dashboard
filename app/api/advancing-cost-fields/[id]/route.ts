@@ -4,8 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { canEditCostFields, productionCanEditFieldKey } from '@/lib/cost-fields'
 import { staffDisplayName } from '@/lib/cost-entry-source'
 import { executeCostFieldPatch } from '@/lib/cost-field-write'
-import { ADVANCING_ARCHIVED_ERROR } from '@/lib/run-advancing'
-import { isAdvancingWorkspaceActive } from '@/lib/run-advancing-persist'
+import { ADVANCING_ARCHIVED_ERROR, isAdvancingWorkspaceActive } from '@/lib/run-advancing'
 
 /**
  * PATCH /api/advancing-cost-fields/[id]

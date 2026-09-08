@@ -2251,7 +2251,8 @@ export default function CostFieldsTab({
           ))}
 
           {/* Run-level shared costs */}
-          {(!onAdvancingSheet || advancingWorkspaceId) && <div>
+          {(!onAdvancingSheet || advancingWorkspaceId) && (
+          <div>
             <div className="flex items-center gap-3 mb-3">
               <div className="w-6 h-6 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center shrink-0">
                 <span className="text-slate-400 text-xs">∑</span>
@@ -2287,6 +2288,7 @@ export default function CostFieldsTab({
               </div>
             ))}
           </div>
+          )}
 
           {showOwnerPnl && (!onAdvancingSheet || advancingWorkspaceId) && (
             <PnlSummaryBlock summary={ownerPnlSummary} slidersUnlocked={slidersUnlocked} />
