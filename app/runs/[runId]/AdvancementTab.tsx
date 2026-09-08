@@ -14,6 +14,8 @@ import {
   type AssignedTo,
   type RunRegion,
 } from '@/lib/advancement-checklist'
+import { AUTO_TICKED_FROM_PAID_HINT } from '@/lib/advancing-checklist-paid-ticks'
+import { ADVANCING_CHECKLIST_TAB_LABEL } from '@/lib/run-advancing'
 import {
   SCHEDULE_DEFAULTS,
   SETS_DEFAULT,
@@ -36,6 +38,7 @@ type AdvancementItem = {
   paid: boolean
   sort_order: number
   updated_at: string
+  auto_ticked_from_paid?: boolean
 }
 
 type ShowInfo = {
@@ -219,6 +222,11 @@ function ItemRow({
         ) : (
           <span className={`flex-1 text-sm leading-snug ${isDone ? 'line-through text-slate-500' : 'text-slate-200'}`}>
             {item.label}
+            {item.auto_ticked_from_paid && isDone && (
+              <span className="block text-[10px] font-normal no-underline text-slate-500 mt-0.5">
+                {AUTO_TICKED_FROM_PAID_HINT}
+              </span>
+            )}
           </span>
         )}
 
@@ -511,7 +519,7 @@ export default function AdvancementTab({
   }
 
   if (loading) {
-    return <div className="text-slate-500 text-sm py-8 text-center">Loading Advancing Shows checklist…</div>
+    return <div className="text-slate-500 text-sm py-8 text-center">Loading {ADVANCING_CHECKLIST_TAB_LABEL}…</div>
   }
 
   const FILTER_OPTIONS: { key: 'all' | AssignedTo; label: string }[] = [
@@ -662,7 +670,7 @@ export default function AdvancementTab({
         })}
 
         {phases.length === 0 && (
-          <p className="text-slate-600 text-sm italic">No Advancing Shows items for this filter.</p>
+          <p className="text-slate-600 text-sm italic">No {ADVANCING_CHECKLIST_TAB_LABEL} items for this filter.</p>
         )}
       </div>
 

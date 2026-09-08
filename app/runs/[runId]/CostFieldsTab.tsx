@@ -2067,7 +2067,7 @@ export default function CostFieldsTab({
         />
       )}
 
-      {/* ADVANCING SHOWS TAB */}
+      {/* ADVANCING CHECKLIST TAB */}
       {hasAdvancement && activeTab === 'advancement' && (
         <AdvancementTab
           runId={runId}
