@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { HOTEL_RECEIPT_FIXTURES } from '@/lib/receipts/hotel-fixtures'
 import type { ReceiptApplyPlan } from '@/lib/receipts/apply-engine'
 
@@ -25,8 +25,6 @@ export default function ApplyReceiptExtractPanel({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<'preview' | 'apply' | null>(null)
   const [appliedNote, setAppliedNote] = useState<string | null>(null)
-
-  const prettyFixtures = useMemo(() => HOTEL_RECEIPT_FIXTURES, [])
 
   async function post(confirm: boolean): Promise<ApplyResponse> {
     const body: Record<string, unknown> = { confirm }
@@ -91,7 +89,7 @@ export default function ApplyReceiptExtractPanel({
   }
 
   function pickFixture(id: string) {
-    const fixture = prettyFixtures.find(row => row.id === id)
+    const fixture = HOTEL_RECEIPT_FIXTURES.find(row => row.id === id)
     setFixtureId(id)
     setPreview(null)
     setAppliedNote(null)
@@ -112,7 +110,7 @@ export default function ApplyReceiptExtractPanel({
       </div>
 
       <div className="flex flex-wrap gap-1.5 mb-2">
-        {prettyFixtures.map(fixture => (
+        {HOTEL_RECEIPT_FIXTURES.map(fixture => (
           <button
             key={fixture.id}
             type="button"
