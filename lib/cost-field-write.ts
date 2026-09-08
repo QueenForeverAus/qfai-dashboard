@@ -48,6 +48,7 @@ import {
   setAuditActor,
   writeAuditLog,
 } from './audit-log.ts'
+import { autoTickChecklistAfterCostFieldSave } from './advancing-checklist-paid-ticks-persist.ts'
 import type { createAdminClient } from '@/lib/supabase/server-admin'
 
 type AdminClient = ReturnType<typeof createAdminClient>
@@ -448,5 +449,20 @@ export async function executeCostFieldPatch(opts: {
   }
 
   await writeAuditLog(admin, userId, auditRows)
+
+  await autoTickChecklistAfterCostFieldSave({
+    admin,
+    table,
+    runId,
+    field: {
+      field_key: String(existing.field_key ?? (data as { field_key?: string } | null)?.field_key ?? ''),
+      entries: (data as { entries?: unknown } | null)?.entries ?? updates.entries ?? existing.entries,
+      line_items: (data as { line_items?: unknown } | null)?.line_items ?? updates.line_items ?? existing.line_items,
+    },
+    actorUserId: userId,
+    actorName,
+    writeAudit: true,
+  })
+
   return NextResponse.json(data)
 }

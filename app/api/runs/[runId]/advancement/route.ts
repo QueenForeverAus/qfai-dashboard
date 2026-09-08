@@ -8,6 +8,17 @@ import {
   normalizeAssignedTo,
   type AdvancementChecklistItem,
 } from '@/lib/advancement-checklist'
+import {
+  checklistItemKeysForPaidFields,
+  paidFieldKeysFromCostFields,
+} from '@/lib/advancing-checklist-paid-ticks'
+import { applyPaidChecklistTicks } from '@/lib/advancing-checklist-paid-ticks-persist'
+import { isBookedBookingStatus } from '@/lib/booked-cost-freeze'
+import { isAdvancingWorkspaceActive } from '@/lib/run-advancing'
+import {
+  loadActiveAdvancingWorkspace,
+  loadAdvancingCostFields,
+} from '@/lib/run-advancing-persist'
 import type { RunRegion } from '@/lib/types'
 
 async function resolveRunId(supabase: ReturnType<typeof createAdminClient>, runIdOrCode: string): Promise<string | null> {
@@ -139,7 +150,7 @@ export async function GET(
   if (!runId) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
 
   const [{ data: runRow }, { data: existing, error }, { data: shows }] = await Promise.all([
-    supabase.from('runs').select('id, region').eq('id', runId).single(),
+    supabase.from('runs').select('id, region, status').eq('id', runId).single(),
     supabase.from('advancement_items').select('*').eq('run_id', runId).order('sort_order'),
     supabase.from('shows').select('id, show_order, venue_name, venue_city, state_territory, show_date').eq('run_id', runId).order('show_order'),
   ])
@@ -221,6 +232,34 @@ export async function GET(
     }
   }
 
+  const paidItemKeys = new Set<string>()
+  if (isBookedBookingStatus(runRow.status as string | null)) {
+    const workspace = await loadActiveAdvancingWorkspace(supabase, runId)
+    if (isAdvancingWorkspaceActive(workspace) && workspace) {
+      const advancingFields = await loadAdvancingCostFields(supabase, workspace.id)
+      const paidFieldKeys = paidFieldKeysFromCostFields(
+        advancingFields.map(field => ({
+          field_key: field.field_key,
+          entries: field.entries,
+          line_items: field.line_items,
+        })),
+      )
+      for (const itemKey of checklistItemKeysForPaidFields(paidFieldKeys)) {
+        paidItemKeys.add(itemKey)
+      }
+      if (paidFieldKeys.length > 0) {
+        await applyPaidChecklistTicks({
+          admin: supabase,
+          runId,
+          paidFieldKeys,
+          source: 'advancing',
+          actorUserId: user.id,
+          writeAudit: false,
+        })
+      }
+    }
+  }
+
   const { data: final, error: finalErr } = await supabase
     .from('advancement_items')
     .select('*')
@@ -234,6 +273,8 @@ export async function GET(
     .map(row => ({
       ...row,
       assigned_to: normalizeAssignedTo(row.assigned_to as string),
+      auto_ticked_from_paid:
+        row.status === 'done' && paidItemKeys.has(row.item_key as string),
     }))
 
   return NextResponse.json(filtered)

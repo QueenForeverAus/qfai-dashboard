@@ -16,6 +16,7 @@ import {
 } from '@/lib/cost-fields'
 import { ADVANCING_ARCHIVED_ERROR, isAdvancingWorkspaceActive } from '@/lib/run-advancing'
 import { loadActiveAdvancingWorkspace } from '@/lib/run-advancing-persist'
+import { autoTickChecklistAfterCostFieldSave } from '@/lib/advancing-checklist-paid-ticks-persist'
 
 /**
  * POST /api/advancing-cost-fields — create a line on the Run Advancing twin sheet.
@@ -121,5 +122,19 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await autoTickChecklistAfterCostFieldSave({
+    admin: supabase,
+    table: 'advancing_cost_fields',
+    runId,
+    field: {
+      field_key: fieldKey,
+      entries: data?.entries ?? entries,
+      line_items: data?.line_items ?? lineItems,
+    },
+    actorUserId: user.id,
+    writeAudit: true,
+  })
+
   return NextResponse.json(data, { status: 201 })
 }
