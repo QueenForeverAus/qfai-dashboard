@@ -3,14 +3,12 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { canEditCostFields, productionCanEditFieldKey } from '@/lib/cost-fields'
 import { staffDisplayName } from '@/lib/cost-entry-source'
-import { rejectIfBookedCostFrozen } from '@/lib/booked-cost-freeze-persist'
 import { executeCostFieldPatch } from '@/lib/cost-field-write'
+import { ADVANCING_ARCHIVED_ERROR, isAdvancingWorkspaceActive } from '@/lib/run-advancing'
 
 /**
- * PATCH /api/cost-fields/[id]
- * Authenticated write path for Run Costing — bypasses RLS via service role
- * after role checks. Allows admin/owner full edit; production only on fields
- * they can see in the UI.
+ * PATCH /api/advancing-cost-fields/[id]
+ * Editable twin of Run Costing. Writes advancing_cost_fields only.
  */
 export async function PATCH(
   req: NextRequest,
@@ -34,13 +32,13 @@ export async function PATCH(
   }
 
   const { data: existing, error: fetchErr } = await supabase
-    .from('cost_fields')
+    .from('advancing_cost_fields')
     .select('*')
     .eq('id', id)
     .single()
 
   if (fetchErr || !existing) {
-    return NextResponse.json({ error: 'Cost field not found' }, { status: 404 })
+    return NextResponse.json({ error: 'Advancing cost field not found' }, { status: 404 })
   }
 
   if (profile.role === 'production' && !productionCanEditFieldKey(existing.field_key)) {
@@ -50,13 +48,20 @@ export async function PATCH(
     )
   }
 
-  const frozen = await rejectIfBookedCostFrozen(supabase, existing.run_id as string | null)
-  if (frozen) return frozen
+  const { data: workspace } = await supabase
+    .from('run_advancing_workspaces')
+    .select('id, archived_at')
+    .eq('id', existing.workspace_id)
+    .maybeSingle()
+
+  if (!isAdvancingWorkspaceActive(workspace)) {
+    return NextResponse.json({ error: ADVANCING_ARCHIVED_ERROR }, { status: 409 })
+  }
 
   const body = await req.json()
   return executeCostFieldPatch({
     admin: supabase,
-    table: 'cost_fields',
+    table: 'advancing_cost_fields',
     id,
     existing: existing as Record<string, unknown>,
     body,

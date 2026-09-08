@@ -7,6 +7,7 @@ import { formatDateAU } from '@/lib/dates'
 import { runDateRangeFromShows } from '@/lib/run-dates'
 import { formatBookingStatus } from '@/lib/format-booking-status'
 import { ADVANCING_SHOWS_NAV_LABEL, runDetailHref } from '@/lib/tour-desk-nav'
+import { isBookedBookingStatus } from '@/lib/booked-cost-freeze'
 
 const STATUS_STYLES: Record<string, string> = {
   confirmed:   'bg-green-900/40 text-green-400 border-green-800',
@@ -140,7 +141,12 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
 }) {
   const pathname = usePathname()
   const advancingEntry = pathname.startsWith('/advancing')
-  const runHref = (code: string) => runDetailHref(code, advancingEntry ? 'advancement' : 'costs')
+  const runHref = (code: string, status?: string) => runDetailHref(
+    code,
+    advancingEntry
+      ? (isBookedBookingStatus(status) ? 'run_advancing' : 'advancement')
+      : 'costs',
+  )
   if (runs.length === 0) {
     return (
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-8 text-center">
@@ -165,9 +171,10 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
             ? formatDateAU(dStart)
             : `${formatDateAU(dStart)} – ${formatDateAU(dEnd)}`
 
+          const bookedOnYearSheet = !advancingEntry && isBookedBookingStatus(run.status)
           const nameEl = isPlaceholder || isDeclined
             ? <span className={`text-sm font-medium ${isDeclined ? 'text-slate-500 line-through italic' : 'text-slate-500 italic'}`}>{run.name}</span>
-            : <Link href={runHref(run.code)} className="text-white text-sm font-medium hover:text-amber-400 transition-colors">{run.name}</Link>
+            : <Link href={runHref(run.code, run.status)} data-testid={bookedOnYearSheet ? 'booked-year-sheet-run' : undefined} className={`text-sm font-medium hover:text-amber-400 transition-colors ${bookedOnYearSheet ? 'text-slate-200 line-through decoration-slate-500' : 'text-white'}`}>{run.name}</Link>
 
           return (
             <div key={run.id} className={`px-4 py-3 ${isPlaceholder || isDeclined ? 'opacity-60' : ''}`}>
@@ -235,7 +242,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
                   {isPlaceholder || isDeclined ? (
                     <span className={`text-slate-500 text-sm italic ${isDeclined ? 'line-through' : ''}`}>{run.name}</span>
                   ) : (
-                    <Link href={runHref(run.code)} className="text-white text-sm hover:text-amber-400 transition-colors">
+                    <Link href={runHref(run.code, run.status)} data-testid={!advancingEntry && isBookedBookingStatus(run.status) ? 'booked-year-sheet-run' : undefined} className={`text-sm hover:text-amber-400 transition-colors ${!advancingEntry && isBookedBookingStatus(run.status) ? 'text-slate-200 line-through decoration-slate-500' : 'text-white'}`}>
                       {run.name}
                     </Link>
                   )}

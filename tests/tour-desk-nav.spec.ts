@@ -37,8 +37,10 @@ test('Advancing Shows opens the advancing entry and a run lands on Advancing tab
   }
   await r12.click()
   await expect(page).toHaveURL(/\/runs\/r12/i)
-  await expect(page).toHaveURL(/tab=advancement/)
-  await expect(page.getByRole('button', { name: /^advancing shows$/i })).toBeVisible({ timeout: 10000 })
+  await expect(page).toHaveURL(/tab=(run_advancing|advancement)/)
+  await expect(
+    page.getByRole('button', { name: /^run advancing$/i }).or(page.getByRole('button', { name: /^advancing checklist$/i })),
+  ).toBeVisible({ timeout: 10000 })
   await expect(page.getByRole('button', { name: /p&l calculator/i })).toHaveCount(0)
 })
 

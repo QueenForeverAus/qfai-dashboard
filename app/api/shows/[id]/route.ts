@@ -4,6 +4,8 @@ import { syncRunDatesFromShows } from '@/lib/run-dates'
 import { normalizeCapacityBands, topBandSeats } from '@/lib/capacity-bands'
 import { NextRequest, NextResponse } from 'next/server'
 import { auditFieldDiffs, setAuditActor, writeAuditLog } from '@/lib/audit-log'
+import { isRunCostSheetFrozen } from '@/lib/booked-cost-freeze'
+import { isPnlChromeShowField, pnlChromeMutationBlockedReason } from '@/lib/run-advancing'
 
 export async function PATCH(
   req: NextRequest,
@@ -45,6 +47,19 @@ export async function PATCH(
     .select('*')
     .eq('id', id)
     .single()
+
+  const chromeKeys = Object.keys(updates).filter(isPnlChromeShowField)
+  if (chromeKeys.length > 0 && existing?.run_id) {
+    const { data: run } = await supabase
+      .from('runs')
+      .select('status')
+      .eq('id', existing.run_id)
+      .maybeSingle()
+    const blocked = pnlChromeMutationBlockedReason(isRunCostSheetFrozen(run))
+    if (blocked) {
+      return NextResponse.json({ error: blocked, frozen: true, booking_status: 'BOOKED' }, { status: 409 })
+    }
+  }
 
   // Normalize capacity_bands; keep shows.capacity = top band when bands present.
   // Never touch venue_staff from this path.

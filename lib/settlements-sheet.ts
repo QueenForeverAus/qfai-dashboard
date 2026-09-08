@@ -6,6 +6,7 @@
  * at `/agent`. Legacy `/sheet` redirects here.
  *
  * Col1 labels · Col2 live Advancing expected · Col3 actuals.
+ * P1 residual: Col2 still reads cost_fields until Phase 4 rebind.
  * Pre-show is a hard block. No revenue sliders.
  * Col2 tickets sold = actual count (entered or known), then the same
  * Run Costing P&L formulas (inside / Harbour 10% / auto-calcs).

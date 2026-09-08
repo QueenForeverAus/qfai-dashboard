@@ -42,6 +42,7 @@ export default function BandedSellSlider({ value, onChange, capacity, capacityBa
           value={value}
           disabled={disabled}
           onChange={e => { if (!disabled) onChange(parseInt(e.target.value, 10)) }}
+          data-testid="sell-through-slider"
           className={`w-full h-1.5 rounded-lg appearance-none bg-slate-700 accent-amber-400 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
           style={{ maxWidth: '100%' }}
         />
@@ -109,6 +110,7 @@ export default function BandedSellSlider({ value, onChange, capacity, capacityBa
             margin: 0,
             accentColor: accent,
           }}
+          data-testid="sell-through-slider"
           aria-label="Sell-through percent"
         />
       </div>

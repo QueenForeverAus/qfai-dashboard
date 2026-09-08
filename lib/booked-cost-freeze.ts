@@ -25,7 +25,7 @@ export const BOOKED_COST_FREEZE_ERROR =
   'This run is BOOKED — the cost sheet is frozen. Confirm ticks, PAID, and line edits are locked. Sell-through / revenue sliders stay editable.'
 
 export const BOOKED_COST_FREEZE_BANNER =
-  'BOOKED — cost sheet frozen. Venue and run cost lines are read-only as decided at booking. Sell-through and revenue sliders stay scenario-capable.'
+  'BOOKED — cost sheet frozen. Venue and run cost lines are read-only as decided at booking. Sell-through and revenue sliders stay scenario-capable. Working cost lines and P&L chrome live on Run Advancing.'
 
 export const BOOKED_COST_FREEZE_BADGE = 'BOOKED · frozen'
 
