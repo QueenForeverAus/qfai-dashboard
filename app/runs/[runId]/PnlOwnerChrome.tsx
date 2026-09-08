@@ -91,6 +91,8 @@ export function PnlRevenueBlock({
   remittanceLines,
   onSellThrough,
   onShowUpdated,
+  chromeReadOnly = false,
+  onChromeSave,
 }: {
   shows: Show[]
   sellThrough: Record<string, number>
@@ -101,6 +103,8 @@ export function PnlRevenueBlock({
   remittanceLines: KnownInsideLine[]
   onSellThrough: (showId: string, pct: number) => void
   onShowUpdated: (updated: PnlShow) => void
+  chromeReadOnly?: boolean
+  onChromeSave?: (show: PnlShow, patch: { booking_fee_per_payer?: number | null; cc_fee_pct?: number | null }) => Promise<PnlShow>
 }) {
   const perVenue = shows.map(show => {
     const pct = sellThrough[show.id] ?? 75
@@ -173,7 +177,12 @@ export function PnlRevenueBlock({
                 {!slidersUnlocked && (
                   <p className="text-slate-600 text-xs mb-2">Slider locked until no cost lines are Figures Needed.</p>
                 )}
-                <VenueOverrideRow show={show} onUpdated={onShowUpdated} />
+                <VenueOverrideRow
+                  show={show}
+                  onUpdated={onShowUpdated}
+                  readOnly={chromeReadOnly}
+                  onChromeSave={onChromeSave}
+                />
                 <div className="space-y-1.5 text-sm mt-2">
                   <Row label="Gross ticket sales" value={waterfall.grossTicketSales} />
                   <Row
@@ -288,9 +297,13 @@ function Row({
 function VenueOverrideRow({
   show,
   onUpdated,
+  readOnly = false,
+  onChromeSave,
 }: {
   show: Show
   onUpdated: (updated: PnlShow) => void
+  readOnly?: boolean
+  onChromeSave?: (show: PnlShow, patch: { booking_fee_per_payer?: number | null; cc_fee_pct?: number | null }) => Promise<PnlShow>
 }) {
   const [editing, setEditing] = useState(false)
   const [booking, setBooking] = useState(show.booking_fee_per_payer?.toString() ?? '')
@@ -301,19 +314,29 @@ function VenueOverrideRow({
   async function save() {
     setSaving(true)
     setError(null)
-    const res = await fetch(`/api/shows/${show.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        booking_fee_per_payer: booking === '' ? null : parseFloat(booking),
-        cc_fee_pct: cc === '' ? null : parseFloat(cc),
-      }),
-    })
-    const data = await res.json().catch(() => ({}))
-    setSaving(false)
-    if (!res.ok) { setError((data as { error?: string }).error ?? 'Save failed'); return }
-    onUpdated(data as Show)
-    setEditing(false)
+    const patch = {
+      booking_fee_per_payer: booking === '' ? null : parseFloat(booking),
+      cc_fee_pct: cc === '' ? null : parseFloat(cc),
+    }
+    try {
+      if (onChromeSave) {
+        await onChromeSave(show, patch)
+      } else {
+        const res = await fetch(`/api/shows/${show.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) { setError((data as { error?: string }).error ?? 'Save failed'); setSaving(false); return }
+        onUpdated(data as Show)
+      }
+      setEditing(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (!editing) {
@@ -325,13 +348,15 @@ function VenueOverrideRow({
             ? `: ${show.booking_fee_per_payer != null ? `$${Number(show.booking_fee_per_payer).toFixed(2)}/payer` : '—'} · ${show.cc_fee_pct != null ? `${Number(show.cc_fee_pct)}% CC` : '—'}`
             : ' — none (Factors / silent default)'}
         </span>
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="text-slate-600 hover:text-amber-400"
-        >
-          Override
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="text-slate-600 hover:text-amber-400"
+          >
+            Override
+          </button>
+        )}
       </div>
     )
   }

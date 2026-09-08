@@ -27,6 +27,7 @@ describe('tour desk nav IA', () => {
 
   it('parses run-detail tab query values', () => {
     assert.equal(parseRunDetailTab('advancement'), 'advancement')
+    assert.equal(parseRunDetailTab('run_advancing'), 'run_advancing')
     assert.equal(parseRunDetailTab('show_pack'), 'show_pack')
     assert.equal(parseRunDetailTab('costs'), 'costs')
     assert.equal(parseRunDetailTab('pnl'), null)
@@ -37,6 +38,7 @@ describe('tour desk nav IA', () => {
     assert.equal(runDetailHref('R12'), '/runs/r12')
     assert.equal(runDetailHref('R12', 'costs'), '/runs/r12')
     assert.equal(runDetailHref('R12', 'advancement'), '/runs/r12?tab=advancement')
+    assert.equal(runDetailHref('R12', 'run_advancing'), '/runs/r12?tab=run_advancing')
     assert.equal(runDetailHref('R12', 'show_pack'), '/runs/r12?tab=show_pack')
   })
 
@@ -50,12 +52,14 @@ describe('tour desk nav IA', () => {
     assert.equal(isTourDeskChildActive({ href: RUN_COSTINGS_HREF, pathname: '/runs/r12' }), true)
     assert.equal(isTourDeskChildActive({ href: RUN_COSTINGS_HREF, pathname: '/runs/r12', tab: 'outlook' }), true)
     assert.equal(isTourDeskChildActive({ href: RUN_COSTINGS_HREF, pathname: '/runs/r12', tab: 'audit' }), true)
+    assert.equal(isTourDeskChildActive({ href: RUN_COSTINGS_HREF, pathname: '/runs/r12', tab: 'run_advancing' }), false)
     assert.equal(isTourDeskChildActive({ href: RUN_COSTINGS_HREF, pathname: '/runs/r12', tab: 'advancement' }), false)
     assert.equal(isTourDeskChildActive({ href: RUN_COSTINGS_HREF, pathname: '/advancing' }), false)
   })
 
   it('highlights Advancing Shows on the advancing entry and worksheet tabs', () => {
     assert.equal(isTourDeskChildActive({ href: ADVANCING_SHOWS_HREF, pathname: '/advancing' }), true)
+    assert.equal(isTourDeskChildActive({ href: ADVANCING_SHOWS_HREF, pathname: '/runs/r12', tab: 'run_advancing' }), true)
     assert.equal(isTourDeskChildActive({ href: ADVANCING_SHOWS_HREF, pathname: '/runs/r12', tab: 'advancement' }), true)
     assert.equal(isTourDeskChildActive({ href: ADVANCING_SHOWS_HREF, pathname: '/runs/r12', tab: 'show_pack' }), true)
     assert.equal(isTourDeskChildActive({ href: ADVANCING_SHOWS_HREF, pathname: '/runs/r12' }), false)

@@ -14,8 +14,14 @@ import { resolveEditorDisplayNames } from '@/lib/cost-entry-source'
 import { formatAuditTrailEvents } from '@/lib/audit-trail-format'
 import { ADVANCEMENT_CHECKLIST } from '@/lib/advancement-checklist'
 import { insideFactorsFromRows, type KnownInsideLine } from '@/lib/pnl-run-costing'
-import { isRunCostSheetFrozen } from '@/lib/booked-cost-freeze'
+import { isBookedBookingStatus, isRunCostSheetFrozen } from '@/lib/booked-cost-freeze'
 import { captureBookedCostSnapshotIfNeeded } from '@/lib/booked-cost-freeze-persist'
+import {
+  copyRunIntoAdvancingIfNeeded,
+  loadActiveAdvancingWorkspace,
+  loadAdvancingCostFields,
+} from '@/lib/run-advancing-persist'
+import type { AdvancingShowChrome } from '@/lib/run-advancing'
 
 type Show = {
   id: string
@@ -151,7 +157,24 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
       nextStatus: run.status,
       prevStatus: run.status,
     })
+    await copyRunIntoAdvancingIfNeeded({
+      admin: supabase,
+      runId: run.id,
+      runCode: run.code,
+      nextStatus: run.status,
+      prevStatus: run.status,
+    })
   }
+
+  const advancingWorkspace = isBookedBookingStatus(run.status)
+    ? await loadActiveAdvancingWorkspace(supabase, run.id)
+    : null
+  const advancingFields = advancingWorkspace
+    ? await loadAdvancingCostFields(supabase, advancingWorkspace.id)
+    : []
+  const advancingChrome = Array.isArray(advancingWorkspace?.shows_chrome)
+    ? advancingWorkspace!.shows_chrome as AdvancingShowChrome[]
+    : []
 
   let typedFields = rawFields
   if (!costSheetFrozen && rawFields.length === 0 && typedShows.length > 0) {
@@ -333,6 +356,9 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
         runId={run.id}
         runCode={run.code}
         costSheetFrozen={costSheetFrozen}
+        advancingWorkspaceId={advancingWorkspace?.id ?? null}
+        initialAdvancingFields={advancingFields as CostFieldRow[]}
+        initialAdvancingChrome={advancingChrome}
         runName={run.name}
         region={run.region}
         startDate={startDate}

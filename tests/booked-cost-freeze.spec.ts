@@ -26,4 +26,8 @@ test('BOOKED run Costings sheet shows freeze chrome; proposed run stays editable
   await expect(page.getByTestId('booked-cost-freeze-banner')).toBeVisible({ timeout: 10000 })
   await expect(page.getByTestId('booked-cost-freeze-badge')).toBeVisible()
   await expect(page.getByTestId('cost-field-edit')).toHaveCount(0)
+  const slider = page.getByTestId('sell-through-slider').first()
+  if (await slider.count()) {
+    await expect(slider).toBeEnabled()
+  }
 })

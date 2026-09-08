@@ -19,11 +19,14 @@ export const TOUR_DESK_NAV_CHILDREN = [
   { href: SETTLEMENTS_HREF, label: SETTLEMENTS_NAV_LABEL },
 ] as const
 
-export const RUN_DETAIL_TABS = ['costs', 'outlook', 'audit', 'advancement', 'show_pack'] as const
+export const RUN_DETAIL_TABS = ['costs', 'outlook', 'audit', 'run_advancing', 'advancement', 'show_pack'] as const
 export type RunDetailTab = (typeof RUN_DETAIL_TABS)[number]
 
-/** Tabs that belong under Advancing Shows (checklist + Worksheet). */
-export const ADVANCING_DESK_TABS: readonly RunDetailTab[] = ['advancement', 'show_pack']
+/** Tabs that belong under Run Costings. */
+export const COSTING_DESK_TABS: readonly RunDetailTab[] = ['costs', 'outlook', 'audit']
+
+/** Tabs that belong under Advancing Shows (Run Advancing + checklist + Worksheet). */
+export const ADVANCING_DESK_TABS: readonly RunDetailTab[] = ['run_advancing', 'advancement', 'show_pack']
 
 export function parseRunDetailTab(value: string | null | undefined): RunDetailTab | null {
   if (!value) return null
@@ -31,7 +34,11 @@ export function parseRunDetailTab(value: string | null | undefined): RunDetailTa
 }
 
 export function isAdvancingDeskTab(tab: string | null | undefined): boolean {
-  return tab === 'advancement' || tab === 'show_pack'
+  return tab === 'run_advancing' || tab === 'advancement' || tab === 'show_pack'
+}
+
+export function isCostingDeskTab(tab: string | null | undefined): boolean {
+  return tab === 'costs' || tab === 'outlook' || tab === 'audit' || tab == null || tab === ''
 }
 
 export function runDetailHref(runCode: string, tab?: RunDetailTab | null): string {

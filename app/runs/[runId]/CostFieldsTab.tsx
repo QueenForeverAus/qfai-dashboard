@@ -1,10 +1,25 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile, canAccessTab } from '@/lib/profile-context'
-import { parseRunDetailTab, runDetailTabUrl, type RunDetailTab } from '@/lib/tour-desk-nav'
+import {
+  isAdvancingDeskTab,
+  parseRunDetailTab,
+  runDetailTabUrl,
+  type RunDetailTab,
+} from '@/lib/tour-desk-nav'
+import {
+  ADVANCING_CHECKLIST_TAB_LABEL,
+  RUN_ADVANCING_BANNER,
+  RUN_ADVANCING_EMPTY,
+  RUN_ADVANCING_TAB_LABEL,
+  WORKSHEET_TAB_LABEL,
+  applyAdvancingChromePatch,
+  mergeShowsWithAdvancingChrome,
+  type AdvancingShowChrome,
+} from '@/lib/run-advancing'
 import AdvancementTab from './AdvancementTab'
 import ShowPackTab from './ShowPackTab'
 import TicketOutlookBlock from './TicketOutlookBlock'
@@ -234,8 +249,11 @@ function effectiveFieldValue(row: CostFieldRow | undefined): number | null {
   return null
 }
 
-async function patchCostField(id: string, body: Record<string, unknown>) {
-  const res = await fetch(`/api/cost-fields/${id}`, {
+type SheetWorkspace = 'costing' | 'advancing'
+
+async function patchCostField(id: string, body: Record<string, unknown>, workspace: SheetWorkspace = 'costing') {
+  const url = workspace === 'advancing' ? `/api/advancing-cost-fields/${id}` : `/api/cost-fields/${id}`
+  const res = await fetch(url, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -247,8 +265,9 @@ async function patchCostField(id: string, body: Record<string, unknown>) {
   return data as CostFieldRow
 }
 
-async function createCostField(body: Record<string, unknown>) {
-  const res = await fetch('/api/cost-fields', {
+async function createCostField(body: Record<string, unknown>, workspace: SheetWorkspace = 'costing') {
+  const url = workspace === 'advancing' ? '/api/advancing-cost-fields' : '/api/cost-fields'
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -258,6 +277,24 @@ async function createCostField(body: Record<string, unknown>) {
     throw new Error(data.error ?? `Create failed (${res.status})`)
   }
   return data as CostFieldRow
+}
+
+type CostSheetApi = {
+  workspace: SheetWorkspace
+  workspaceId: string | null
+  patchField: (id: string, body: Record<string, unknown>) => Promise<CostFieldRow>
+  createField: (body: Record<string, unknown>) => Promise<CostFieldRow>
+}
+
+const CostSheetApiContext = createContext<CostSheetApi>({
+  workspace: 'costing',
+  workspaceId: null,
+  patchField: (id, body) => patchCostField(id, body, 'costing'),
+  createField: body => createCostField(body, 'costing'),
+})
+
+function useCostSheetApi() {
+  return useContext(CostSheetApiContext)
 }
 
 function fmt(n: number | null) {
@@ -575,6 +612,7 @@ function EntryPanel({
   runId: string
   costSheetFrozen?: boolean
 }) {
+  const { patchField } = useCostSheetApi()
   const { profile } = useProfile()
   const [desc, setDesc] = useState('')
   const [notes, setNotes] = useState('')
@@ -599,7 +637,7 @@ function EntryPanel({
     setError(null)
     setSaving(true)
     try {
-      const data = await patchCostField(fieldId, { entries: updated })
+      const data = await patchField(fieldId, { entries: updated })
       const nextEntries = (data.entries as Entry[]) ?? updated
       const nextValue = data.value != null ? Number(data.value) : entriesSum(nextEntries)
       onEntriesUpdated({ ...data, entries: nextEntries, value: nextValue })
@@ -778,6 +816,7 @@ function FieldRow({
   editorDisplayName?: string | null
   costSheetFrozen?: boolean
 }) {
+  const { patchField, createField, workspaceId } = useCostSheetApi()
   const [isEditing, setIsEditing] = useState(false)
   const persistedState = (existing?.state as FieldState) ?? fieldDef.defaultState
   const entries = existing?.entries ?? []
@@ -800,20 +839,21 @@ function FieldRow({
     try {
       if (existing?.id) {
         if (draftSelect === SECTION_BULK_PAID_VALUE) {
-          const data = await patchCostField(existing.id, { section_payment: 'paid' })
+          const data = await patchField(existing.id, { section_payment: 'paid' })
           onSaved(data)
         } else {
           const body: Record<string, unknown> = { state: draftSelect }
           if (hasBulkPaidSnapshot(entries)) body.section_payment = 'restore'
-          const data = await patchCostField(existing.id, body)
+          const data = await patchField(existing.id, body)
           onSaved(data)
         }
       } else {
         if (draftSelect === SECTION_BULK_PAID_VALUE) {
           throw new Error('Add a cost line before MARK ALL AS PAID')
         }
-        const data = await createCostField({
+        const data = await createField({
           run_id: runId,
+          workspace_id: workspaceId,
           show_id: showId,
           category: fieldDef.category,
           field_key: fieldDef.key,
@@ -963,6 +1003,7 @@ function VenueStaffRow({
   costSheetFrozen?: boolean
 }) {
   const { profile } = useProfile()
+  const { patchField, createField, workspaceId } = useCostSheetApi()
   const [open, setOpen] = useState(false)
   const [entriesOpen, setEntriesOpen] = useState(false)
   const [items, setItems] = useState<LineItem[]>(() => normalizeLineItems(existing?.line_items) ?? [])
@@ -1034,7 +1075,7 @@ function VenueStaffRow({
     setError(null)
     setSaving(true)
     try {
-      const data = await patchCostField(existing.id, {
+      const data = await patchField(existing.id, {
         line_items: next,
         ...extra,
       })
@@ -1088,7 +1129,7 @@ function VenueStaffRow({
     try {
       if (existing?.id) {
         if (draftSelect === SECTION_BULK_PAID_VALUE) {
-          const data = await patchCostField(existing.id, {
+          const data = await patchField(existing.id, {
             section_payment: 'paid',
             line_items: items,
           })
@@ -1106,7 +1147,7 @@ function VenueStaffRow({
             line_items: items,
           }
           if (hasBulkPaidSnapshot(payableLines)) body.section_payment = 'restore'
-          const data = await patchCostField(existing.id, body)
+          const data = await patchField(existing.id, body)
           const saved = normalizeLineItems(data.line_items) ?? items
           setItems(saved)
           onSaved(data)
@@ -1119,8 +1160,9 @@ function VenueStaffRow({
         if (draftSelect === SECTION_BULK_PAID_VALUE) {
           throw new Error('Add a cost line before MARK ALL AS PAID')
         }
-        const data = await createCostField({
+        const data = await createField({
           run_id: runId,
+          workspace_id: workspaceId,
           show_id: showId,
           category: 'Venue Costs',
           field_key: 'venue_staff',
@@ -1468,10 +1510,14 @@ function ShowDetailsEditor({
   show,
   isOwner,
   onUpdated,
+  pnlChromeLocked = false,
+  onChromeSave,
 }: {
   show: Show
   isOwner: boolean
   onUpdated: (updated: Show) => void
+  pnlChromeLocked?: boolean
+  onChromeSave?: (patch: { capacity: number | null; ticket_price: number | null }) => Promise<void>
 }) {
   const [editing, setEditing] = useState(false)
   const [venueName, setVenueName] = useState(show.venue_name)
@@ -1486,23 +1532,48 @@ function ShowDetailsEditor({
   async function save() {
     setSaving(true)
     setError(null)
-    const res = await fetch(`/api/shows/${show.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        venue_name: venueName,
-        venue_city: venueCity,
-        state_territory: state || null,
-        show_date: showDate || null,
+    try {
+      const chromePatch = {
         capacity: capacity ? parseInt(capacity) : null,
         ticket_price: ticketPrice ? parseFloat(ticketPrice) : null,
-      }),
-    })
-    const data = await res.json()
-    setSaving(false)
-    if (!res.ok) { setError(data.error ?? 'Save failed'); return }
-    onUpdated(data as Show)
-    setEditing(false)
+      }
+      if (onChromeSave) {
+        const res = await fetch(`/api/shows/${show.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            venue_name: venueName,
+            venue_city: venueCity,
+            state_territory: state || null,
+            show_date: showDate || null,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) { setError(data.error ?? 'Save failed'); setSaving(false); return }
+        await onChromeSave(chromePatch)
+        onUpdated(data as Show)
+      } else {
+        const res = await fetch(`/api/shows/${show.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            venue_name: venueName,
+            venue_city: venueCity,
+            state_territory: state || null,
+            show_date: showDate || null,
+            ...(!pnlChromeLocked ? chromePatch : {}),
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) { setError(data.error ?? 'Save failed'); setSaving(false); return }
+        onUpdated(data as Show)
+      }
+      setEditing(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (!editing) {
@@ -1555,12 +1626,14 @@ function ShowDetailsEditor({
         <div>
           <label className="text-slate-500 text-xs block mb-0.5">Capacity</label>
           <input type="number" value={capacity} onChange={e => setCapacity(e.target.value)} placeholder="0"
-            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+            disabled={pnlChromeLocked && !onChromeSave}
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 disabled:opacity-40 disabled:cursor-not-allowed" />
         </div>
         <div>
           <label className="text-slate-500 text-xs block mb-0.5">Ticket price ($)</label>
           <input type="number" value={ticketPrice} onChange={e => setTicketPrice(e.target.value)} placeholder="0.00" step="0.01"
-            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+            disabled={pnlChromeLocked && !onChromeSave}
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400 disabled:opacity-40 disabled:cursor-not-allowed" />
         </div>
       </div>
       {error && <p className="text-red-400 text-xs">{error}</p>}
@@ -1621,6 +1694,9 @@ export default function CostFieldsTab({
   insideFactors = {},
   remittanceLines = [],
   costSheetFrozen = false,
+  advancingWorkspaceId = null,
+  initialAdvancingFields = [],
+  initialAdvancingChrome = [],
 }: {
   runId: string
   runCode: string
@@ -1638,13 +1714,17 @@ export default function CostFieldsTab({
   insideFactors?: InsideFactorValues
   remittanceLines?: KnownInsideLine[]
   costSheetFrozen?: boolean
+  advancingWorkspaceId?: string | null
+  initialAdvancingFields?: CostFieldRow[]
+  initialAdvancingChrome?: AdvancingShowChrome[]
 }) {
   const { effectiveRole, profile } = useProfile()
   const hasTabAccess = canAccessTab(effectiveRole, 'costs')
+  const hasRunAdvancing = canAccessTab(effectiveRole, 'run_advancing')
   const hasAdvancement = canAccessTab(effectiveRole, 'advancement')
   const hasShowPack = canAccessTab(effectiveRole, 'show_pack')
   const hasOutlook = canAccessTab(effectiveRole, 'outlook')
-  const defaultTab = hasTabAccess ? 'costs' : hasOutlook ? 'outlook' : hasAdvancement ? 'advancement' : hasShowPack ? 'show_pack' : 'costs'
+  const defaultTab = hasTabAccess ? 'costs' : hasOutlook ? 'outlook' : hasRunAdvancing ? 'run_advancing' : hasAdvancement ? 'advancement' : hasShowPack ? 'show_pack' : 'costs'
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -1671,9 +1751,28 @@ export default function CostFieldsTab({
   const effectiveStartDate = derivedRunDates.start ?? startDate
   const effectiveEndDate = derivedRunDates.end ?? endDate
   const [fields, setFields] = useState<CostFieldRow[]>(initialFields)
+  const [advancingFields, setAdvancingFields] = useState<CostFieldRow[]>(initialAdvancingFields)
+  const [advancingChrome, setAdvancingChrome] = useState<AdvancingShowChrome[]>(initialAdvancingChrome)
   const [sellThrough, setSellThrough] = useState<Record<string, number>>(() =>
     Object.fromEntries(showsState.map(s => [s.id, s.sell_through_pct ?? 75]))
   )
+  const onAdvancingSheet = activeTab === 'run_advancing'
+  const sheetWorkspace: SheetWorkspace = onAdvancingSheet ? 'advancing' : 'costing'
+  const sheetFrozen = onAdvancingSheet ? false : costSheetFrozen
+  const sheetPnlLocked = onAdvancingSheet ? false : costSheetFrozen
+  const viewFields = onAdvancingSheet ? advancingFields : fields
+  const viewShows = onAdvancingSheet
+    ? mergeShowsWithAdvancingChrome(showsState, advancingChrome)
+    : showsState
+  const sheetApi: CostSheetApi = {
+    workspace: sheetWorkspace,
+    workspaceId: advancingWorkspaceId,
+    patchField: (id, body) => patchCostField(id, body, sheetWorkspace),
+    createField: body => createCostField(
+      sheetWorkspace === 'advancing' ? { ...body, workspace_id: advancingWorkspaceId } : body,
+      sheetWorkspace,
+    ),
+  }
   const ensureOnceRef = useRef(false)
 
   // On open: create missing defined rows + seed ≥1 entry via /api/cost-fields
@@ -1758,11 +1857,28 @@ export default function CostFieldsTab({
   }
 
   function handleSaved(updated: CostFieldRow) {
-    setFields(prev => {
+    const setter = onAdvancingSheet ? setAdvancingFields : setFields
+    setter(prev => {
       const idx = prev.findIndex(f => f.id === updated.id)
       if (idx >= 0) { const next = [...prev]; next[idx] = updated; return next }
       return [...prev, updated]
     })
+  }
+
+  async function saveAdvancingChrome(showId: string, patch: Partial<AdvancingShowChrome>) {
+    if (!advancingWorkspaceId) throw new Error('No Advancing workspace')
+    const res = await fetch(`/api/runs/${runId}/advancing-chrome`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ show_id: showId, ...patch }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Save failed')
+    const nextChrome = Array.isArray((data as { shows_chrome?: AdvancingShowChrome[] }).shows_chrome)
+      ? (data as { shows_chrome: AdvancingShowChrome[] }).shows_chrome
+      : applyAdvancingChromePatch(advancingChrome, showId, patch)
+    setAdvancingChrome(nextChrome)
+    return mergeShowsWithAdvancingChrome(showsState, nextChrome).find(s => s.id === showId)
   }
 
   function handleEntriesUpdated(updated: CostFieldRow) {
@@ -1773,7 +1889,7 @@ export default function CostFieldsTab({
   function runFieldKey(key: string) { return `run:${key}` }
 
   const fieldMap = new Map<string, CostFieldRow>()
-  for (const f of fields) {
+  for (const f of viewFields) {
     if (f.show_id) fieldMap.set(showFieldKey(f.show_id, f.field_key), f)
     else fieldMap.set(runFieldKey(f.field_key), f)
   }
@@ -1781,7 +1897,7 @@ export default function CostFieldsTab({
   const mergedFactors: InsideFactorValues = insideFactors
 
   // social_ads_var is AUTO-CALC: tickets × $1.10 — computed live from sliders, not from stored value
-  const dynamicSocialAds = showsState.reduce((sum, s) => {
+  const dynamicSocialAds = viewShows.reduce((sum, s) => {
     const cap = modelCapacity(s); const tickets = cap ? Math.round(cap * (sellThrough[s.id] ?? 75) / 100) : 0
     return sum + Math.round(tickets * 1.10)
   }, 0)
@@ -1792,7 +1908,7 @@ export default function CostFieldsTab({
     return sum + (effectiveFieldValue(row) ?? 0)
   }, 0)
 
-  const showCostTotal = showsState.reduce((sum, show) => {
+  const showCostTotal = viewShows.reduce((sum, show) => {
     const pct = sellThrough[show.id] ?? 75
     return sum + SHOW_FIELDS.filter(f => f.category !== 'Revenue').reduce((s2, f) => {
       const row = fieldMap.get(showFieldKey(show.id, f.key))
@@ -1814,7 +1930,7 @@ export default function CostFieldsTab({
         label: f.label,
       }
     }),
-    ...showsState.flatMap(show =>
+    ...viewShows.flatMap(show =>
       SHOW_FIELDS.map(sf => {
         const row = fieldMap.get(showFieldKey(show.id, sf.key))
         return {
@@ -1834,7 +1950,7 @@ export default function CostFieldsTab({
     .map(line => line.label)
   const isDataComplete = slidersUnlocked
   const COMPLETENESS_EXCLUDED = new Set(['social_ads_var', 'gross_box_office'])
-  const ownerVenuePnls = showsState.map(show =>
+  const ownerVenuePnls = viewShows.map(show =>
     venuePnl({
       show,
       pct: sellThrough[show.id] ?? 75,
@@ -1850,7 +1966,7 @@ export default function CostFieldsTab({
       const row = fieldMap.get(runFieldKey(f.key))
       if (row && (row.state === 'guess' || row.state === 'estimated')) return true
     }
-    for (const show of showsState) {
+    for (const show of viewShows) {
       for (const sf of SHOW_FIELDS.filter(sf => sf.category !== 'Revenue')) {
         const row = fieldMap.get(showFieldKey(show.id, sf.key))
         if (row && (row.state === 'guess' || row.state === 'estimated')) return true
@@ -1877,9 +1993,12 @@ export default function CostFieldsTab({
     }
   }
 
+  const advancingDesk = isAdvancingDeskTab(activeTab)
+
   return (
+    <CostSheetApiContext.Provider value={sheetApi}>
     <>
-      {!hasTabAccess && !hasAdvancement && !hasShowPack && (
+      {!hasTabAccess && !hasRunAdvancing && !hasAdvancement && !hasShowPack && (
         <div className="rounded-xl p-6 mb-6 text-center" style={{ background: 'var(--surface, #1e293b)', border: '1px solid #334155' }}>
           <div className="text-2xl mb-2">🔒</div>
           <div className="text-slate-300 font-medium mb-1">Financial data restricted</div>
@@ -1887,10 +2006,10 @@ export default function CostFieldsTab({
         </div>
       )}
 
-      {(hasTabAccess || hasOutlook || hasAdvancement || hasShowPack) && (
+      {(hasTabAccess || hasOutlook || hasRunAdvancing || hasAdvancement || hasShowPack) && (
       <div className="relative mb-6">
         <div className="flex gap-1 border-b border-slate-700 items-end overflow-x-auto scrollbar-thin pb-px pr-6">
-          {(['costs', 'outlook', 'audit'] as const).filter(tab => canAccessTab(effectiveRole, tab)).map((tab) => (
+          {!advancingDesk && (['costs', 'outlook', 'audit'] as const).filter(tab => canAccessTab(effectiveRole, tab)).map((tab) => (
             <button key={tab} onClick={() => selectTab(tab)}
               className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
                 activeTab === tab ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
@@ -1898,20 +2017,28 @@ export default function CostFieldsTab({
               {tab === 'costs' ? 'Run Costing' : tab === 'audit' ? 'Audit Trail' : 'Ticket Outlook'}
             </button>
           ))}
-          {hasAdvancement && (
+          {advancingDesk && hasRunAdvancing && (
+            <button onClick={() => selectTab('run_advancing')}
+              className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
+                activeTab === 'run_advancing' ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
+              }`}>
+              {RUN_ADVANCING_TAB_LABEL}
+            </button>
+          )}
+          {advancingDesk && hasAdvancement && (
             <button onClick={() => selectTab('advancement')}
               className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
                 activeTab === 'advancement' ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
               }`}>
-              Advancing Shows
+              {ADVANCING_CHECKLIST_TAB_LABEL}
             </button>
           )}
-          {hasShowPack && (
+          {advancingDesk && hasShowPack && (
             <button onClick={() => selectTab('show_pack')}
               className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 transition-colors -mb-px ${
                 activeTab === 'show_pack' ? 'border-amber-400 text-amber-400' : 'border-transparent text-slate-400 hover:text-white'
               }`}>
-              Worksheet
+              {WORKSHEET_TAB_LABEL}
             </button>
           )}
           <span className="ml-auto text-slate-800 text-xs pb-2 select-none flex-shrink-0">v3</span>
@@ -1977,10 +2104,20 @@ export default function CostFieldsTab({
         />
       )}
 
-      {/* COST FIELDS TAB — one sheet: owners get revenue top + P&L bottom; middle costing unchanged */}
-      {hasTabAccess && activeTab === 'costs' && (
-        <div className="space-y-6">
-          {costSheetFrozen && (
+      {/* COST / RUN ADVANCING SHEET — same UX; Advancing writes a twin store */}
+      {((hasTabAccess && activeTab === 'costs') || (hasRunAdvancing && activeTab === 'run_advancing')) && (
+        <div className="space-y-6" data-testid={onAdvancingSheet ? 'run-advancing-sheet' : 'run-costing-sheet'}>
+          {onAdvancingSheet && !advancingWorkspaceId && (
+            <div data-testid="run-advancing-empty" className="rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-6 text-center">
+              <p className="text-slate-300 text-sm">{RUN_ADVANCING_EMPTY}</p>
+            </div>
+          )}
+          {onAdvancingSheet && advancingWorkspaceId && (
+            <div data-testid="run-advancing-banner" role="status" className="rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-2.5">
+              <p className="text-amber-200/90 text-xs leading-snug">{RUN_ADVANCING_BANNER}</p>
+            </div>
+          )}
+          {sheetFrozen && (
             <div
               data-testid="booked-cost-freeze-banner"
               role="status"
@@ -1995,9 +2132,9 @@ export default function CostFieldsTab({
             </div>
           )}
 
-          {showOwnerPnl && (
+          {showOwnerPnl && (!onAdvancingSheet || advancingWorkspaceId) && (
             <PnlRevenueBlock
-              shows={showsState}
+              shows={viewShows}
               sellThrough={sellThrough}
               slidersUnlocked={slidersUnlocked}
               incompleteFields={incompleteFields}
@@ -2006,10 +2143,19 @@ export default function CostFieldsTab({
               remittanceLines={remittanceLines}
               onSellThrough={updateSellThrough}
               onShowUpdated={handlePnlShowUpdated}
+              chromeReadOnly={sheetPnlLocked}
+              onChromeSave={onAdvancingSheet
+                ? async (show, patch) => {
+                    const updated = await saveAdvancingChrome(show.id, patch)
+                    return updated ?? show
+                  }
+                : undefined}
             />
           )}
 
           {/* Legend */}
+          {(!onAdvancingSheet || advancingWorkspaceId) && (
+          <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs mb-1">
             {([
               { key: 'known',     desc: 'CONFIRMED — figure accuracy / lines attested. Not payment.' },
@@ -2031,9 +2177,11 @@ export default function CostFieldsTab({
             <span className="text-slate-500 leading-snug pt-0.5">Receipt recorded — locks the line or planned role. Per-line / per-role Pay still needs a confirm tick. Edit → MARK ALL AS PAID marks every line (or role) paid (unticked rows are confirmed by that action). Un-pay or undo via the dropdown to unlock.</span>
           </div>
           <p className="text-slate-600 text-xs -mt-2">Use ▼ on any cost field to drill into the breakdown and add individual line items as they come in.</p>
+          </>
+          )}
 
           {/* Per-show sections */}
-          {showsState.map((show, idx) => (
+          {(!onAdvancingSheet || advancingWorkspaceId) && viewShows.map((show, idx) => (
             <div key={show.id} className="space-y-3">
               <div className="flex items-center gap-3">
                 <div className="w-6 h-6 rounded-full bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 text-xs font-bold shrink-0 self-start mt-0.5">{idx + 1}</div>
@@ -2041,7 +2189,14 @@ export default function CostFieldsTab({
                   <ShowDetailsEditor
                     show={show}
                     isOwner={!isProduction}
+                    pnlChromeLocked={sheetPnlLocked}
                     onUpdated={handleShowUpdated}
+                    onChromeSave={onAdvancingSheet
+                      ? async (patch) => {
+                          const updated = await saveAdvancingChrome(show.id, patch)
+                          if (updated) handleShowUpdated({ ...show, ...updated })
+                        }
+                      : undefined}
                   />
                 </div>
               </div>
@@ -2066,7 +2221,7 @@ export default function CostFieldsTab({
                               editorDisplayNameByFieldId,
                               profile,
                             )}
-                            costSheetFrozen={costSheetFrozen}
+                            costSheetFrozen={sheetFrozen}
                           />
                         ) : (
                           <FieldRow
@@ -2082,7 +2237,7 @@ export default function CostFieldsTab({
                               editorDisplayNameByFieldId,
                               profile,
                             )}
-                            costSheetFrozen={costSheetFrozen}
+                            costSheetFrozen={sheetFrozen}
                           />
                         )
                       )}
@@ -2091,12 +2246,12 @@ export default function CostFieldsTab({
                 )
               })}
 
-              {idx < showsState.length - 1 && <div className="border-b border-slate-800 mt-4" />}
+              {idx < viewShows.length - 1 && <div className="border-b border-slate-800 mt-4" />}
             </div>
           ))}
 
           {/* Run-level shared costs */}
-          <div>
+          {(!onAdvancingSheet || advancingWorkspaceId) && <div>
             <div className="flex items-center gap-3 mb-3">
               <div className="w-6 h-6 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center shrink-0">
                 <span className="text-slate-400 text-xs">∑</span>
@@ -2125,7 +2280,7 @@ export default function CostFieldsTab({
                         editorDisplayNameByFieldId,
                         profile,
                       )}
-                      costSheetFrozen={costSheetFrozen}
+                      costSheetFrozen={sheetFrozen}
                     />
                   ))}
                 </div>
@@ -2133,7 +2288,7 @@ export default function CostFieldsTab({
             ))}
           </div>
 
-          {showOwnerPnl && (
+          {showOwnerPnl && (!onAdvancingSheet || advancingWorkspaceId) && (
             <PnlSummaryBlock summary={ownerPnlSummary} slidersUnlocked={slidersUnlocked} />
           )}
         </div>
@@ -2172,5 +2327,6 @@ export default function CostFieldsTab({
         </div>
       )}
     </>
+    </CostSheetApiContext.Provider>
   )
 }

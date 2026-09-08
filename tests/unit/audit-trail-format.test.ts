@@ -542,6 +542,29 @@ test('BOOKED cost freeze narrative is a plain sentence and not Finalise', () => 
   )
 })
 
+test('Run Advancing copy / archive narratives are plain sentences', () => {
+  assert.equal(
+    sentence({
+      table_name: 'run_advancing_workspaces',
+      record_id: 'ws-1',
+      field_name: 'Run Advancing copy',
+      old_value: 'no Advancing workspace',
+      new_value: 'Gareth copied the R12 cost sheet into Run Advancing (12 cost lines). Working P&L chrome lives here.',
+    }),
+    'Gareth copied the R12 cost sheet into Run Advancing (12 cost lines). Working P&L chrome lives here.',
+  )
+  assert.equal(
+    sentence({
+      table_name: 'run_advancing_workspaces',
+      record_id: 'ws-1',
+      field_name: 'Run Advancing archive',
+      old_value: 'active Run Advancing workspace',
+      new_value: 'Gareth soft-archived the R12 Run Advancing workspace on UNBOOKED. Run Costings is editable again.',
+    }),
+    'Gareth soft-archived the R12 Run Advancing workspace on UNBOOKED. Run Costings is editable again.',
+  )
+})
+
 test('Finalise Costing narrative is a plain sentence', () => {
   assert.equal(
     sentence({
