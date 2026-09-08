@@ -42,11 +42,12 @@ test('Advancing Shows opens the advancing entry and a run lands on Advancing tab
   await expect(page.getByRole('button', { name: /p&l calculator/i })).toHaveCount(0)
 })
 
-test('Settlements child still opens Wave 1 Settlements', async ({ page }) => {
+test('Settlements child opens the Settlements list (sheet is the run front door)', async ({ page }) => {
   await page.goto('/runs')
   await page.getByRole('link', { name: /^settlements$/i }).click()
   await expect(page).toHaveURL(/\/settlements\/?$/)
   await expect(page.getByRole('heading', { name: /^settlements$/i })).toBeVisible({ timeout: 8000 })
+  await expect(page.getByText(/expected vs actual/i).first()).toBeVisible()
 })
 
 test('R12 Run Costing tabs still work after nav IA', async ({ page }) => {

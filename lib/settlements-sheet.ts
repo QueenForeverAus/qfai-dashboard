@@ -1,7 +1,11 @@
 /**
- * Settlements Phase 3/4 — 3-column Expected vs Actual sheet (staging).
+ * Settlements 3-column Expected vs Actual sheet — the Settlements front door.
  *
- * Col1 labels · Col2 live Advancing expected · Col3 actuals (Phase 4).
+ * REPLACE (not additive): `/settlements/{run}` and show-scoped
+ * `/settlements/{run}/{show}` are this sheet. Wave-1 Agent Settlement lives
+ * at `/agent`. Legacy `/sheet` redirects here.
+ *
+ * Col1 labels · Col2 live Advancing expected · Col3 actuals.
  * Pre-show is a hard block. No revenue sliders.
  * Col2 tickets sold = actual count (entered or known), then the same
  * Run Costing P&L formulas (inside / Harbour 10% / auto-calcs).
@@ -35,6 +39,12 @@ import { snapshotFieldTotal, type CostingSnapshotField } from './settlements.ts'
 
 export const SHEET_TAB_LABEL = 'Sheet'
 export const SHEET_HEADING = 'Expected vs actual'
+export const AGENT_SETTLEMENT_NAV_LABEL = 'Agent settlement'
+export const WAVE1_AGENT_SEGMENT = 'agent'
+export const SETTLEMENTS_DEMO_BADGE = 'DEMO'
+export const SETTLEMENTS_DEMO_GLANCE_LABEL = 'Sample completed show'
+export const SETTLEMENTS_DEMO_BANNER =
+  'DEMO sample completed show — glance the 3-col sheet here. Figures come from Advancing and the Harbour fixture path; nothing is invented on this page.'
 export const COL1_HEADER = 'Line'
 export const COL2_HEADER = 'Expected (Advancing)'
 export const COL3_HEADER = 'Actuals'
@@ -83,14 +93,32 @@ export type SheetShowInput = {
 
 export type TicketsSoldSource = 'entered' | 'known' | 'missing'
 
+/** Canonical 3-col Expected vs Actual sheet (Settlements front door). */
 export function settlementSheetHref(runCode: string, showId?: string | null): string {
-  const base = `/settlements/${runCode.toLowerCase()}/sheet`
-  return showId ? `/settlements/${runCode.toLowerCase()}/${showId}/sheet` : base
-}
-
-export function wave1SettlementHref(runCode: string, showId?: string | null): string {
   const base = `/settlements/${runCode.toLowerCase()}`
   return showId ? `${base}/${showId}` : base
+}
+
+/** Wave-1 Agent Settlement workspace — secondary route, not the front door. */
+export function wave1SettlementHref(runCode: string, showId?: string | null): string {
+  const base = `/settlements/${runCode.toLowerCase()}/${WAVE1_AGENT_SEGMENT}`
+  return showId ? `/settlements/${runCode.toLowerCase()}/${showId}/${WAVE1_AGENT_SEGMENT}` : base
+}
+
+/** Remittance workspace — secondary route, linked from the sheet. */
+export function remittanceHref(runCode: string, showId?: string | null): string {
+  const base = `/settlements/${runCode.toLowerCase()}/remittance`
+  return showId ? `/settlements/${runCode.toLowerCase()}/${showId}/remittance` : base
+}
+
+/** Staging glance: TCOMP1, or name/notes that say DEMO / SAMPLE. Never invents figures. */
+export function isSettlementsDemoRun(run: {
+  code?: string | null
+  name?: string | null
+  notes?: string | null
+}): boolean {
+  if (String(run.code ?? '').toUpperCase() === 'TCOMP1') return true
+  return /\b(demo|sample)\b/i.test(`${run.name ?? ''} ${run.notes ?? ''}`)
 }
 
 /**

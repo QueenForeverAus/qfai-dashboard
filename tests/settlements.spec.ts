@@ -15,12 +15,17 @@ test('sidebar shows Settlements (post-show) and Tour Desk (pre-show)', async ({ 
   await expect(page.getByRole('link', { name: /^settlement$/i })).toHaveCount(0)
 })
 
-test('Settlements lists runs with nested shows and two-pane workspace', async ({ page }) => {
+test('Settlements lists runs; opening a run lands on the 3-col sheet', async ({ page }) => {
   await page.goto('/settlements')
   await expect(page).not.toHaveURL(/login/)
   await expect(page.getByRole('heading', { name: /^settlements$/i })).toBeVisible({ timeout: 8000 })
   await expect(page.getByText(/proposed payment/i)).toBeVisible()
-  await expect(page.getByText(/^remittance$/i).first()).toBeVisible()
+  await expect(page.getByText(/expected vs actual/i).first()).toBeVisible()
+  const tcomp = page.getByTestId('settlement-run-TCOMP1')
+  if (await tcomp.count()) {
+    await expect(page.getByTestId('settlements-demo-glance')).toBeVisible()
+    await expect(page.getByTestId('settlement-demo-badge-TCOMP1')).toBeVisible()
+  }
 
   const r12 = page.getByTestId('settlement-run-R12')
   if (await r12.count() === 0) {
@@ -31,15 +36,11 @@ test('Settlements lists runs with nested shows and two-pane workspace', async ({
   await expect(page.getByTestId(/settlement-show-/).first()).toBeVisible()
 
   await r12.click()
-  await page.waitForURL(/\/settlements\/r12/i)
-  await expect(page.getByTestId('settlements-left-pane')).toBeVisible()
-  await expect(page.getByTestId('settlements-right-pane')).toBeVisible()
-  await expect(page.getByText('Agent Settlement')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Band Costs' })).toBeVisible()
-  await expect(page.getByTestId('close-gate-summary')).toBeVisible()
-  await expect(page.getByTestId('new-band-cost-quote-note')).toBeVisible()
-  await expect(page.getByTestId('new-band-cost-attach')).toBeVisible()
-  await expect(page.getByTestId('finalise-costing').or(page.getByTestId('finalised-badge'))).toBeVisible()
+  await page.waitForURL(/\/settlements\/r12\/?$/i)
+  await expect(page.getByTestId('settlements-sheet-pre-show')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByTestId('settlements-left-pane')).toHaveCount(0)
+  await expect(page.getByTestId('settlements-right-pane')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Agent Settlement' })).toHaveCount(0)
   await expect(page.getByTestId('tab-remittance')).toBeVisible()
   await page.getByTestId('tab-remittance').click()
   await page.waitForURL(/\/settlements\/r12\/remittance/i)
@@ -48,9 +49,9 @@ test('Settlements lists runs with nested shows and two-pane workspace', async ({
 })
 
 test('Band Costs quote/invoice stub attaches a dummy PDF and shows a chip', async ({ page }) => {
-  await page.goto('/settlements/r12')
-  if (!page.url().match(/\/settlements\/r12/i)) {
-    test.skip(true, 'R12 workspace not available')
+  await page.goto('/settlements/r12/agent')
+  if (!page.url().match(/\/settlements\/r12\/agent/i)) {
+    test.skip(true, 'R12 Wave-1 workspace not available')
     return
   }
   await expect(page.getByTestId('settlements-right-pane')).toBeVisible({ timeout: 8000 })

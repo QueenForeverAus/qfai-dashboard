@@ -12,6 +12,8 @@ import {
   buildShowSheetLines,
   expectedVenueWaterfall,
   resolveTicketsSold,
+  isSettlementsDemoRun,
+  remittanceHref,
   settlementSheetHref,
   sheetUsesRevenueSliders,
   showHasOccurred,
@@ -161,11 +163,20 @@ test('run sheet opens occurred shows and keeps upcoming out of Col2', () => {
   assert.equal(model.sections[0]?.tickets, 400)
 })
 
-test('rebuild hrefs are additive and do not replace Wave 1', () => {
-  assert.equal(settlementSheetHref('TCOMP1'), '/settlements/tcomp1/sheet')
-  assert.equal(settlementSheetHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1/sheet')
-  assert.equal(wave1SettlementHref('TCOMP1'), '/settlements/tcomp1')
-  assert.equal(wave1SettlementHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1')
+test('sheet is the canonical Settlements front door; Wave-1 and remittance are secondary', () => {
+  assert.equal(settlementSheetHref('TCOMP1'), '/settlements/tcomp1')
+  assert.equal(settlementSheetHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1')
+  assert.equal(wave1SettlementHref('TCOMP1'), '/settlements/tcomp1/agent')
+  assert.equal(wave1SettlementHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1/agent')
+  assert.equal(remittanceHref('TCOMP1'), '/settlements/tcomp1/remittance')
+  assert.equal(remittanceHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1/remittance')
+})
+
+test('TCOMP1 and DEMO/SAMPLE notes mark the staging glance run; R12 does not', () => {
+  assert.equal(isSettlementsDemoRun({ code: 'TCOMP1', name: 'Geelong' }), true)
+  assert.equal(isSettlementsDemoRun({ code: 'R12', name: 'R12 Melbourne' }), false)
+  assert.equal(isSettlementsDemoRun({ code: 'X1', name: 'DEMO completed show' }), true)
+  assert.equal(isSettlementsDemoRun({ code: 'X2', name: 'Night two', notes: 'SAMPLE for staging' }), true)
 })
 
 test('Col3 copy is Phase 4 actuals, not a placeholder-only note', () => {

@@ -36,6 +36,7 @@ export type SettlementWorkspaceData = {
     status: string
     start_date: string | null
     end_date: string | null
+    notes: string | null
   }
   shows: SettlementShow[]
   liveFields: CostingSnapshotField[]
@@ -188,6 +189,7 @@ export async function loadSettlementWorkspace(runCode: string): Promise<Settleme
       status: run.status,
       start_date: dates.start ?? run.start_date,
       end_date: dates.end ?? run.end_date,
+      notes: (run.notes as string | null) ?? null,
     },
     shows: typedShows,
     liveFields: asSnapshotFields((costFields ?? []) as Array<Record<string, unknown>>),

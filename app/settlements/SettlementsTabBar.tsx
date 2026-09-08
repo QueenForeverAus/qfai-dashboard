@@ -2,8 +2,18 @@
 
 import Link from 'next/link'
 import { REMITTANCE_TAB_LABEL } from '@/lib/remittance'
-import { SHEET_TAB_LABEL, settlementSheetHref, wave1SettlementHref } from '@/lib/settlements-sheet'
+import {
+  AGENT_SETTLEMENT_NAV_LABEL,
+  SHEET_HEADING,
+  remittanceHref,
+  settlementSheetHref,
+  wave1SettlementHref,
+} from '@/lib/settlements-sheet'
 
+/**
+ * Secondary affordances only. The 3-col sheet is the Settlements front door —
+ * this row must not re-expose Wave-1 Agent Settlement as a peer tab.
+ */
 export default function SettlementsTabBar({
   runCode,
   showId,
@@ -13,17 +23,18 @@ export default function SettlementsTabBar({
   showId: string | null
   active: 'sheet' | 'settlement' | 'remittance'
 }) {
-  const remittance = showId
-    ? `${wave1SettlementHref(runCode, showId)}/remittance`
-    : `${wave1SettlementHref(runCode)}/remittance`
-  const tab = (href: string, label: string, on: boolean, testId: string) => (
+  const sheet = settlementSheetHref(runCode, showId)
+  const agent = wave1SettlementHref(runCode, showId)
+  const remit = remittanceHref(runCode, showId)
+
+  const secondary = (href: string, label: string, on: boolean, testId: string) => (
     <Link
       href={href}
       data-testid={testId}
-      className={`px-3 py-1.5 rounded-md text-xs font-semibold border ${
+      className={`px-2.5 py-1 rounded-md text-[11px] font-medium border ${
         on
-          ? 'bg-amber-400/10 text-amber-400 border-amber-700'
-          : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+          ? 'bg-slate-800 text-slate-200 border-slate-600'
+          : 'bg-transparent text-slate-500 border-transparent hover:text-slate-300'
       }`}
     >
       {label}
@@ -31,10 +42,18 @@ export default function SettlementsTabBar({
   )
 
   return (
-    <div className="flex flex-wrap gap-1.5 mb-4" data-testid="settlements-tabs">
-      {tab(settlementSheetHref(runCode, showId), SHEET_TAB_LABEL, active === 'sheet', 'tab-sheet')}
-      {tab(wave1SettlementHref(runCode, showId), 'Settlement', active === 'settlement', 'tab-settlement')}
-      {tab(remittance, REMITTANCE_TAB_LABEL, active === 'remittance', 'tab-remittance')}
+    <div className="flex flex-wrap items-center gap-2 mb-4" data-testid="settlements-secondary-nav">
+      {active !== 'sheet' && (
+        <Link
+          href={sheet}
+          data-testid="tab-sheet"
+          className="px-2.5 py-1 rounded-md text-[11px] font-semibold border bg-amber-400/10 text-amber-400 border-amber-700"
+        >
+          ← {SHEET_HEADING}
+        </Link>
+      )}
+      {secondary(remit, REMITTANCE_TAB_LABEL, active === 'remittance', 'tab-remittance')}
+      {secondary(agent, AGENT_SETTLEMENT_NAV_LABEL, active === 'settlement', 'tab-settlement')}
     </div>
   )
 }

@@ -62,7 +62,7 @@ describe('tour desk nav IA', () => {
     assert.equal(isTourDeskChildActive({ href: ADVANCING_SHOWS_HREF, pathname: '/runs' }), false)
   })
 
-  it('highlights Settlements only on the Wave 1 Settlements routes', () => {
+  it('highlights Settlements on the Settlements list and run sheet', () => {
     assert.equal(isTourDeskChildActive({ href: SETTLEMENTS_HREF, pathname: '/settlements' }), true)
     assert.equal(isTourDeskChildActive({ href: SETTLEMENTS_HREF, pathname: '/settlements/r12' }), true)
     assert.equal(isTourDeskChildActive({ href: SETTLEMENTS_HREF, pathname: '/runs' }), false)

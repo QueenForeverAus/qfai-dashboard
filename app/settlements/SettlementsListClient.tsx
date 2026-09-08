@@ -7,8 +7,12 @@ import {
   SETTLEMENT_PROPOSED_NOTE,
   SETTLEMENTS_MODULE_LABEL,
 } from '@/lib/settlements'
-import { REMITTANCE_CASH_NOTE, REMITTANCE_TAB_LABEL } from '@/lib/remittance'
-import { SHEET_TAB_LABEL, settlementSheetHref } from '@/lib/settlements-sheet'
+import {
+  SETTLEMENTS_DEMO_BADGE,
+  SETTLEMENTS_DEMO_GLANCE_LABEL,
+  isSettlementsDemoRun,
+  settlementSheetHref,
+} from '@/lib/settlements-sheet'
 
 export type SettlementListShow = {
   id: string
@@ -22,6 +26,7 @@ export type SettlementListRun = {
   id: string
   code: string
   name: string
+  notes: string | null
   status: string
   start_date: string | null
   end_date: string | null
@@ -43,13 +48,20 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
     for (const run of runs) {
-      if (run.code.toUpperCase() === 'R12' || run.finalised || run.status === 'post_show') {
+      if (
+        run.code.toUpperCase() === 'R12'
+        || isSettlementsDemoRun(run)
+        || run.finalised
+        || run.status === 'post_show'
+      ) {
         initial[run.id] = true
       }
     }
     return initial
   })
   const [query, setQuery] = useState('')
+
+  const demoRuns = useMemo(() => runs.filter(isSettlementsDemoRun), [runs])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -68,15 +80,31 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
         <div className="flex flex-wrap items-center gap-2 mb-2">
           <h1 className="text-white text-2xl font-bold tracking-wide">{SETTLEMENTS_MODULE_LABEL}</h1>
           <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-teal-900/40 text-teal-300 border border-teal-800">
-            {REMITTANCE_TAB_LABEL}
+            Expected vs actual
           </span>
         </div>
         <p className="text-slate-400 text-sm">{SETTLEMENT_PROPOSED_NOTE}</p>
-        <p className="text-slate-500 text-xs mt-1">{REMITTANCE_CASH_NOTE}</p>
         <p className="text-slate-500 text-xs mt-1">Post-show close. Tour Desk stays the pre-show costing workspace.</p>
         <p className="text-slate-500 text-xs mt-1">
-          Rebuild path: <span className="text-slate-400">{SHEET_TAB_LABEL}</span> is the 3-column expected vs actual view. Wave 1 Settlement / Remittance stay available.
+          Opening a run lands on the 3-column Expected vs Actual sheet. Remittance and Wave-1 agent settlement stay available from the sheet.
         </p>
+        {demoRuns.length > 0 && (
+          <p className="text-slate-400 text-xs mt-2" data-testid="settlements-demo-glance">
+            {SETTLEMENTS_DEMO_GLANCE_LABEL}:{' '}
+            {demoRuns.map((run, i) => (
+              <span key={run.id}>
+                {i > 0 ? ', ' : ''}
+                <Link
+                  href={settlementSheetHref(run.code)}
+                  className="text-teal-300 hover:underline font-semibold"
+                  data-testid={`settlement-demo-${run.code}`}
+                >
+                  {run.code}
+                </Link>
+              </span>
+            ))}
+          </p>
+        )}
       </div>
 
       <input
@@ -108,24 +136,25 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
                     {expanded ? '▾' : '▸'}
                   </button>
                   <Link
-                    href={`/settlements/${run.code.toLowerCase()}`}
+                    href={settlementSheetHref(run.code)}
                     className="flex-1 min-w-0 flex items-center gap-3"
                     data-testid={`settlement-run-${run.code}`}
                   >
                     <span className="text-amber-400 font-bold shrink-0">{run.code}</span>
                     <span className="text-white text-sm truncate">{run.name}</span>
+                    {isSettlementsDemoRun(run) && (
+                      <span
+                        data-testid={`settlement-demo-badge-${run.code}`}
+                        className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-teal-900/40 text-teal-300 border border-teal-800"
+                      >
+                        {SETTLEMENTS_DEMO_BADGE}
+                      </span>
+                    )}
                     <span className={`hidden sm:inline px-2 py-0.5 rounded text-[10px] font-semibold uppercase border ${STATUS[run.status] ?? 'bg-slate-700 text-slate-400 border-slate-600'}`}>
                       {run.status.replace('_', ' ')}
                     </span>
                   </Link>
                   <div className="flex items-center gap-2 shrink-0">
-                    <Link
-                      href={settlementSheetHref(run.code)}
-                      className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded border bg-teal-900/30 text-teal-300 border-teal-800 hover:bg-teal-900/50"
-                      data-testid={`settlement-sheet-run-${run.code}`}
-                    >
-                      {SHEET_TAB_LABEL}
-                    </Link>
                     {run.finalised ? (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-teal-900/40 text-teal-300 border-teal-800">
                         FINALISED
@@ -153,7 +182,7 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
                           <li key={show.id}>
                             <div className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-slate-800/80 text-sm">
                               <Link
-                                href={`/settlements/${run.code.toLowerCase()}/${show.id}`}
+                                href={settlementSheetHref(run.code, show.id)}
                                 className="flex-1 min-w-0 flex items-center justify-between gap-3"
                                 data-testid={`settlement-show-${show.id}`}
                               >
@@ -162,13 +191,6 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
                                   {show.venue_city ? <span className="text-slate-500"> · {show.venue_city}</span> : null}
                                 </span>
                                 <span className="text-slate-500 text-xs shrink-0">{formatDateShortAU(show.show_date)}</span>
-                              </Link>
-                              <Link
-                                href={settlementSheetHref(run.code, show.id)}
-                                className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded border bg-teal-900/30 text-teal-300 border-teal-800 hover:bg-teal-900/50"
-                                data-testid={`settlement-sheet-${show.id}`}
-                              >
-                                {SHEET_TAB_LABEL}
                               </Link>
                             </div>
                           </li>

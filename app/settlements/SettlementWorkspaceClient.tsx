@@ -27,6 +27,7 @@ import {
 } from '@/lib/settlements'
 import type { AgentSettlementLine } from '@/lib/remittance'
 import type { SettlementActualLine } from '@/lib/settlements-sheet-actuals'
+import { wave1SettlementHref } from '@/lib/settlements-sheet'
 import QuoteInvoiceStub from '@/components/QuoteInvoiceStub'
 import SettlementsTabBar from './SettlementsTabBar'
 import {
@@ -271,7 +272,7 @@ export default function SettlementWorkspaceClient({
       {shows.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-4">
           <Link
-            href={`/settlements/${run.code.toLowerCase()}`}
+            href={wave1SettlementHref(run.code)}
             className={`px-2.5 py-1 rounded-md text-xs border ${!focusedShowId ? 'bg-amber-400/10 text-amber-400 border-amber-700' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}
           >
             All shows
@@ -279,7 +280,7 @@ export default function SettlementWorkspaceClient({
           {shows.map(show => (
             <Link
               key={show.id}
-              href={`/settlements/${run.code.toLowerCase()}/${show.id}`}
+              href={wave1SettlementHref(run.code, show.id)}
               className={`px-2.5 py-1 rounded-md text-xs border ${focusedShowId === show.id ? 'bg-amber-400/10 text-amber-400 border-amber-700' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}
             >
               {show.venue_name}
