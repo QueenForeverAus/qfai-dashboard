@@ -90,6 +90,42 @@ export type CostFieldCopySource = {
   source: string | null
   line_items: unknown
   entries: unknown
+  updated_at?: string | null
+}
+
+/** Matches advancing_cost_fields_workspace_line_idx coalesce(show_id, …). */
+export const ADVANCING_NULL_SHOW_SENTINEL = '00000000-0000-0000-0000-000000000000'
+
+export function advancingCopyLineKey(field: {
+  show_id: string | null
+  field_key: string
+}): string {
+  return `${field.show_id ?? ADVANCING_NULL_SHOW_SENTINEL}:${field.field_key}`
+}
+
+/** Latest updated_at wins; equal timestamps fall back to highest id. */
+export function preferAdvancingCopySource(
+  a: CostFieldCopySource,
+  b: CostFieldCopySource,
+): CostFieldCopySource {
+  const aAt = a.updated_at ? Date.parse(a.updated_at) : 0
+  const bAt = b.updated_at ? Date.parse(b.updated_at) : 0
+  if (Number.isFinite(aAt) && Number.isFinite(bAt) && aAt !== bAt) {
+    return aAt > bAt ? a : b
+  }
+  return a.id > b.id ? a : b
+}
+
+export function dedupeCostFieldsForAdvancingCopy(
+  fields: CostFieldCopySource[],
+): CostFieldCopySource[] {
+  const winners = new Map<string, CostFieldCopySource>()
+  for (const field of fields) {
+    const key = advancingCopyLineKey(field)
+    const current = winners.get(key)
+    winners.set(key, current ? preferAdvancingCopySource(current, field) : field)
+  }
+  return [...winners.values()]
 }
 
 export type ShowChromeSource = {
@@ -159,7 +195,7 @@ export function buildAdvancingFieldCopies(
   runId: string,
   fields: CostFieldCopySource[],
 ): AdvancingCostFieldCopy[] {
-  return fields.map(field => ({
+  return dedupeCostFieldsForAdvancingCopy(fields).map(field => ({
     workspace_id: workspaceId,
     run_id: runId,
     source_cost_field_id: field.id,
