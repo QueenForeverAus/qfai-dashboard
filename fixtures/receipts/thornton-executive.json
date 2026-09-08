@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "kind": "hotel",
+  "vendor": "Thornton Executive",
+  "confirmation_id": "TE-91718",
+  "currency": "AUD",
+  "total_paid": 214,
+  "paid": true,
+  "charge_kind": "charge",
+  "check_in": "2026-09-17",
+  "check_out": "2026-09-18",
+  "locality": "Thornton",
+  "city": "Maitland",
+  "address": "1 Weakleys Dr, Thornton NSW 2322",
+  "guest_names": ["Gareth Quinn", "Michael Richardson"],
+  "notes": "Day-before first show. Newcastle catchment (city ≠ show city)."
+}

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "kind": "hotel",
+  "vendor": "Port O'Call",
+  "confirmation_id": "POC-1920",
+  "currency": "AUD",
+  "total_paid": 245,
+  "paid": true,
+  "charge_kind": "charge",
+  "check_in": "2026-09-19",
+  "check_out": "2026-09-20",
+  "locality": "Port Macquarie",
+  "city": "Port Macquarie",
+  "address": "1 Park St, Port Macquarie NSW 2444",
+  "guest_names": ["Gareth Quinn", "Adam Dahl"]
+}

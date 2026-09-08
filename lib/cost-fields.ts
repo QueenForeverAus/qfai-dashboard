@@ -36,6 +36,15 @@ export type CostEntry = PayableLine & {
   quote_note?: string | null
   /** Wave 2 Payables document FK — unused in W1.5 UI. */
   payables_document_id?: string | null
+  /**
+   * Advancing receipt extract — stay night (YYYY-MM-DD). Optional.
+   * Per-night accommodation lines live as entries on the run-level field.
+   */
+  night_date?: string | null
+  city?: string | null
+  vendor?: string | null
+  confirmation_id?: string | null
+  receipt_kind?: 'charge' | 'refund' | null
 }
 
 /**
@@ -839,6 +848,17 @@ export function normalizeEntries(raw: unknown): CostEntry[] | null {
       quote_note: String(row.quote_note ?? ''),
       payables_document_id: row.payables_document_id != null && String(row.payables_document_id)
         ? String(row.payables_document_id)
+        : null,
+      night_date: typeof row.night_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.night_date)
+        ? row.night_date
+        : null,
+      city: row.city != null && String(row.city).trim() ? String(row.city).trim() : null,
+      vendor: row.vendor != null && String(row.vendor).trim() ? String(row.vendor).trim() : null,
+      confirmation_id: row.confirmation_id != null && String(row.confirmation_id).trim()
+        ? String(row.confirmation_id).trim()
+        : null,
+      receipt_kind: row.receipt_kind === 'refund' || row.receipt_kind === 'charge'
+        ? row.receipt_kind
         : null,
     }
   })
