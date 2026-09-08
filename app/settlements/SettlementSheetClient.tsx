@@ -12,6 +12,7 @@ import {
   COL1_HEADER,
   COL2_HEADER,
   COL3_HEADER,
+  col2SourceNote,
   PRE_SHOW_BLOCK_COPY,
   PRE_SHOW_STAKEHOLDER_NOTE,
   SETTLEMENTS_DEMO_BANNER,
@@ -24,6 +25,7 @@ import {
   resolveTicketsSold,
   settlementSheetHref,
   showHasOccurred,
+  type SettlementExpectedSource,
 } from '@/lib/settlements-sheet'
 import {
   ROLLUP_LABEL,
@@ -449,6 +451,7 @@ export default function SettlementSheetClient({
   run,
   shows,
   liveFields,
+  expectedSource = 'advancing',
   focusedShowId,
   insideFactors,
   remittanceKnownLines,
@@ -459,6 +462,7 @@ export default function SettlementSheetClient({
   run: { id: string; code: string; name: string; status: string; start_date: string | null; end_date: string | null; notes?: string | null }
   shows: SettlementShow[]
   liveFields: CostingSnapshotField[]
+  expectedSource?: SettlementExpectedSource
   focusedShowId: string | null
   insideFactors: InsideFactorValues
   remittanceKnownLines: KnownInsideLine[]
@@ -669,8 +673,8 @@ export default function SettlementSheetClient({
               ? `${focusedShow.venue_name} · ${formatDateAU(focusedShow.show_date)}`
               : `${formatDateAU(run.start_date)}${run.start_date !== run.end_date ? ` – ${formatDateAU(run.end_date)}` : ''}`}
           </p>
-          <p className="text-slate-500 text-xs mt-2 max-w-2xl">
-            Col2 is a live read of Advancing / Run Costing. Tickets sold is the actual count — not a sell-through slider.
+          <p className="text-slate-500 text-xs mt-2 max-w-2xl" data-testid="settlements-sheet-col2-note">
+            {col2SourceNote(expectedSource)}
           </p>
           {isSettlementsDemoRun(run) && (
             <p

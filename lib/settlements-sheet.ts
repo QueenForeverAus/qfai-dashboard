@@ -6,10 +6,13 @@
  * at `/agent`. Legacy `/sheet` redirects here.
  *
  * Col1 labels · Col2 live Advancing expected · Col3 actuals.
- * P1 residual: Col2 still reads cost_fields until Phase 4 rebind.
+ * Col2 binds to advancing_cost_fields + Advancing shows chrome when an
+ * active Run Advancing workspace exists. Frozen cost_fields is fallback
+ * only when that workspace is missing (BOOKED-but-copy-failed). Never invent.
  * Pre-show is a hard block. No revenue sliders.
  * Col2 tickets sold = actual count (entered or known), then the same
- * Run Costing P&L formulas (inside / Harbour 10% / auto-calcs).
+ * P&L formulas as Run Costing (inside / Harbour 10% / auto-calcs) on
+ * Advancing live costs — not sell-through on frozen Costing.
  */
 
 import { todayAU } from './dates.ts'
@@ -48,6 +51,10 @@ export const SETTLEMENTS_DEMO_BANNER =
   'DEMO sample completed show — glance the 3-col sheet here. Figures come from Advancing and the Harbour fixture path; nothing is invented on this page.'
 export const COL1_HEADER = 'Line'
 export const COL2_HEADER = 'Expected (Advancing)'
+export const COL2_LIVE_ADVANCING_NOTE =
+  'Col2 is a live read of Run Advancing. Tickets sold is the actual count — not a sell-through slider.'
+export const COL2_COSTING_FALLBACK_NOTE =
+  'No active Run Advancing workspace — Col2 is falling back to locked Run Costing (BOOKED copy may have failed). Figures are not invented.'
 export const COL3_HEADER = 'Actuals'
 export const COL3_PLACEHOLDER_NOTE =
   'Venue settlement figures enter as confirmed. Challenge drafts a Harbour email (never auto-sent). Band costs copy from Advancing and stay editable until PAID. One Expected bucket can roll up many Actuals.'
@@ -66,6 +73,13 @@ export const TICKETS_SOLD_HELP =
 export const SOCIAL_ADS_PER_TICKET = 1.10
 
 export const SHEET_FORBIDS_REVENUE_SLIDERS = true
+
+/** Where Col2 Expected amounts were loaded from. */
+export type SettlementExpectedSource = 'advancing' | 'costing_fallback'
+
+export function col2SourceNote(source: SettlementExpectedSource): string {
+  return source === 'advancing' ? COL2_LIVE_ADVANCING_NOTE : COL2_COSTING_FALLBACK_NOTE
+}
 
 export type SheetLineGroup = 'tickets' | 'revenue' | 'venue_costs' | 'run_costs' | 'pnl'
 

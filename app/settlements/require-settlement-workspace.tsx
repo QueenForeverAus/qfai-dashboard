@@ -39,6 +39,7 @@ export function SettlementSheetView({
       run={data.run}
       shows={data.shows}
       liveFields={data.liveFields}
+      expectedSource={data.expectedSource}
       focusedShowId={focusedShowId}
       insideFactors={data.insideFactors}
       remittanceKnownLines={data.remittanceKnownLines}
