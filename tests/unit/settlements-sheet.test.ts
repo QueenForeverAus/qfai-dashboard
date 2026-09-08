@@ -12,6 +12,7 @@ import {
   buildShowSheetLines,
   expectedVenueWaterfall,
   resolveTicketsSold,
+  isSettlementsDemoRun,
   remittanceHref,
   settlementSheetHref,
   sheetUsesRevenueSliders,
@@ -169,6 +170,13 @@ test('sheet is the canonical Settlements front door; Wave-1 and remittance are s
   assert.equal(wave1SettlementHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1/agent')
   assert.equal(remittanceHref('TCOMP1'), '/settlements/tcomp1/remittance')
   assert.equal(remittanceHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1/remittance')
+})
+
+test('TCOMP1 and DEMO/SAMPLE notes mark the staging glance run; R12 does not', () => {
+  assert.equal(isSettlementsDemoRun({ code: 'TCOMP1', name: 'Geelong' }), true)
+  assert.equal(isSettlementsDemoRun({ code: 'R12', name: 'R12 Melbourne' }), false)
+  assert.equal(isSettlementsDemoRun({ code: 'X1', name: 'DEMO completed show' }), true)
+  assert.equal(isSettlementsDemoRun({ code: 'X2', name: 'Night two', notes: 'SAMPLE for staging' }), true)
 })
 
 test('Col3 copy is Phase 4 actuals, not a placeholder-only note', () => {

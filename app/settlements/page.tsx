@@ -19,7 +19,7 @@ export default async function SettlementsIndexPage() {
 
   const admin = createAdminClient()
   const [{ data: runs }, { data: settlements }, { data: bandCosts }] = await Promise.all([
-    admin.from('runs').select('id, code, name, status, start_date, end_date, shows(id, venue_name, venue_city, show_date, show_order)').order('start_date', { ascending: true }),
+    admin.from('runs').select('id, code, name, status, start_date, end_date, notes, shows(id, venue_name, venue_city, show_date, show_order)').order('start_date', { ascending: true }),
     admin.from('run_settlements').select('run_id, costing_finalised_at'),
     admin.from('band_cost_lines').select('run_id, paid, waived'),
   ])
@@ -38,6 +38,7 @@ export default async function SettlementsIndexPage() {
       id: run.id,
       code: run.code,
       name: run.name,
+      notes: (run.notes as string | null) ?? null,
       status: run.status,
       start_date: dates.start ?? run.start_date,
       end_date: dates.end ?? run.end_date,

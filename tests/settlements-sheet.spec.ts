@@ -18,6 +18,7 @@ test('Tour Desk → Settlements → R12 lands on the 3-col sheet pre-show block'
   await page.waitForURL(/\/settlements\/r12\/?$/i)
   await expect(page).not.toHaveURL(/\/sheet/i)
   await expect(page.getByTestId('settlements-sheet-pre-show')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByTestId('settlements-demo-banner')).toHaveCount(0)
   await expect(page.getByText('Data not yet available — check back when the show has occurred.')).toBeVisible()
   await expect(page.getByText('Stakeholders use Advancing, not Settlements.')).toBeVisible()
   await expect(page.getByTestId('settlements-sheet')).toHaveCount(0)
@@ -40,10 +41,13 @@ test('Tour Desk → Settlements → TCOMP1 lands on the 3-col sheet, not Wave-1 
     test.skip(true, 'TCOMP1 not present on this environment')
     return
   }
+  await expect(page.getByTestId('settlements-demo-glance')).toBeVisible()
+  await expect(page.getByTestId('settlement-demo-badge-TCOMP1')).toBeVisible()
   await tcomp.click()
   await page.waitForURL(/\/settlements\/tcomp1\/?$/i)
   await expect(page).not.toHaveURL(/\/sheet/i)
   await expect(page.getByTestId('settlements-sheet')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByTestId('settlements-demo-banner')).toBeVisible()
   await expect(page.getByTestId('settlements-sheet-pre-show')).toHaveCount(0)
   await expect(page.getByTestId('settlements-sheet-col1').first()).toHaveText(/line/i)
   await expect(page.getByTestId('settlements-sheet-col2').first()).toHaveText(/expected \(advancing\)/i)

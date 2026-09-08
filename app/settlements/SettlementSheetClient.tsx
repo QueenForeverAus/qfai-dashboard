@@ -14,11 +14,13 @@ import {
   COL3_HEADER,
   PRE_SHOW_BLOCK_COPY,
   PRE_SHOW_STAKEHOLDER_NOTE,
+  SETTLEMENTS_DEMO_BANNER,
   SHEET_HEADING,
   TICKETS_SOLD_HELP,
   TICKETS_SOLD_LABEL,
   buildRunSheet,
   buildShowSheetLines,
+  isSettlementsDemoRun,
   resolveTicketsSold,
   settlementSheetHref,
   showHasOccurred,
@@ -454,7 +456,7 @@ export default function SettlementSheetClient({
   challenges,
   bandCosts = [],
 }: {
-  run: { id: string; code: string; name: string; status: string; start_date: string | null; end_date: string | null }
+  run: { id: string; code: string; name: string; status: string; start_date: string | null; end_date: string | null; notes?: string | null }
   shows: SettlementShow[]
   liveFields: CostingSnapshotField[]
   focusedShowId: string | null
@@ -670,6 +672,14 @@ export default function SettlementSheetClient({
           <p className="text-slate-500 text-xs mt-2 max-w-2xl">
             Col2 is a live read of Advancing / Run Costing. Tickets sold is the actual count — not a sell-through slider.
           </p>
+          {isSettlementsDemoRun(run) && (
+            <p
+              className="text-teal-300/90 text-xs mt-2 max-w-2xl"
+              data-testid="settlements-demo-banner"
+            >
+              {SETTLEMENTS_DEMO_BANNER}
+            </p>
+          )}
         </div>
       </div>
 

@@ -21,6 +21,11 @@ test('Settlements lists runs; opening a run lands on the 3-col sheet', async ({ 
   await expect(page.getByRole('heading', { name: /^settlements$/i })).toBeVisible({ timeout: 8000 })
   await expect(page.getByText(/proposed payment/i)).toBeVisible()
   await expect(page.getByText(/expected vs actual/i).first()).toBeVisible()
+  const tcomp = page.getByTestId('settlement-run-TCOMP1')
+  if (await tcomp.count()) {
+    await expect(page.getByTestId('settlements-demo-glance')).toBeVisible()
+    await expect(page.getByTestId('settlement-demo-badge-TCOMP1')).toBeVisible()
+  }
 
   const r12 = page.getByTestId('settlement-run-R12')
   if (await r12.count() === 0) {
