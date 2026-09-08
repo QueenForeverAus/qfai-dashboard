@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  COL2_HEADER,
+  COL2_LIVE_ADVANCING_NOTE,
   COL3_CELL,
   COL3_PLACEHOLDER_NOTE,
   PRE_SHOW_BLOCK_COPY,
@@ -177,6 +179,12 @@ test('TCOMP1 and DEMO/SAMPLE notes mark the staging glance run; R12 does not', (
   assert.equal(isSettlementsDemoRun({ code: 'R12', name: 'R12 Melbourne' }), false)
   assert.equal(isSettlementsDemoRun({ code: 'X1', name: 'DEMO completed show' }), true)
   assert.equal(isSettlementsDemoRun({ code: 'X2', name: 'Night two', notes: 'SAMPLE for staging' }), true)
+})
+
+test('Col2 header and live note name Advancing, not live Costing', () => {
+  assert.equal(COL2_HEADER, 'Expected (Advancing)')
+  assert.match(COL2_LIVE_ADVANCING_NOTE, /Run Advancing/)
+  assert.doesNotMatch(COL2_LIVE_ADVANCING_NOTE, /live Costing/)
 })
 
 test('Col3 copy is Phase 4 actuals, not a placeholder-only note', () => {

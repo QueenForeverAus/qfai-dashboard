@@ -1,3 +1,12 @@
+/**
+ * Settlements workspace loader.
+ *
+ * Phase 4: Col2 Expected (`liveFields` + show P&L chrome) binds to the
+ * active Run Advancing workspace via loadActiveAdvancingWorkspace /
+ * loadAdvancingCostFields. Frozen cost_fields is fallback only when that
+ * workspace is missing. This module never writes cost_fields.
+ */
+
 import { createAdminClient } from '@/lib/supabase/server-admin'
 import { runDateRangeFromShows } from '@/lib/run-dates'
 import {
@@ -12,6 +21,24 @@ import type { SettlementActualLine } from '@/lib/settlements-sheet-actuals'
 import { isSettlementActualKind, isSettlementActualStatus } from '@/lib/settlements-sheet-actuals'
 import type { RightsPayer } from '@/lib/remittance-variance'
 import { insideFactorsFromRows, type InsideFactorValues, type KnownInsideLine } from '@/lib/pnl-run-costing'
+import { isAdvancingWorkspaceActive } from '@/lib/run-advancing'
+import {
+  loadActiveAdvancingWorkspace,
+  loadAdvancingCostFields,
+} from '@/lib/run-advancing-persist'
+import type { SettlementExpectedSource } from '@/lib/settlements-sheet'
+import {
+  applySettlementExpectedShows,
+  resolveSettlementExpectedLive,
+} from '@/lib/settlements-expected'
+
+export {
+  SETTLEMENTS_COL2_WRITES_COST_FIELDS,
+  applySettlementExpectedShows,
+  asSnapshotFields,
+  parseAdvancingShowsChrome,
+  resolveSettlementExpectedLive,
+} from '@/lib/settlements-expected'
 
 export type SettlementShow = {
   id: string
@@ -40,6 +67,8 @@ export type SettlementWorkspaceData = {
   }
   shows: SettlementShow[]
   liveFields: CostingSnapshotField[]
+  /** advancing when an active workspace exists; costing_fallback otherwise. */
+  expectedSource: SettlementExpectedSource
   settlement: RunSettlementRow | null
   bandCosts: BandCostLine[]
   remittanceLines: RemittanceLine[]
@@ -48,22 +77,6 @@ export type SettlementWorkspaceData = {
   actuals: SettlementActualLine[]
   insideFactors: InsideFactorValues
   remittanceKnownLines: KnownInsideLine[]
-}
-
-function asSnapshotFields(rows: Array<Record<string, unknown>>): CostingSnapshotField[] {
-  return rows.map(f => ({
-    id: String(f.id),
-    run_id: String(f.run_id),
-    show_id: (f.show_id as string | null) ?? null,
-    category: String(f.category ?? ''),
-    field_key: String(f.field_key ?? ''),
-    label: String(f.label ?? ''),
-    value: f.value == null ? null : Number(f.value),
-    state: String(f.state ?? 'guess'),
-    source: (f.source as string | null) ?? null,
-    entries: Array.isArray(f.entries) ? f.entries : [],
-    line_items: Array.isArray(f.line_items) ? f.line_items : [],
-  }))
 }
 
 export async function loadSettlementWorkspace(runCode: string): Promise<SettlementWorkspaceData | null> {
@@ -83,6 +96,7 @@ export async function loadSettlementWorkspace(runCode: string): Promise<Settleme
     { data: challenges },
     { data: actualRows },
     { data: factorRows },
+    advancingWorkspace,
   ] = await Promise.all([
     admin.from('shows').select('id, venue_name, venue_city, show_date, show_order, rights_payer, capacity, capacity_bands, ticket_price, tickets_sold, booking_fee_per_payer, cc_fee_pct').eq('run_id', run.id).order('show_order'),
     admin.from('cost_fields').select('*').eq('run_id', run.id),
@@ -98,9 +112,19 @@ export async function loadSettlementWorkspace(runCode: string): Promise<Settleme
       'inside_cc_fee_pct',
       'ticketing_inside_pct',
     ]),
+    loadActiveAdvancingWorkspace(admin, run.id),
   ])
 
-  const typedShows: SettlementShow[] = (shows ?? []).map(s => ({
+  const advancingFields = advancingWorkspace && isAdvancingWorkspaceActive(advancingWorkspace)
+    ? await loadAdvancingCostFields(admin, advancingWorkspace.id)
+    : null
+  const expected = resolveSettlementExpectedLive({
+    advancingWorkspace,
+    advancingFields: advancingFields as Array<Record<string, unknown>> | null,
+    costingFields: (costFields ?? []) as Array<Record<string, unknown>>,
+  })
+
+  const rawShows: SettlementShow[] = (shows ?? []).map(s => ({
     id: s.id,
     venue_name: s.venue_name,
     venue_city: s.venue_city,
@@ -114,6 +138,11 @@ export async function loadSettlementWorkspace(runCode: string): Promise<Settleme
     booking_fee_per_payer: s.booking_fee_per_payer == null ? null : Number(s.booking_fee_per_payer),
     cc_fee_pct: s.cc_fee_pct == null ? null : Number(s.cc_fee_pct),
   }))
+  const typedShows = applySettlementExpectedShows({
+    shows: rawShows,
+    chrome: advancingWorkspace?.shows_chrome,
+    source: expected.source,
+  })
   const dates = runDateRangeFromShows(typedShows)
 
   const remittanceStatus = (settlementRow?.remittance_status ?? 'open') as RemittanceStatus
@@ -192,7 +221,8 @@ export async function loadSettlementWorkspace(runCode: string): Promise<Settleme
       notes: (run.notes as string | null) ?? null,
     },
     shows: typedShows,
-    liveFields: asSnapshotFields((costFields ?? []) as Array<Record<string, unknown>>),
+    liveFields: expected.fields,
+    expectedSource: expected.source,
     settlement,
     bandCosts: (bandCosts ?? []) as BandCostLine[],
     remittanceLines: (remittanceLines ?? []) as RemittanceLine[],
