@@ -271,7 +271,7 @@ async function upsertAdvancingWorkspace(
   costFields: CostFieldRow[],
   actorId: string | null,
 ): Promise<void> {
-  let workspace = await loadActiveAdvancingWorkspace(admin, runId)
+  const existingWorkspace = await loadActiveAdvancingWorkspace(admin, runId)
   const chrome = buildAdvancingShowsChrome([{
     id: showId,
     ticket_price: fixture.show.ticket_price,
@@ -282,7 +282,8 @@ async function upsertAdvancingWorkspace(
   }])
   const now = new Date().toISOString()
 
-  if (!workspace) {
+  let workspaceId: string
+  if (!existingWorkspace) {
     const { data, error } = await admin
       .from('run_advancing_workspaces')
       .insert({
@@ -292,22 +293,23 @@ async function upsertAdvancingWorkspace(
         shows_chrome: chrome,
         updated_at: now,
       })
-      .select('*')
+      .select('id')
       .single()
     if (error || !data) throw new Error(error?.message ?? 'Failed to insert Advancing workspace')
-    workspace = data
+    workspaceId = data.id
   } else {
     const { error } = await admin
       .from('run_advancing_workspaces')
       .update({ shows_chrome: chrome, updated_at: now })
-      .eq('id', workspace.id)
+      .eq('id', existingWorkspace.id)
     if (error) throw new Error(error.message)
+    workspaceId = existingWorkspace.id
   }
 
   const { data: existingFields } = await admin
     .from('advancing_cost_fields')
     .select('id, field_key, show_id')
-    .eq('workspace_id', workspace.id)
+    .eq('workspace_id', workspaceId)
 
   const byKey = new Map(
     (existingFields ?? []).map(row => [`${row.show_id ?? 'run'}::${row.field_key}`, row]),
@@ -316,7 +318,7 @@ async function upsertAdvancingWorkspace(
   for (const field of costFields) {
     const key = `${field.show_id ?? 'run'}::${field.field_key}`
     const row = {
-      workspace_id: workspace.id,
+      workspace_id: workspaceId,
       run_id: runId,
       source_cost_field_id: field.id,
       show_id: field.show_id,
