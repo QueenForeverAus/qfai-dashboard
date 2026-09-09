@@ -101,4 +101,6 @@ curl -sS -X POST "$STAGING/api/runs/TRECV1/advancing-receipts/apply?confirm_mone
 7. Expect `money.action: "written"` on the Advancing twin only. Costing still frozen/untouched.
 8. POST the same packet to a **proposed** run — `409`, no workspace attach.
 
-Out of scope: live tours@ scrape, W4 flight-# lookup / airport-call, prod migrate/deploy, re-adding the Apply JSON panel.
+Out of scope: live tours@ scrape, paid flight APIs, prod migrate/deploy, re-adding the Apply JSON panel.
+
+W4 flight-# Lookup + airport-call auto: `lib/flight-lookup/README.md` (Worksheet cards; does not change this apply route).

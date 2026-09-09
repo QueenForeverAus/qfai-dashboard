@@ -1,6 +1,16 @@
 'use client'
 
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  FLIGHT_TRAVEL_BAND_LABEL,
+  isFlightTravelBand,
+  nextAirportCall,
+  resolveFlightTravelBand,
+  type FlightTravelBand,
+} from '@/lib/flight-lookup/airport-call'
+import type { FlightSchedule } from '@/lib/flight-lookup/fixtures'
+import { mergeFlightLookupIntoBlock } from '@/lib/flight-lookup/merge'
+import type { FlightLookupResult } from '@/lib/flight-lookup/provider'
 import {
   FLIGHT_KIND_LABEL,
   canExposeHotelPin,
@@ -40,6 +50,8 @@ type ViewMode = 'edit' | 'handout'
 export default function WorksheetTravelBlocks({
   blocks,
   workspaceId,
+  runId,
+  region,
   profiles,
   canEdit,
   role,
@@ -49,6 +61,8 @@ export default function WorksheetTravelBlocks({
 }: {
   blocks: WorksheetTravelBlocks
   workspaceId: string | null
+  runId: string
+  region: string
   profiles: ProfileDirectoryRow[]
   canEdit: boolean
   role: string | undefined
@@ -56,6 +70,7 @@ export default function WorksheetTravelBlocks({
   onSave: (next: WorksheetTravelBlocks) => void
   onSaveLegacy: (fields: Record<string, string>) => void
 }) {
+  const runTravelBand = resolveFlightTravelBand(region)
   const [view, setView] = useState<ViewMode>('edit')
   const handout = view === 'handout'
   const canSeePin = canExposeHotelPin(role)
@@ -176,6 +191,8 @@ export default function WorksheetTravelBlocks({
           <FlightCard
             key={block.id}
             block={block}
+            runId={runId}
+            runTravelBand={runTravelBand}
             profiles={profiles}
             handout={handout}
             locked={locked}
@@ -429,6 +446,8 @@ function Slot({
 
 function FlightCard({
   block,
+  runId,
+  runTravelBand,
   profiles,
   handout,
   locked,
@@ -436,12 +455,33 @@ function FlightCard({
   onDelete,
 }: {
   block: FlightBlock
+  runId: string
+  runTravelBand: FlightTravelBand | null
   profiles: ProfileDirectoryRow[]
   handout: boolean
   locked: boolean
   onPatch: (partial: Partial<FlightBlock>) => void
   onDelete: () => void
 }) {
+  const [bandOverride, setBandOverride] = useState<FlightTravelBand | ''>('')
+  const [airportCallDirty, setAirportCallDirty] = useState(false)
+  const [lookupError, setLookupError] = useState<string | null>(null)
+  const [lookupBusy, setLookupBusy] = useState(false)
+  const travelBand = bandOverride || runTravelBand
+  const onPatchRef = useRef(onPatch)
+  onPatchRef.current = onPatch
+
+  useEffect(() => {
+    if (locked) return
+    const next = nextAirportCall({
+      depTime: block.dep_time,
+      band: travelBand,
+      current: block.airport_call,
+      dirty: airportCallDirty && Boolean(block.airport_call.trim()),
+    })
+    if (next && next !== block.airport_call) onPatchRef.current({ airport_call: next })
+  }, [airportCallDirty, block.airport_call, block.dep_time, locked, travelBand])
+
   const title = [
     FLIGHT_KIND_LABEL[block.kind],
     block.flight_number || 'Flight',
@@ -454,6 +494,101 @@ function FlightCard({
         <HandoutRows fields={omitBlankTravelFields(flightHandoutFields(block, profiles))} />
       </CardShell>
     )
+  }
+
+  function patchDep(depTime: string) {
+    onPatch({
+      dep_time: depTime,
+      airport_call: nextAirportCall({
+        depTime,
+        band: travelBand,
+        current: block.airport_call,
+        previousDepTime: block.dep_time,
+        previousBand: travelBand,
+        dirty: airportCallDirty && Boolean(block.airport_call.trim()),
+      }),
+    })
+  }
+
+  function patchBand(nextBand: FlightTravelBand | '') {
+    setBandOverride(nextBand)
+    const band = nextBand || runTravelBand
+    onPatch({
+      airport_call: nextAirportCall({
+        depTime: block.dep_time,
+        band,
+        current: block.airport_call,
+        previousDepTime: block.dep_time,
+        previousBand: travelBand,
+        dirty: airportCallDirty && Boolean(block.airport_call.trim()),
+      }),
+    })
+  }
+
+  function patchAirportCall(value: string) {
+    setAirportCallDirty(Boolean(value.trim()))
+    onPatch({ airport_call: value })
+  }
+
+  async function lookup() {
+    if (locked) return
+    setLookupBusy(true)
+    setLookupError(null)
+    try {
+      const res = await fetch(`/api/runs/${runId}/flight-lookup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flight_number: block.flight_number, date: block.date }),
+      })
+      const data = await res.json() as {
+        ok?: boolean
+        error?: string | null
+        code?: FlightLookupResult['code']
+        provider?: 'mock' | 'live' | null
+        schedule?: FlightSchedule | null
+      }
+      if (!res.ok) {
+        setLookupError(data.error ?? 'Lookup failed')
+        return
+      }
+      const result: FlightLookupResult = data.ok && data.schedule
+        ? { ok: true, provider: data.provider === 'live' ? 'live' : 'mock', schedule: data.schedule, error: null, code: 'ok' }
+        : {
+            ok: false,
+            provider: data.provider ?? null,
+            schedule: null,
+            error: data.error ?? 'No schedule for that flight # + date — leave fields blank and fill manually.',
+            code: data.code === 'not_configured' || data.code === 'invalid' || data.code === 'provider_error'
+              ? data.code
+              : 'not_found',
+          }
+      const merged = mergeFlightLookupIntoBlock({
+        block,
+        result,
+        travelBand,
+        airportCallDirty,
+      })
+      if (!merged.filled) {
+        setLookupError(merged.error)
+        return
+      }
+      onPatch({
+        flight_number: merged.block.flight_number,
+        date: merged.block.date,
+        airline: merged.block.airline,
+        from: merged.block.from,
+        to: merged.block.to,
+        dep_time: merged.block.dep_time,
+        arr_time: merged.block.arr_time,
+        dep_terminal: merged.block.dep_terminal,
+        arr_terminal: merged.block.arr_terminal,
+        airport_call: merged.block.airport_call,
+      })
+    } catch {
+      setLookupError('Lookup failed')
+    } finally {
+      setLookupBusy(false)
+    }
   }
 
   return (
@@ -471,16 +606,72 @@ function FlightCard({
             <option value="ret">Ret</option>
           </select>
         </Slot>
-        <TextSlot label="Flight #" value={block.flight_number} locked={locked} onChange={v => onPatch({ flight_number: v })} />
-        <DateSlot label="Date" value={block.date} locked={locked} onChange={v => onPatch({ date: v })} />
-        <TextSlot label="Airline" value={block.airline} locked={locked} onChange={v => onPatch({ airline: v })} />
-        <TextSlot label="From (airport)" value={block.from} locked={locked} onChange={v => onPatch({ from: v })} />
-        <TextSlot label="To (airport)" value={block.to} locked={locked} onChange={v => onPatch({ to: v })} />
-        <TimeSlot label="Dep" value={block.dep_time} locked={locked} onChange={v => onPatch({ dep_time: v })} />
-        <TimeSlot label="Arr" value={block.arr_time} locked={locked} onChange={v => onPatch({ arr_time: v })} />
-        <TextSlot label="Dep terminal" value={block.dep_terminal} locked={locked} onChange={v => onPatch({ dep_terminal: v })} />
-        <TextSlot label="Arr terminal" value={block.arr_terminal} locked={locked} onChange={v => onPatch({ arr_terminal: v })} />
-        <TextSlot label="Airport call" value={block.airport_call} locked={locked} onChange={v => onPatch({ airport_call: v })} />
+        <TextSlot
+          label="Flight #"
+          value={block.flight_number}
+          locked={locked}
+          testId="flight-number"
+          onChange={v => onPatch({ flight_number: v })}
+        />
+        <DateSlot
+          label="Date"
+          value={block.date}
+          locked={locked}
+          testId="flight-date"
+          onChange={v => onPatch({ date: v })}
+        />
+        <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-3">
+          <button
+            type="button"
+            data-testid="flight-lookup-btn"
+            disabled={locked || lookupBusy}
+            onClick={lookup}
+            className="text-xs px-3 py-1.5 rounded bg-amber-400 text-slate-900 font-semibold hover:bg-amber-300 disabled:opacity-50"
+          >
+            {lookupBusy ? 'Looking up…' : 'Lookup'}
+          </button>
+          <p className="text-[11px] text-slate-500">
+            Flight # + date · mock on staging · e.g. QF441 · 10 Feb 2027 · terminals only if known
+          </p>
+        </div>
+        {lookupError && (
+          <p
+            data-testid="flight-lookup-error"
+            className="sm:col-span-2 lg:col-span-3 text-xs text-amber-300/90"
+          >
+            {lookupError}
+          </p>
+        )}
+        <TextSlot label="Airline" value={block.airline} locked={locked} testId="flight-airline" onChange={v => onPatch({ airline: v })} />
+        <TextSlot label="From (airport)" value={block.from} locked={locked} testId="flight-from" onChange={v => onPatch({ from: v })} />
+        <TextSlot label="To (airport)" value={block.to} locked={locked} testId="flight-to" onChange={v => onPatch({ to: v })} />
+        <TimeSlot label="Dep" value={block.dep_time} locked={locked} testId="flight-dep-time" onChange={patchDep} />
+        <TimeSlot label="Arr" value={block.arr_time} locked={locked} testId="flight-arr-time" onChange={v => onPatch({ arr_time: v })} />
+        <TextSlot label="Dep terminal" value={block.dep_terminal} locked={locked} testId="flight-dep-terminal" onChange={v => onPatch({ dep_terminal: v })} />
+        <TextSlot label="Arr terminal" value={block.arr_terminal} locked={locked} testId="flight-arr-terminal" onChange={v => onPatch({ arr_terminal: v })} />
+        <Slot label="Travel type" value={travelBand} handout={false}>
+          <select
+            data-testid="flight-travel-band"
+            value={travelBand ?? ''}
+            disabled={locked}
+            onChange={e => {
+              const value = e.target.value
+              patchBand(isFlightTravelBand(value) ? value : '')
+            }}
+            className={inputClass}
+          >
+            {!runTravelBand && <option value="">Select G2 / G3</option>}
+            <option value="G2">{FLIGHT_TRAVEL_BAND_LABEL.G2}</option>
+            <option value="G3">{FLIGHT_TRAVEL_BAND_LABEL.G3}</option>
+          </select>
+        </Slot>
+        <TimeSlot
+          label="Airport call"
+          value={block.airport_call}
+          locked={locked}
+          testId="flight-airport-call"
+          onChange={patchAirportCall}
+        />
         <TextSlot label="Check-in open" value={block.check_in_open} locked={locked} onChange={v => onPatch({ check_in_open: v })} />
         <TextSlot label="Conf / PNR" value={block.confirmation} locked={locked} onChange={v => onPatch({ confirmation: v })} />
       </div>
@@ -711,12 +902,13 @@ function FerryCard({
 }
 
 function TextSlot({
-  label, value, locked, onChange,
+  label, value, locked, onChange, testId,
 }: {
   label: string
   value: string
   locked: boolean
   onChange: (next: string) => void
+  testId?: string
 }) {
   return (
     <Slot label={label} value={value} handout={false}>
@@ -725,6 +917,7 @@ function TextSlot({
         value={value}
         disabled={locked}
         placeholder=""
+        data-testid={testId}
         onChange={e => onChange(e.target.value)}
         className={inputClass}
       />
@@ -733,31 +926,47 @@ function TextSlot({
 }
 
 function DateSlot({
-  label, value, locked, onChange,
+  label, value, locked, onChange, testId,
 }: {
   label: string
   value: string
   locked: boolean
   onChange: (next: string) => void
+  testId?: string
 }) {
   return (
     <Slot label={label} value={value} handout={false}>
-      <input type="date" value={value} disabled={locked} onChange={e => onChange(e.target.value)} className={inputClass} />
+      <input
+        type="date"
+        value={value}
+        disabled={locked}
+        data-testid={testId}
+        onChange={e => onChange(e.target.value)}
+        className={inputClass}
+      />
     </Slot>
   )
 }
 
 function TimeSlot({
-  label, value, locked, onChange,
+  label, value, locked, onChange, testId,
 }: {
   label: string
   value: string
   locked: boolean
   onChange: (next: string) => void
+  testId?: string
 }) {
   return (
     <Slot label={label} value={value} handout={false}>
-      <input type="time" value={value} disabled={locked} onChange={e => onChange(e.target.value)} className={inputClass} />
+      <input
+        type="time"
+        value={value}
+        disabled={locked}
+        data-testid={testId}
+        onChange={e => onChange(e.target.value)}
+        className={inputClass}
+      />
     </Slot>
   )
 }

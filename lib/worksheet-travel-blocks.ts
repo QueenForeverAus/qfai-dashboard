@@ -2,8 +2,8 @@
  * W1 structured Worksheet travel cards (staging).
  *
  * Stored on the BOOKED Run Advancing workspace (`travel_blocks` JSONB).
- * Never writes locked Run Costings / cost_fields. Scrape / PAID / flight
- * lookup are out of scope (W3/W4).
+ * Never writes locked Run Costings / cost_fields. W4 flight-# lookup +
+ * airport-call auto live on the Worksheet cards (`lib/flight-lookup`).
  */
 
 export const WORKSHEET_TRAVEL_BLOCKS_VERSION = 1 as const
