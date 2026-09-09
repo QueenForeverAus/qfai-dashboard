@@ -21,7 +21,6 @@ import {
   type AdvancingShowChrome,
 } from '@/lib/run-advancing'
 import AdvancementTab from './AdvancementTab'
-import ApplyReceiptExtractPanel from './ApplyReceiptExtractPanel'
 import ShowPackTab from './ShowPackTab'
 import TicketOutlookBlock from './TicketOutlookBlock'
 import { formatDateShortAU } from '@/lib/dates'
@@ -2117,41 +2116,6 @@ export default function CostFieldsTab({
             <div data-testid="run-advancing-banner" role="status" className="rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-2.5">
               <p className="text-amber-200/90 text-xs leading-snug">{RUN_ADVANCING_BANNER}</p>
             </div>
-          )}
-          {onAdvancingSheet && advancingWorkspaceId && isOwnerOrAdmin && (effectiveRole === 'owner' || effectiveRole === 'admin') && (
-            <ApplyReceiptExtractPanel
-              runId={runId}
-              onApplied={(plan, fieldId) => {
-                setAdvancingFields(prev => {
-                  const idx = prev.findIndex(f => f.field_key === 'accommodation' && !f.show_id)
-                  if (idx >= 0) {
-                    const next = [...prev]
-                    next[idx] = {
-                      ...next[idx],
-                      id: fieldId ?? next[idx].id,
-                      entries: plan.next_entries,
-                      value: plan.field_value,
-                      source: plan.field_source,
-                    }
-                    return next
-                  }
-                  if (!fieldId) return prev
-                  return [...prev, {
-                    id: fieldId,
-                    run_id: runId,
-                    show_id: null,
-                    category: 'Travel & Accommodation',
-                    field_key: 'accommodation',
-                    label: 'Accommodation',
-                    value: plan.field_value,
-                    state: 'estimated',
-                    source: plan.field_source,
-                    entries: plan.next_entries,
-                    line_items: null,
-                  }]
-                })
-              }}
-            />
           )}
           {sheetFrozen && (
             <div
