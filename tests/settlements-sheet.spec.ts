@@ -5,17 +5,15 @@ test.beforeEach(async ({ page }) => {
   await login(page)
 })
 
-test('Tour Desk → Settlements → R12 lands on the 3-col sheet pre-show block', async ({ page }) => {
+test('Settlements list hides proposed/future R12; deep-link still pre-show blocks', async ({ page }) => {
   await page.goto('/runs')
   await page.getByRole('link', { name: /^settlements$/i }).click()
   await expect(page).toHaveURL(/\/settlements\/?$/)
-  const r12 = page.getByTestId('settlement-run-R12')
-  if (await r12.count() === 0) {
-    test.skip(true, 'R12 not present on this environment')
-    return
-  }
-  await r12.click()
-  await page.waitForURL(/\/settlements\/r12\/?$/i)
+  await expect(page.getByTestId('settlements-bucket-tabs')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByTestId('settlement-run-R12')).toHaveCount(0)
+
+  await page.goto('/settlements/r12')
+  await expect(page).toHaveURL(/\/settlements\/r12\/?$/i)
   await expect(page).not.toHaveURL(/\/sheet/i)
   await expect(page.getByTestId('settlements-sheet-pre-show')).toBeVisible({ timeout: 8000 })
   await expect(page.getByTestId('settlements-demo-banner')).toHaveCount(0)
@@ -36,14 +34,18 @@ test('Tour Desk → Settlements → TCOMP1 lands on the 3-col sheet, not Wave-1 
   await page.goto('/runs')
   await page.getByRole('link', { name: /^settlements$/i }).click()
   await expect(page).toHaveURL(/\/settlements\/?$/)
-  const tcomp = page.getByTestId('settlement-run-TCOMP1')
-  if (await tcomp.count() === 0) {
+  const glance = page.getByTestId('settlement-demo-TCOMP1')
+  if (await glance.count() === 0) {
     test.skip(true, 'TCOMP1 not present on this environment')
     return
   }
   await expect(page.getByTestId('settlements-demo-glance')).toBeVisible()
+  for (const key of ['not_settled', 'settled', 'settled_remitted']) {
+    await page.getByTestId(`settlements-bucket-${key}`).click()
+    if (await page.getByTestId('settlement-run-TCOMP1').count()) break
+  }
   await expect(page.getByTestId('settlement-demo-badge-TCOMP1')).toBeVisible()
-  await tcomp.click()
+  await glance.click()
   await page.waitForURL(/\/settlements\/tcomp1\/?$/i)
   await expect(page).not.toHaveURL(/\/sheet/i)
   await expect(page.getByTestId('settlements-sheet')).toBeVisible({ timeout: 8000 })

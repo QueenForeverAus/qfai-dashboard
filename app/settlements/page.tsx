@@ -3,6 +3,10 @@ import { getSettlementsActor } from '@/lib/settlements-access'
 import { SETTLEMENTS_MODULE_LABEL } from '@/lib/settlements'
 import SettlementsListClient, { type SettlementListRun } from './SettlementsListClient'
 import { runDateRangeFromShows } from '@/lib/run-dates'
+import {
+  classifySettlementsListBucket,
+  isSettlementsListCompletedRun,
+} from '@/lib/settlements-list'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,23 +22,39 @@ export default async function SettlementsIndexPage() {
   }
 
   const admin = createAdminClient()
-  const [{ data: runs }, { data: settlements }, { data: bandCosts }] = await Promise.all([
+  const [{ data: runs }, { data: settlements }, { data: bandCosts }, { data: actuals }] = await Promise.all([
     admin.from('runs').select('id, code, name, status, start_date, end_date, notes, shows(id, venue_name, venue_city, show_date, show_order)').order('start_date', { ascending: true }),
-    admin.from('run_settlements').select('run_id, costing_finalised_at'),
+    admin.from('run_settlements').select('run_id, costing_finalised_at, remittance_status'),
     admin.from('band_cost_lines').select('run_id, paid, waived'),
+    admin.from('settlement_actual_lines').select('run_id, line_kind'),
   ])
 
-  const finalisedByRun = new Map((settlements ?? []).map(s => [s.run_id, s.costing_finalised_at as string | null]))
+  const settlementByRun = new Map((settlements ?? []).map(s => [s.run_id, s]))
+  const venueActualsByRun = new Set(
+    (actuals ?? [])
+      .filter(row => row.line_kind === 'venue_settlement')
+      .map(row => row.run_id as string),
+  )
   const openByRun = new Map<string, number>()
   for (const line of bandCosts ?? []) {
     if (line.paid || line.waived) continue
     openByRun.set(line.run_id, (openByRun.get(line.run_id) ?? 0) + 1)
   }
 
-  const list: SettlementListRun[] = (runs ?? []).map(run => {
+  const list: SettlementListRun[] = []
+  for (const run of runs ?? []) {
     const shows = [...((run.shows ?? []) as SettlementListRun['shows'])].sort((a, b) => a.show_order - b.show_order)
+    if (!isSettlementsListCompletedRun({ status: run.status, shows })) continue
+
+    const settlement = settlementByRun.get(run.id)
     const dates = runDateRangeFromShows(shows)
-    return {
+    const bucket = classifySettlementsListBucket({
+      status: run.status,
+      remittanceStatus: (settlement?.remittance_status as string | undefined) ?? 'open',
+      hasVenueSettlementActuals: venueActualsByRun.has(run.id),
+    })
+
+    list.push({
       id: run.id,
       code: run.code,
       name: run.name,
@@ -42,12 +62,14 @@ export default async function SettlementsIndexPage() {
       status: run.status,
       start_date: dates.start ?? run.start_date,
       end_date: dates.end ?? run.end_date,
-      finalised: Boolean(finalisedByRun.get(run.id)),
-      finalised_at: finalisedByRun.get(run.id) ?? null,
+      finalised: Boolean(settlement?.costing_finalised_at),
+      finalised_at: (settlement?.costing_finalised_at as string | null) ?? null,
+      remittance_status: (settlement?.remittance_status as string | undefined) ?? 'open',
+      bucket,
       band_cost_open: openByRun.get(run.id) ?? 0,
       shows,
-    }
-  })
+    })
+  }
 
   return <SettlementsListClient runs={list} />
 }
