@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   FLIGHT_KIND_LABEL,
   canExposeHotelPin,
@@ -61,10 +61,49 @@ export default function WorksheetTravelBlocks({
   const canSeePin = canExposeHotelPin(role)
   const locked = !canEdit || !workspaceId
   const flights = useMemo(() => sortFlightBlocks(blocks.flights), [blocks.flights])
+  const blocksRef = useRef(blocks)
+  blocksRef.current = blocks
 
-  function patch(next: WorksheetTravelBlocks) {
+  function apply(mutator: (prev: WorksheetTravelBlocks) => WorksheetTravelBlocks) {
     if (locked) return
+    const next = mutator(blocksRef.current)
+    blocksRef.current = next
     onSave(next)
+  }
+
+  function patchFlight(id: string, partial: Partial<FlightBlock>) {
+    apply(prev => ({
+      ...prev,
+      flights: prev.flights.map(row => row.id === id ? { ...row, ...partial } : row),
+    }))
+  }
+
+  function patchCar(id: string, partial: Partial<CarBlock>) {
+    apply(prev => ({
+      ...prev,
+      cars: prev.cars.map(row => row.id === id ? { ...row, ...partial } : row),
+    }))
+  }
+
+  function patchHotel(id: string, partial: Partial<HotelBlock>) {
+    apply(prev => ({
+      ...prev,
+      hotels: prev.hotels.map(row => row.id === id ? { ...row, ...partial } : row),
+    }))
+  }
+
+  function patchTransfer(id: string, partial: Partial<TransferBlock>) {
+    apply(prev => ({
+      ...prev,
+      transfers: prev.transfers.map(row => row.id === id ? { ...row, ...partial } : row),
+    }))
+  }
+
+  function patchFerry(id: string, partial: Partial<FerryBlock>) {
+    apply(prev => ({
+      ...prev,
+      ferries: prev.ferries.map(row => row.id === id ? { ...row, ...partial } : row),
+    }))
   }
 
   return (
@@ -121,7 +160,7 @@ export default function WorksheetTravelBlocks({
               <button
                 key={kind}
                 type="button"
-                onClick={() => patch({ ...blocks, flights: [...blocks.flights, emptyFlightBlock(kind)] })}
+                onClick={() => apply(prev => ({ ...prev, flights: [...prev.flights, emptyFlightBlock(kind)] }))}
                 className="text-xs px-2 py-0.5 rounded border border-slate-600 text-slate-400 hover:text-amber-400 hover:border-amber-400"
               >
                 + {FLIGHT_KIND_LABEL[kind]}
@@ -140,11 +179,8 @@ export default function WorksheetTravelBlocks({
             profiles={profiles}
             handout={handout}
             locked={locked}
-            onChange={next => patch({
-              ...blocks,
-              flights: blocks.flights.map(row => row.id === next.id ? next : row),
-            })}
-            onDelete={() => patch({ ...blocks, flights: blocks.flights.filter(row => row.id !== block.id) })}
+            onPatch={partial => patchFlight(block.id, partial)}
+            onDelete={() => apply(prev => ({ ...prev, flights: prev.flights.filter(row => row.id !== block.id) }))}
           />
         ))}
       </TravelSection>
@@ -153,7 +189,7 @@ export default function WorksheetTravelBlocks({
         title="Cars"
         testId="travel-cars"
         addLabel={canEdit && workspaceId && !handout ? (
-          <AddBtn onClick={() => patch({ ...blocks, cars: [...blocks.cars, emptyCarBlock()] })}>+ Hire</AddBtn>
+          <AddBtn onClick={() => apply(prev => ({ ...prev, cars: [...prev.cars, emptyCarBlock()] }))}>+ Hire</AddBtn>
         ) : null}
       >
         {blocks.cars.length === 0 && <p className="text-slate-600 text-xs italic">No car hire blocks yet.</p>}
@@ -164,11 +200,8 @@ export default function WorksheetTravelBlocks({
             profiles={profiles}
             handout={handout}
             locked={locked}
-            onChange={next => patch({
-              ...blocks,
-              cars: blocks.cars.map(row => row.id === next.id ? next : row),
-            })}
-            onDelete={() => patch({ ...blocks, cars: blocks.cars.filter(row => row.id !== block.id) })}
+            onPatch={partial => patchCar(block.id, partial)}
+            onDelete={() => apply(prev => ({ ...prev, cars: prev.cars.filter(row => row.id !== block.id) }))}
           />
         ))}
       </TravelSection>
@@ -177,7 +210,7 @@ export default function WorksheetTravelBlocks({
         title="Hotels"
         testId="travel-hotels"
         addLabel={canEdit && workspaceId && !handout ? (
-          <AddBtn onClick={() => patch({ ...blocks, hotels: [...blocks.hotels, emptyHotelBlock()] })}>+ Night / city</AddBtn>
+          <AddBtn onClick={() => apply(prev => ({ ...prev, hotels: [...prev.hotels, emptyHotelBlock()] }))}>+ Night / city</AddBtn>
         ) : null}
       >
         {blocks.hotels.length === 0 && <p className="text-slate-600 text-xs italic">No hotel night blocks yet.</p>}
@@ -189,11 +222,8 @@ export default function WorksheetTravelBlocks({
             handout={handout}
             locked={locked}
             canSeePin={canSeePin}
-            onChange={next => patch({
-              ...blocks,
-              hotels: blocks.hotels.map(row => row.id === next.id ? next : row),
-            })}
-            onDelete={() => patch({ ...blocks, hotels: blocks.hotels.filter(row => row.id !== block.id) })}
+            onPatch={partial => patchHotel(block.id, partial)}
+            onDelete={() => apply(prev => ({ ...prev, hotels: prev.hotels.filter(row => row.id !== block.id) }))}
           />
         ))}
       </TravelSection>
@@ -203,7 +233,7 @@ export default function WorksheetTravelBlocks({
         testId="travel-transfers"
         optional
         addLabel={canEdit && workspaceId && !handout ? (
-          <AddBtn onClick={() => patch({ ...blocks, transfers: [...blocks.transfers, emptyTransferBlock()] })}>+ Transfer</AddBtn>
+          <AddBtn onClick={() => apply(prev => ({ ...prev, transfers: [...prev.transfers, emptyTransferBlock()] }))}>+ Transfer</AddBtn>
         ) : null}
       >
         {blocks.transfers.length === 0 && <p className="text-slate-600 text-xs italic">Optional — no transfers yet.</p>}
@@ -213,11 +243,8 @@ export default function WorksheetTravelBlocks({
             block={block}
             handout={handout}
             locked={locked}
-            onChange={next => patch({
-              ...blocks,
-              transfers: blocks.transfers.map(row => row.id === next.id ? next : row),
-            })}
-            onDelete={() => patch({ ...blocks, transfers: blocks.transfers.filter(row => row.id !== block.id) })}
+            onPatch={partial => patchTransfer(block.id, partial)}
+            onDelete={() => apply(prev => ({ ...prev, transfers: prev.transfers.filter(row => row.id !== block.id) }))}
           />
         ))}
       </TravelSection>
@@ -227,7 +254,7 @@ export default function WorksheetTravelBlocks({
         testId="travel-ferries"
         optional
         addLabel={canEdit && workspaceId && !handout ? (
-          <AddBtn onClick={() => patch({ ...blocks, ferries: [...blocks.ferries, emptyFerryBlock()] })}>+ Ferry</AddBtn>
+          <AddBtn onClick={() => apply(prev => ({ ...prev, ferries: [...prev.ferries, emptyFerryBlock()] }))}>+ Ferry</AddBtn>
         ) : null}
       >
         {blocks.ferries.length === 0 && <p className="text-slate-600 text-xs italic">Optional — no ferry blocks yet.</p>}
@@ -238,11 +265,8 @@ export default function WorksheetTravelBlocks({
             profiles={profiles}
             handout={handout}
             locked={locked}
-            onChange={next => patch({
-              ...blocks,
-              ferries: blocks.ferries.map(row => row.id === next.id ? next : row),
-            })}
-            onDelete={() => patch({ ...blocks, ferries: blocks.ferries.filter(row => row.id !== block.id) })}
+            onPatch={partial => patchFerry(block.id, partial)}
+            onDelete={() => apply(prev => ({ ...prev, ferries: prev.ferries.filter(row => row.id !== block.id) }))}
           />
         ))}
       </TravelSection>
@@ -408,14 +432,14 @@ function FlightCard({
   profiles,
   handout,
   locked,
-  onChange,
+  onPatch,
   onDelete,
 }: {
   block: FlightBlock
   profiles: ProfileDirectoryRow[]
   handout: boolean
   locked: boolean
-  onChange: (next: FlightBlock) => void
+  onPatch: (partial: Partial<FlightBlock>) => void
   onDelete: () => void
 }) {
   const title = [
@@ -439,7 +463,7 @@ function FlightCard({
           <select
             value={block.kind}
             disabled={locked}
-            onChange={e => onChange({ ...block, kind: e.target.value as FlightKind })}
+            onChange={e => onPatch({ kind: e.target.value as FlightKind })}
             className={inputClass}
           >
             <option value="dep">Dep</option>
@@ -447,38 +471,38 @@ function FlightCard({
             <option value="ret">Ret</option>
           </select>
         </Slot>
-        <TextSlot label="Flight #" value={block.flight_number} locked={locked} onChange={v => onChange({ ...block, flight_number: v })} />
-        <DateSlot label="Date" value={block.date} locked={locked} onChange={v => onChange({ ...block, date: v })} />
-        <TextSlot label="Airline" value={block.airline} locked={locked} onChange={v => onChange({ ...block, airline: v })} />
-        <TextSlot label="From" value={block.from} locked={locked} onChange={v => onChange({ ...block, from: v })} />
-        <TextSlot label="To" value={block.to} locked={locked} onChange={v => onChange({ ...block, to: v })} />
-        <TimeSlot label="Dep" value={block.dep_time} locked={locked} onChange={v => onChange({ ...block, dep_time: v })} />
-        <TimeSlot label="Arr" value={block.arr_time} locked={locked} onChange={v => onChange({ ...block, arr_time: v })} />
-        <TextSlot label="Dep terminal" value={block.dep_terminal} locked={locked} onChange={v => onChange({ ...block, dep_terminal: v })} />
-        <TextSlot label="Arr terminal" value={block.arr_terminal} locked={locked} onChange={v => onChange({ ...block, arr_terminal: v })} />
-        <TextSlot label="Airport call" value={block.airport_call} locked={locked} onChange={v => onChange({ ...block, airport_call: v })} />
-        <TextSlot label="Check-in open" value={block.check_in_open} locked={locked} onChange={v => onChange({ ...block, check_in_open: v })} />
-        <TextSlot label="Conf / PNR" value={block.confirmation} locked={locked} onChange={v => onChange({ ...block, confirmation: v })} />
+        <TextSlot label="Flight #" value={block.flight_number} locked={locked} onChange={v => onPatch({ flight_number: v })} />
+        <DateSlot label="Date" value={block.date} locked={locked} onChange={v => onPatch({ date: v })} />
+        <TextSlot label="Airline" value={block.airline} locked={locked} onChange={v => onPatch({ airline: v })} />
+        <TextSlot label="From (airport)" value={block.from} locked={locked} onChange={v => onPatch({ from: v })} />
+        <TextSlot label="To (airport)" value={block.to} locked={locked} onChange={v => onPatch({ to: v })} />
+        <TimeSlot label="Dep" value={block.dep_time} locked={locked} onChange={v => onPatch({ dep_time: v })} />
+        <TimeSlot label="Arr" value={block.arr_time} locked={locked} onChange={v => onPatch({ arr_time: v })} />
+        <TextSlot label="Dep terminal" value={block.dep_terminal} locked={locked} onChange={v => onPatch({ dep_terminal: v })} />
+        <TextSlot label="Arr terminal" value={block.arr_terminal} locked={locked} onChange={v => onPatch({ arr_terminal: v })} />
+        <TextSlot label="Airport call" value={block.airport_call} locked={locked} onChange={v => onPatch({ airport_call: v })} />
+        <TextSlot label="Check-in open" value={block.check_in_open} locked={locked} onChange={v => onPatch({ check_in_open: v })} />
+        <TextSlot label="Conf / PNR" value={block.confirmation} locked={locked} onChange={v => onPatch({ confirmation: v })} />
       </div>
       <PeoplePicker
         label="Travellers"
         people={block.travellers}
         profiles={profiles}
         locked={locked}
-        onChange={travellers => onChange({ ...block, travellers })}
+        onChange={travellers => onPatch({ travellers })}
       />
     </CardShell>
   )
 }
 
 function CarCard({
-  block, profiles, handout, locked, onChange, onDelete,
+  block, profiles, handout, locked, onPatch, onDelete,
 }: {
   block: CarBlock
   profiles: ProfileDirectoryRow[]
   handout: boolean
   locked: boolean
-  onChange: (next: CarBlock) => void
+  onPatch: (partial: Partial<CarBlock>) => void
   onDelete: () => void
 }) {
   const title = [block.provider || 'Car hire', block.confirmation].filter(Boolean).join(' · ')
@@ -492,23 +516,22 @@ function CarCard({
   return (
     <CardShell title={title} incomplete={!isCarBlockComplete(block)} handout={false} locked={locked} onDelete={onDelete} testId="travel-car-card">
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-        <TextSlot label="Provider" value={block.provider} locked={locked} onChange={v => onChange({ ...block, provider: v })} />
-        <TextSlot label="Vehicle class" value={block.vehicle_class} locked={locked} onChange={v => onChange({ ...block, vehicle_class: v })} />
-        <TextSlot label="Pickup location" value={block.pickup_location} locked={locked} onChange={v => onChange({ ...block, pickup_location: v })} />
-        <DateSlot label="Pickup date" value={block.pickup_date} locked={locked} onChange={v => onChange({ ...block, pickup_date: v })} />
-        <TimeSlot label="Pickup time" value={block.pickup_time} locked={locked} onChange={v => onChange({ ...block, pickup_time: v })} />
-        <TextSlot label="Return location" value={block.return_location} locked={locked} onChange={v => onChange({ ...block, return_location: v })} />
-        <DateSlot label="Return date" value={block.return_date} locked={locked} onChange={v => onChange({ ...block, return_date: v })} />
-        <TimeSlot label="Return time" value={block.return_time} locked={locked} onChange={v => onChange({ ...block, return_time: v })} />
-        <TextSlot label="Conf #" value={block.confirmation} locked={locked} onChange={v => onChange({ ...block, confirmation: v })} />
-        <TextSlot label="Fuel" value={block.fuel} locked={locked} onChange={v => onChange({ ...block, fuel: v })} />
-        <TextSlot label="E-tag" value={block.e_tag} locked={locked} onChange={v => onChange({ ...block, e_tag: v })} />
+        <TextSlot label="Provider" value={block.provider} locked={locked} onChange={v => onPatch({ provider: v })} />
+        <TextSlot label="Vehicle class" value={block.vehicle_class} locked={locked} onChange={v => onPatch({ vehicle_class: v })} />
+        <TextSlot label="Pickup location" value={block.pickup_location} locked={locked} onChange={v => onPatch({ pickup_location: v })} />
+        <DateSlot label="Pickup date" value={block.pickup_date} locked={locked} onChange={v => onPatch({ pickup_date: v })} />
+        <TimeSlot label="Pickup time" value={block.pickup_time} locked={locked} onChange={v => onPatch({ pickup_time: v })} />
+        <TextSlot label="Return location" value={block.return_location} locked={locked} onChange={v => onPatch({ return_location: v })} />
+        <DateSlot label="Return date" value={block.return_date} locked={locked} onChange={v => onPatch({ return_date: v })} />
+        <TimeSlot label="Return time" value={block.return_time} locked={locked} onChange={v => onPatch({ return_time: v })} />
+        <TextSlot label="Conf #" value={block.confirmation} locked={locked} onChange={v => onPatch({ confirmation: v })} />
+        <TextSlot label="Fuel" value={block.fuel} locked={locked} onChange={v => onPatch({ fuel: v })} />
+        <TextSlot label="E-tag" value={block.e_tag} locked={locked} onChange={v => onPatch({ e_tag: v })} />
         <Slot label="Unlimited km" value={block.unlimited_km} handout={false}>
           <select
             value={block.unlimited_km == null ? '' : block.unlimited_km ? 'yes' : 'no'}
             disabled={locked}
-            onChange={e => onChange({
-              ...block,
+            onChange={e => onPatch({
               unlimited_km: e.target.value === '' ? null : e.target.value === 'yes',
             })}
             className={inputClass}
@@ -518,29 +541,29 @@ function CarCard({
             <option value="no">No</option>
           </select>
         </Slot>
-        <TextSlot label="After-hours" value={block.after_hours} locked={locked} onChange={v => onChange({ ...block, after_hours: v })} />
-        <TextSlot label="Notes" value={block.notes} locked={locked} onChange={v => onChange({ ...block, notes: v })} />
+        <TextSlot label="After-hours" value={block.after_hours} locked={locked} onChange={v => onPatch({ after_hours: v })} />
+        <TextSlot label="Notes" value={block.notes} locked={locked} onChange={v => onPatch({ notes: v })} />
       </div>
       <PeoplePicker
         label="Drivers"
         people={block.drivers}
         profiles={profiles}
         locked={locked}
-        onChange={drivers => onChange({ ...block, drivers })}
+        onChange={drivers => onPatch({ drivers })}
       />
     </CardShell>
   )
 }
 
 function HotelCard({
-  block, profiles, handout, locked, canSeePin, onChange, onDelete,
+  block, profiles, handout, locked, canSeePin, onPatch, onDelete,
 }: {
   block: HotelBlock
   profiles: ProfileDirectoryRow[]
   handout: boolean
   locked: boolean
   canSeePin: boolean
-  onChange: (next: HotelBlock) => void
+  onPatch: (partial: Partial<HotelBlock>) => void
   onDelete: () => void
 }) {
   const title = [block.name || 'Hotel night', block.check_in_date].filter(Boolean).join(' · ')
@@ -554,13 +577,13 @@ function HotelCard({
   return (
     <CardShell title={title} incomplete={!isHotelBlockComplete(block)} handout={false} locked={locked} onDelete={onDelete} testId="travel-hotel-card">
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-        <TextSlot label="Name" value={block.name} locked={locked} onChange={v => onChange({ ...block, name: v })} />
-        <TextSlot label="Address" value={block.address} locked={locked} onChange={v => onChange({ ...block, address: v })} />
-        <TextSlot label="Phone" value={block.phone} locked={locked} onChange={v => onChange({ ...block, phone: v })} />
-        <DateSlot label="Check-in date" value={block.check_in_date} locked={locked} onChange={v => onChange({ ...block, check_in_date: v })} />
-        <TimeSlot label="Check-in time" value={block.check_in_time} locked={locked} onChange={v => onChange({ ...block, check_in_time: v })} />
-        <DateSlot label="Check-out date" value={block.check_out_date} locked={locked} onChange={v => onChange({ ...block, check_out_date: v })} />
-        <TimeSlot label="Check-out time" value={block.check_out_time} locked={locked} onChange={v => onChange({ ...block, check_out_time: v })} />
+        <TextSlot label="Name" value={block.name} locked={locked} onChange={v => onPatch({ name: v })} />
+        <TextSlot label="Address" value={block.address} locked={locked} onChange={v => onPatch({ address: v })} />
+        <TextSlot label="Phone" value={block.phone} locked={locked} onChange={v => onPatch({ phone: v })} />
+        <DateSlot label="Check-in date" value={block.check_in_date} locked={locked} onChange={v => onPatch({ check_in_date: v })} />
+        <TimeSlot label="Check-in time" value={block.check_in_time} locked={locked} onChange={v => onPatch({ check_in_time: v })} />
+        <DateSlot label="Check-out date" value={block.check_out_date} locked={locked} onChange={v => onPatch({ check_out_date: v })} />
+        <TimeSlot label="Check-out time" value={block.check_out_time} locked={locked} onChange={v => onPatch({ check_out_time: v })} />
         <Slot label="# rooms" value={block.rooms} handout={false}>
           <input
             type="number"
@@ -568,28 +591,27 @@ function HotelCard({
             max={99}
             value={block.rooms ?? ''}
             disabled={locked}
-            onChange={e => onChange({
-              ...block,
+            onChange={e => onPatch({
               rooms: e.target.value === '' ? null : Number(e.target.value),
             })}
             className={inputClass}
           />
         </Slot>
-        <TextSlot label="Room type" value={block.room_type} locked={locked} onChange={v => onChange({ ...block, room_type: v })} />
-        <TextSlot label="Conf #" value={block.confirmation} locked={locked} onChange={v => onChange({ ...block, confirmation: v })} />
+        <TextSlot label="Room type" value={block.room_type} locked={locked} onChange={v => onPatch({ room_type: v })} />
+        <TextSlot label="Conf #" value={block.confirmation} locked={locked} onChange={v => onPatch({ confirmation: v })} />
         {canSeePin ? (
-          <TextSlot label="PIN" value={block.pin} locked={locked} onChange={v => onChange({ ...block, pin: v })} />
+          <TextSlot label="PIN" value={block.pin} locked={locked} onChange={v => onPatch({ pin: v })} />
         ) : (
           <p className="text-[11px] text-slate-600 sm:col-span-1 self-end pb-1">PIN hidden (admin/owner)</p>
         )}
-        <TextSlot label="ETA / notes" value={block.eta_notes} locked={locked} onChange={v => onChange({ ...block, eta_notes: v })} />
+        <TextSlot label="ETA / notes" value={block.eta_notes} locked={locked} onChange={v => onPatch({ eta_notes: v })} />
       </div>
       <label className="flex items-center gap-2 mt-2 text-xs text-slate-400">
         <input
           type="checkbox"
           checked={block.guests_tbc}
           disabled={locked}
-          onChange={e => onChange({ ...block, guests_tbc: e.target.checked })}
+          onChange={e => onPatch({ guests_tbc: e.target.checked })}
         />
         TBC guests
       </label>
@@ -598,19 +620,19 @@ function HotelCard({
         people={block.guests}
         profiles={profiles}
         locked={locked}
-        onChange={guests => onChange({ ...block, guests })}
+        onChange={guests => onPatch({ guests })}
       />
     </CardShell>
   )
 }
 
 function TransferCard({
-  block, handout, locked, onChange, onDelete,
+  block, handout, locked, onPatch, onDelete,
 }: {
   block: TransferBlock
   handout: boolean
   locked: boolean
-  onChange: (next: TransferBlock) => void
+  onPatch: (partial: Partial<TransferBlock>) => void
   onDelete: () => void
 }) {
   const title = [block.provider || 'Transfer', block.from && block.to ? `${block.from}→${block.to}` : null]
@@ -625,38 +647,37 @@ function TransferCard({
   return (
     <CardShell title={title} incomplete={false} handout={false} locked={locked} onDelete={onDelete} testId="travel-transfer-card">
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-        <DateSlot label="Date" value={block.date} locked={locked} onChange={v => onChange({ ...block, date: v })} />
-        <TimeSlot label="Time" value={block.time} locked={locked} onChange={v => onChange({ ...block, time: v })} />
-        <TextSlot label="From" value={block.from} locked={locked} onChange={v => onChange({ ...block, from: v })} />
-        <TextSlot label="To" value={block.to} locked={locked} onChange={v => onChange({ ...block, to: v })} />
-        <TextSlot label="Provider" value={block.provider} locked={locked} onChange={v => onChange({ ...block, provider: v })} />
+        <DateSlot label="Date" value={block.date} locked={locked} onChange={v => onPatch({ date: v })} />
+        <TimeSlot label="Time" value={block.time} locked={locked} onChange={v => onPatch({ time: v })} />
+        <TextSlot label="From" value={block.from} locked={locked} onChange={v => onPatch({ from: v })} />
+        <TextSlot label="To" value={block.to} locked={locked} onChange={v => onPatch({ to: v })} />
+        <TextSlot label="Provider" value={block.provider} locked={locked} onChange={v => onPatch({ provider: v })} />
         <Slot label="Amount" value={block.amount} handout={false}>
           <input
             type="number"
             step="0.01"
             value={block.amount ?? ''}
             disabled={locked}
-            onChange={e => onChange({
-              ...block,
+            onChange={e => onPatch({
               amount: e.target.value === '' ? null : Number(e.target.value),
             })}
             className={inputClass}
           />
         </Slot>
-        <TextSlot label="Notes" value={block.notes} locked={locked} onChange={v => onChange({ ...block, notes: v })} />
+        <TextSlot label="Notes" value={block.notes} locked={locked} onChange={v => onPatch({ notes: v })} />
       </div>
     </CardShell>
   )
 }
 
 function FerryCard({
-  block, profiles, handout, locked, onChange, onDelete,
+  block, profiles, handout, locked, onPatch, onDelete,
 }: {
   block: FerryBlock
   profiles: ProfileDirectoryRow[]
   handout: boolean
   locked: boolean
-  onChange: (next: FerryBlock) => void
+  onPatch: (partial: Partial<FerryBlock>) => void
   onDelete: () => void
 }) {
   const title = [block.operator || 'Ferry', block.dep_port && block.arr_port ? `${block.dep_port}→${block.arr_port}` : null]
@@ -671,19 +692,19 @@ function FerryCard({
   return (
     <CardShell title={title} incomplete={false} handout={false} locked={locked} onDelete={onDelete} testId="travel-ferry-card">
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-        <TextSlot label="Operator" value={block.operator} locked={locked} onChange={v => onChange({ ...block, operator: v })} />
-        <TextSlot label="Dep port" value={block.dep_port} locked={locked} onChange={v => onChange({ ...block, dep_port: v })} />
-        <TextSlot label="Arr port" value={block.arr_port} locked={locked} onChange={v => onChange({ ...block, arr_port: v })} />
-        <TimeSlot label="Dep" value={block.dep_time} locked={locked} onChange={v => onChange({ ...block, dep_time: v })} />
-        <TimeSlot label="Arr" value={block.arr_time} locked={locked} onChange={v => onChange({ ...block, arr_time: v })} />
-        <TextSlot label="Conf #" value={block.confirmation} locked={locked} onChange={v => onChange({ ...block, confirmation: v })} />
+        <TextSlot label="Operator" value={block.operator} locked={locked} onChange={v => onPatch({ operator: v })} />
+        <TextSlot label="Dep port" value={block.dep_port} locked={locked} onChange={v => onPatch({ dep_port: v })} />
+        <TextSlot label="Arr port" value={block.arr_port} locked={locked} onChange={v => onPatch({ arr_port: v })} />
+        <TimeSlot label="Dep" value={block.dep_time} locked={locked} onChange={v => onPatch({ dep_time: v })} />
+        <TimeSlot label="Arr" value={block.arr_time} locked={locked} onChange={v => onPatch({ arr_time: v })} />
+        <TextSlot label="Conf #" value={block.confirmation} locked={locked} onChange={v => onPatch({ confirmation: v })} />
       </div>
       <PeoplePicker
         label="Travellers"
         people={block.travellers}
         profiles={profiles}
         locked={locked}
-        onChange={travellers => onChange({ ...block, travellers })}
+        onChange={travellers => onPatch({ travellers })}
       />
     </CardShell>
   )

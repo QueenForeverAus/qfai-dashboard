@@ -199,6 +199,8 @@ export default function ShowPackTab({
   const [isPending, startTransition] = useTransition()
   const lookupDone = useRef<Set<string>>(new Set())
   const travelSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const travelRef = useRef<TravelBlocksDoc>(EMPTY_TRAVEL_BLOCKS)
+  travelRef.current = travelBlocks
 
   const canPublish = ['owner', 'admin', 'production'].includes(effectiveRole)
   const canEdit = canPublish
@@ -242,14 +244,16 @@ export default function ShowPackTab({
   }, [runId])
 
   const saveTravelBlocks = useCallback((next: TravelBlocksDoc) => {
+    travelRef.current = next
     setTravelBlocks(next)
     if (travelSaveTimer.current) clearTimeout(travelSaveTimer.current)
     travelSaveTimer.current = setTimeout(() => {
+      const snapshot = travelRef.current
       startTransition(async () => {
         const res = await fetch(`/api/runs/${runId}/show-pack`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ travel_blocks: next }),
+          body: JSON.stringify({ travel_blocks: snapshot }),
         })
         const data = await res.json()
         if (res.ok) {
@@ -286,7 +290,11 @@ export default function ShowPackTab({
       .then(r => r.json())
       .then(data => {
         if (data?.run) setRun(data.run)
-        if (data?.travel_blocks) setTravelBlocks(parseTravelBlocks(data.travel_blocks))
+        if (data?.travel_blocks) {
+          const parsed = parseTravelBlocks(data.travel_blocks)
+          travelRef.current = parsed
+          setTravelBlocks(parsed)
+        }
         setTravelWorkspaceId(typeof data?.travel_workspace_id === 'string' ? data.travel_workspace_id : null)
         if (Array.isArray(data?.profiles)) setProfiles(data.profiles)
         if (Array.isArray(data?.shows)) {
