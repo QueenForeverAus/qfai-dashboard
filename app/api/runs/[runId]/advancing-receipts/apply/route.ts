@@ -8,6 +8,9 @@ import { loadActiveAdvancingWorkspace } from '@/lib/run-advancing-persist'
 import { persistReceiptApply } from '@/lib/receipts/apply-persist'
 import { hotelReceiptFixtureById } from '@/lib/receipts/hotel-fixtures'
 import { parseReceiptExtractPacket } from '@/lib/receipts/packet'
+import { persistTravelScrapeApply } from '@/lib/travel-scrape/apply-persist'
+import { travelScrapeFixtureById } from '@/lib/travel-scrape/fixtures'
+import { peekTravelScrapeSchema } from '@/lib/travel-scrape/packet'
 
 async function resolveRun(
   admin: ReturnType<typeof createAdminClient>,
@@ -27,9 +30,11 @@ async function resolveRun(
 
 /**
  * POST /api/runs/[runId]/advancing-receipts/apply
- * Owner/admin. Preview (default) or confirm-apply a hotel receipt extract.
- * Writes advancing_cost_fields + worksheet + checklist only.
- * Portal paste UI was removed in W2 — this route stays for the W3 scraper.
+ * Owner/admin. One authenticated apply entry:
+ *   - schema_version travel-scrape-packet-v1 → Worksheet travel_blocks + checklist
+ *     (money/PAID only with confirm_money or money_confirmed_by)
+ *   - receipt-extract v1 hotel fixtures (W2, kept) → preview unless confirm=true
+ * Never writes locked Run Costings. Portal paste UI stays removed (W2).
  */
 export async function POST(
   req: NextRequest,
@@ -54,23 +59,40 @@ export async function POST(
   const run = await resolveRun(admin, runIdParam)
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
 
+  const url = new URL(req.url)
   const body = await req.json().catch(() => ({})) as {
     packet?: unknown
     fixture_id?: string
     preview?: boolean
     confirm?: boolean
+    confirm_money?: boolean
+    money_confirmed_by?: string
   }
 
   let packet: unknown = body.packet
   if (body.fixture_id) {
-    const fixture = hotelReceiptFixtureById(String(body.fixture_id))
-    if (!fixture) {
+    const travelFixture = travelScrapeFixtureById(String(body.fixture_id))
+    const hotelFixture = hotelReceiptFixtureById(String(body.fixture_id))
+    if (travelFixture) packet = travelFixture.packet
+    else if (hotelFixture) packet = hotelFixture.packet
+    else {
       return NextResponse.json({ error: `Unknown fixture_id ${body.fixture_id}` }, { status: 400 })
     }
-    packet = fixture.packet
   }
   if (packet == null) {
     return NextResponse.json({ error: 'packet or fixture_id is required' }, { status: 400 })
+  }
+
+  if (peekTravelScrapeSchema(packet)) {
+    return handleTravelScrapeApply({
+      reqUrl: url,
+      body,
+      admin,
+      run,
+      actorUserId: user.id,
+      actorName: staffDisplayName(profile.full_name) ?? 'Someone',
+      packet,
+    })
   }
 
   const parsed = parseReceiptExtractPacket(packet)
@@ -128,5 +150,103 @@ export async function POST(
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Apply failed'
     return NextResponse.json({ error: message }, { status: 500 })
+  }
+}
+
+async function handleTravelScrapeApply(opts: {
+  reqUrl: URL
+  body: {
+    preview?: boolean
+    confirm_money?: boolean
+    money_confirmed_by?: string
+  }
+  admin: ReturnType<typeof createAdminClient>
+  run: { id: string; code: string; status: string }
+  actorUserId: string
+  actorName: string
+  packet: unknown
+}) {
+  if (!isBookedBookingStatus(opts.run.status)) {
+    return NextResponse.json({
+      error: opts.run.status === 'proposed'
+        ? 'Never attach a travel scrape on a proposed-only run. BOOK the run first so Run Advancing exists.'
+        : 'Travel scrape apply is only available on BOOKED runs with an active Advancing workspace.',
+      schema_version: 'travel-scrape-packet-v1',
+      applied: false,
+      writes_cost_fields: false,
+    }, { status: 409 })
+  }
+
+  const workspace = await loadActiveAdvancingWorkspace(opts.admin, opts.run.id)
+  if (!workspace || !isAdvancingWorkspaceActive(workspace)) {
+    return NextResponse.json({
+      error: 'No active Run Advancing workspace. BOOK the run to copy the cost sheet, then apply here.',
+      schema_version: 'travel-scrape-packet-v1',
+      applied: false,
+      writes_cost_fields: false,
+    }, { status: 409 })
+  }
+
+  const confirmMoney = opts.reqUrl.searchParams.get('confirm_money') === 'true'
+    || opts.body.confirm_money === true
+  const moneyConfirmedBy = typeof opts.body.money_confirmed_by === 'string'
+    ? opts.body.money_confirmed_by
+    : null
+  const previewOnly = opts.body.preview === true
+
+  try {
+    const result = await persistTravelScrapeApply({
+      admin: opts.admin,
+      runId: opts.run.id,
+      runCode: opts.run.code,
+      workspaceId: workspace.id,
+      bookingStatus: opts.run.status,
+      packet: opts.packet,
+      actorUserId: opts.actorUserId,
+      actorName: opts.actorName,
+      previewOnly,
+      confirmMoney,
+      moneyConfirmedBy,
+    })
+
+    if (!result.preview.ok) {
+      const status = /proposed|BOOKED|workspace|production/i.test(result.preview.error ?? '')
+        ? 409
+        : 422
+      return NextResponse.json({
+        error: result.preview.error,
+        schema_version: 'travel-scrape-packet-v1',
+        applied: false,
+        preview: result.preview,
+        writes_cost_fields: false,
+      }, { status })
+    }
+
+    return NextResponse.json({
+      schema_version: 'travel-scrape-packet-v1',
+      applied: result.applied,
+      details: result.preview.details,
+      checklist: {
+        applied: result.preview.checklist.will_apply,
+        ticked_ids: result.ticked_ids,
+        ticked_keys: result.ticked_keys,
+        source_note: result.preview.checklist.source_note,
+        skipped_keys: result.preview.checklist.skipped_keys,
+      },
+      money: {
+        action: result.preview.money.action,
+        reason: result.preview.money.reason,
+        field_key: result.preview.money.field_key,
+        amount: result.preview.money.amount,
+        writes_paid: result.preview.money.writes_paid,
+        field_id: result.money_field_id,
+      },
+      travel_blocks: result.preview.next_travel_blocks,
+      preview: result.preview,
+      writes_cost_fields: false,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Apply failed'
+    return NextResponse.json({ error: message, writes_cost_fields: false }, { status: 500 })
   }
 }

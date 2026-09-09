@@ -1,0 +1,57 @@
+{
+  "schema_version": "travel-scrape-packet-v1",
+  "category": "flight",
+  "confidence": "high",
+  "details_action": "auto",
+  "money_action": "confirm",
+  "captured_at": "2027-01-12T16:05:00+11:00",
+  "email": {
+    "thread_id": "qf-r01-dep",
+    "message_id": "msg-qf441-r01",
+    "date": "2027-01-12T15:48:00+11:00",
+    "subject": "Qantas itinerary — QF441 SYD to BHQ",
+    "from": "noreply@qantas.com",
+    "vendor_domain": "qantas.com"
+  },
+  "run_match": {
+    "run_id": null,
+    "show_ids": [],
+    "match_score": null,
+    "match_notes": "Dep leg for R01 / TRECV1-style BOOKED advancing workspace.",
+    "ambiguous_candidates": []
+  },
+  "money": {
+    "amount": 428,
+    "currency": "AUD",
+    "gst": "inc",
+    "status_if_applied": "PAID",
+    "advancing_line_hint": "flights"
+  },
+  "worksheet": {
+    "kind": "dep",
+    "flight_number": "QF441",
+    "date": "2027-02-10",
+    "airline": "Qantas",
+    "from": "SYD",
+    "to": "BHQ",
+    "dep_time": "06:30",
+    "arr_time": "08:15",
+    "dep_terminal": "T3",
+    "arr_terminal": "",
+    "airport_call": "",
+    "check_in_open": "04:30",
+    "confirmation": "QFR01DEP"
+  },
+  "travellers": [
+    { "raw_name": "Gareth Hill", "profile_user_id": null, "match": "unknown" },
+    { "raw_name": "Dave the driver", "profile_user_id": null, "match": "free_text" }
+  ],
+  "checklist": {
+    "items_to_tick": ["flights_complete"],
+    "source_note": "from Qantas email 12/01/27 · conf QFR01DEP",
+    "partial_names": true
+  },
+  "supersedes": { "prior_conf_id": null, "prior_message_id": null },
+  "flags": [],
+  "apply_env": "staging"
+}

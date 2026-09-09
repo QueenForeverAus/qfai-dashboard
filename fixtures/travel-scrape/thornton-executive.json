@@ -1,0 +1,58 @@
+{
+  "schema_version": "travel-scrape-packet-v1",
+  "category": "hotel",
+  "confidence": "high",
+  "details_action": "auto",
+  "money_action": "confirm",
+  "captured_at": "2026-09-17T10:04:00+10:00",
+  "email": {
+    "thread_id": "th-te-91718",
+    "message_id": "msg-te-91718",
+    "date": "2026-09-17T09:12:00+10:00",
+    "subject": "Booking confirmation — Thornton Executive",
+    "from": "reservations@thorntonexecutive.com.au",
+    "vendor_domain": "thorntonexecutive.com.au"
+  },
+  "run_match": {
+    "run_id": null,
+    "show_ids": [],
+    "match_score": null,
+    "match_notes": "Thornton / Maitland → Newcastle catchment (one night / city).",
+    "ambiguous_candidates": []
+  },
+  "money": {
+    "amount": 214,
+    "currency": "AUD",
+    "gst": "inc",
+    "status_if_applied": "PAID",
+    "advancing_line_hint": "accom_night"
+  },
+  "worksheet": {
+    "name": "Thornton Executive",
+    "address": "1 Weakleys Dr, Thornton NSW 2322",
+    "phone": "",
+    "check_in_date": "2026-09-17",
+    "check_in_time": "14:00",
+    "check_out_date": "2026-09-18",
+    "check_out_time": "10:00",
+    "rooms": 1,
+    "room_type": "Executive",
+    "confirmation": "TE-91718",
+    "pin": "",
+    "guests_tbc": false,
+    "eta_notes": "Day-before first show. Newcastle catchment.",
+    "city": "Thornton"
+  },
+  "travellers": [
+    { "raw_name": "Gareth Hill", "profile_user_id": null, "match": "unknown" },
+    { "raw_name": "Michael", "profile_user_id": null, "match": "unknown" }
+  ],
+  "checklist": {
+    "items_to_tick": ["hotel_confirmed"],
+    "source_note": "from Thornton Executive email 17/09/26 · conf TE-91718",
+    "partial_names": false
+  },
+  "supersedes": { "prior_conf_id": null, "prior_message_id": null },
+  "flags": [],
+  "apply_env": "staging"
+}
