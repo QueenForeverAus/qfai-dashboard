@@ -10,6 +10,8 @@ export interface Profile {
   role: UserRole
   permissions: Record<string, boolean>
   created_at: string
+  first_name?: string | null
+  last_name?: string | null
 }
 
 export interface Run {

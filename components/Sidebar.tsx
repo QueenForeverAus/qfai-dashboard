@@ -27,7 +27,7 @@ const navItems: NavItem[] = [
   { href: '/factors',    label: 'Factors',          icon: '⚙' },
   { href: '/feedback',   label: 'Feedback',         icon: '💬' },
   { href: '/admin',      label: 'Admin',            icon: '🛠' },
-  { href: '/settings',   label: 'Settings',         icon: '🔑' },
+  { href: '/settings',   label: 'Profile',          icon: '👤' },
 ]
 
 function isGroup(item: NavItem): item is NavGroup {
