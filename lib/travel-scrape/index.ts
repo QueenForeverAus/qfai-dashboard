@@ -19,6 +19,8 @@ export {
 export {
   planTravelScrapeApply,
   planTravelScrapeMoney,
+  findAccomNightMoneyEntry,
+  normalizeAccomMoneyCity,
   travelScrapeBlockedReason,
   assertTravelScrapeApplyTable,
   isTravelScrapeMoneyConfirmed,
