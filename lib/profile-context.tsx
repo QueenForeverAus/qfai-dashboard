@@ -10,6 +10,7 @@ type ProfileContextType = {
   viewAs: string | null
   isLoading: boolean
   setViewAs: (role: string | null) => void
+  refreshProfile: () => Promise<void>
 }
 
 const ProfileContext = createContext<ProfileContextType>({
@@ -18,6 +19,7 @@ const ProfileContext = createContext<ProfileContextType>({
   viewAs: null,
   isLoading: true,
   setViewAs: () => {},
+  refreshProfile: async () => {},
 })
 
 export function ProfileProvider({ children }: { children: React.ReactNode }) {
@@ -25,15 +27,21 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const [viewAs, setViewAsState] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
+  async function loadProfile() {
+    try {
+      const res = await fetch('/api/me')
+      const data = res.ok ? await res.json() : null
+      setProfile(data as Profile | null)
+    } catch {
+      setProfile(null)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   useEffect(() => {
     sessionStorage.removeItem('qfai_viewAs')
-    fetch('/api/me')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        setProfile(data as Profile | null)
-        setIsLoading(false)
-      })
-      .catch(() => setIsLoading(false))
+    void loadProfile()
   }, [])
 
   function setViewAs(role: string | null) {
@@ -43,7 +51,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const effectiveRole = isLoading ? 'admin' : (viewAs ?? profile?.role ?? 'external')
 
   return (
-    <ProfileContext.Provider value={{ profile, effectiveRole, viewAs, isLoading, setViewAs }}>
+    <ProfileContext.Provider value={{ profile, effectiveRole, viewAs, isLoading, setViewAs, refreshProfile: loadProfile }}>
       {children}
     </ProfileContext.Provider>
   )
@@ -53,21 +61,4 @@ export function useProfile() {
   return useContext(ProfileContext)
 }
 
-// What each role can access
-export const ROLE_ACCESS: Record<string, { pages: string[]; tabs: string[] }> = {
-  admin:      { pages: ['/', '/runs', '/advancing', '/emails', '/settlement', '/settlements', '/feedback', '/admin', '/factors', '/settings'], tabs: ['costs', 'outlook', 'audit', 'run_advancing', 'advancement', 'show_pack'] },
-  owner:      { pages: ['/', '/runs', '/advancing', '/emails', '/settlement', '/settlements', '/feedback', '/factors', '/settings'],           tabs: ['costs', 'outlook', 'audit', 'run_advancing', 'advancement', 'show_pack'] },
-  production: { pages: ['/runs', '/advancing', '/feedback', '/settings'],                                         tabs: ['costs', 'run_advancing', 'advancement', 'show_pack'] },
-  crew:       { pages: ['/runs', '/advancing', '/feedback', '/settings'],                                         tabs: ['advancement'] },
-  external:   { pages: ['/feedback', '/settings'],                                                  tabs: [] },
-}
-
-export function canAccessPage(role: string, page: string): boolean {
-  const access = ROLE_ACCESS[role as keyof typeof ROLE_ACCESS] ?? ROLE_ACCESS.external
-  return access.pages.some(p => page === p || (p !== '/' && page.startsWith(p)))
-}
-
-export function canAccessTab(role: string, tab: string): boolean {
-  const access = ROLE_ACCESS[role as keyof typeof ROLE_ACCESS] ?? ROLE_ACCESS.external
-  return access.tabs.includes(tab)
-}
+export { ROLE_ACCESS, canAccessPage, canAccessTab } from '@/lib/role-access'
