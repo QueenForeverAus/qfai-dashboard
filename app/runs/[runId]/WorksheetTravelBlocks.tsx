@@ -631,7 +631,7 @@ function FlightCard({
             {lookupBusy ? 'Looking up…' : 'Lookup'}
           </button>
           <p className="text-[11px] text-slate-500">
-            Flight # + date · mock on staging · terminals only if known
+            Flight # + date · mock on staging · e.g. QF441 · 10 Feb 2027 · terminals only if known
           </p>
         </div>
         {lookupError && (
