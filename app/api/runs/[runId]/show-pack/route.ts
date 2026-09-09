@@ -15,6 +15,15 @@ import {
   setAuditActor,
   writeAuditLog,
 } from '@/lib/audit-log'
+import { assertNoAdvancingWriteBack, loadActiveAdvancingWorkspace } from '@/lib/run-advancing-persist'
+import {
+  canExposeHotelPin,
+  formatWorksheetTravelBlocksAuditCopy,
+  mergeHotelPinsPreservingHidden,
+  parseTravelBlocks,
+  redactTravelBlocksForRole,
+  sanitizeTravelBlocks,
+} from '@/lib/worksheet-travel-blocks'
 
 async function resolveRunId(supabase: ReturnType<typeof createAdminClient>, runIdOrCode: string): Promise<string | null> {
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(runIdOrCode)) return runIdOrCode
@@ -70,6 +79,17 @@ export async function GET(
     publishedByName = pub?.full_name ?? null
   }
 
+  const profile = await getProfile(supabase, user.id)
+  const workspace = await loadActiveAdvancingWorkspace(supabase, runId)
+  const travelBlocks = redactTravelBlocksForRole(
+    parseTravelBlocks(workspace?.travel_blocks),
+    profile?.role,
+  )
+  const { data: directory } = await supabase
+    .from('profiles')
+    .select('id, full_name, nickname')
+    .order('full_name')
+
   const derived = runDateRangeFromShows((shows ?? []) as { show_date?: string | null }[])
   return NextResponse.json({
     run: {
@@ -80,6 +100,9 @@ export async function GET(
       published_by_name: publishedByName,
     },
     shows: shows ?? [],
+    travel_blocks: travelBlocks,
+    travel_workspace_id: workspace?.id ?? null,
+    profiles: directory ?? [],
   })
 }
 
@@ -149,6 +172,66 @@ export async function PATCH(
       ),
     )
     return NextResponse.json({ show: data })
+  }
+
+  // Structured travel cards on the BOOKED Advancing workspace — never cost_fields.
+  if (body.travel_blocks && typeof body.travel_blocks === 'object' && !body.show_id && !body.action) {
+    if (!canEditWorksheet(profile.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    assertNoAdvancingWriteBack()
+    const workspace = await loadActiveAdvancingWorkspace(supabase, runId)
+    if (!workspace) {
+      return NextResponse.json({
+        error: 'Travel cards need an active Run Advancing workspace (BOOKED run).',
+      }, { status: 409 })
+    }
+
+    const { data: runRow } = await supabase
+      .from('runs')
+      .select('code')
+      .eq('id', runId)
+      .single()
+
+    const existing = parseTravelBlocks(workspace.travel_blocks)
+    const incoming = sanitizeTravelBlocks(body.travel_blocks)
+    const merged = mergeHotelPinsPreservingHidden(
+      incoming,
+      existing,
+      canExposeHotelPin(profile.role),
+    )
+    const now = new Date().toISOString()
+    const { data, error } = await supabase
+      .from('run_advancing_workspaces')
+      .update({ travel_blocks: merged, updated_at: now })
+      .eq('id', workspace.id)
+      .is('archived_at', null)
+      .select('id, travel_blocks')
+      .single()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    const copy = formatWorksheetTravelBlocksAuditCopy({
+      actorName: profile.full_name ?? 'Someone',
+      runCode: runRow?.code ?? runId,
+      blocks: merged,
+    })
+    await writeAuditLog(supabase, user.id, [{
+      table_name: 'run_advancing_workspaces',
+      record_id: workspace.id,
+      run_id: runId,
+      field_name: copy.fieldName,
+      old_value: copy.oldValue,
+      new_value: copy.newValue,
+      change_type: 'update',
+    }])
+
+    return NextResponse.json({
+      travel_blocks: redactTravelBlocksForRole(
+        parseTravelBlocks(data?.travel_blocks),
+        profile.role,
+      ),
+      travel_workspace_id: workspace.id,
+    })
   }
 
   // Run-level worksheet notes: { fields: { flights_notes, ... } }

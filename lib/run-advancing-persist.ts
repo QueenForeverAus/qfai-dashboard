@@ -33,6 +33,7 @@ export type RunAdvancingWorkspaceRow = {
   archived_at: string | null
   archived_by: string | null
   shows_chrome: AdvancingShowChrome[] | unknown
+  travel_blocks?: unknown
   created_at: string
   updated_at: string
 }

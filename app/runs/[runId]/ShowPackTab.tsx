@@ -9,6 +9,13 @@ import {
   SETS_DEFAULT,
   displayOrDefault,
 } from '@/lib/worksheet-fields'
+import {
+  EMPTY_TRAVEL_BLOCKS,
+  parseTravelBlocks,
+  type ProfileDirectoryRow,
+  type WorksheetTravelBlocks as TravelBlocksDoc,
+} from '@/lib/worksheet-travel-blocks'
+import WorksheetTravelBlocks from './WorksheetTravelBlocks'
 
 type PackShow = {
   id: string
@@ -184,10 +191,16 @@ export default function ShowPackTab({
   const [shows, setShows] = useState<PackShow[]>(() =>
     initialShows.map(s => ({ ...s, ...emptyShowFields })),
   )
+  const [travelBlocks, setTravelBlocks] = useState<TravelBlocksDoc>(EMPTY_TRAVEL_BLOCKS)
+  const [travelWorkspaceId, setTravelWorkspaceId] = useState<string | null>(null)
+  const [profiles, setProfiles] = useState<ProfileDirectoryRow[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const lookupDone = useRef<Set<string>>(new Set())
+  const travelSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const travelRef = useRef<TravelBlocksDoc>(EMPTY_TRAVEL_BLOCKS)
+  travelRef.current = travelBlocks
 
   const canPublish = ['owner', 'admin', 'production'].includes(effectiveRole)
   const canEdit = canPublish
@@ -230,6 +243,30 @@ export default function ShowPackTab({
     })
   }, [runId])
 
+  const saveTravelBlocks = useCallback((next: TravelBlocksDoc) => {
+    travelRef.current = next
+    setTravelBlocks(next)
+    if (travelSaveTimer.current) clearTimeout(travelSaveTimer.current)
+    travelSaveTimer.current = setTimeout(() => {
+      const snapshot = travelRef.current
+      startTransition(async () => {
+        const res = await fetch(`/api/runs/${runId}/show-pack`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ travel_blocks: snapshot }),
+        })
+        const data = await res.json()
+        if (res.ok) {
+          if (typeof data.travel_workspace_id === 'string') {
+            setTravelWorkspaceId(data.travel_workspace_id)
+          }
+        } else {
+          showToast(data.error ?? 'Travel save failed')
+        }
+      })
+    }, 400)
+  }, [runId])
+
   async function lookupVenue(showId: string, silent = false) {
     if (lookupDone.current.has(showId)) return
     lookupDone.current.add(showId)
@@ -253,6 +290,13 @@ export default function ShowPackTab({
       .then(r => r.json())
       .then(data => {
         if (data?.run) setRun(data.run)
+        if (data?.travel_blocks) {
+          const parsed = parseTravelBlocks(data.travel_blocks)
+          travelRef.current = parsed
+          setTravelBlocks(parsed)
+        }
+        setTravelWorkspaceId(typeof data?.travel_workspace_id === 'string' ? data.travel_workspace_id : null)
+        if (Array.isArray(data?.profiles)) setProfiles(data.profiles)
         if (Array.isArray(data?.shows)) {
           setShows(data.shows)
           // Auto-lookup once per show when address + phone empty
@@ -388,24 +432,6 @@ export default function ShowPackTab({
             })()} />
             <Field label="Travel type" value={REGION_LABELS[region] ?? region ?? 'TBC'} />
             <Field label="Shows" value={String(sortedShows.length)} />
-            <EditableInput
-              label="Flights / PAX"
-              value={run?.flights_notes ?? ''}
-              canEdit={canEdit}
-              onSave={v => saveRunFields({ flights_notes: v })}
-            />
-            <EditableInput
-              label="Cars / vans"
-              value={run?.vehicles_notes ?? ''}
-              canEdit={canEdit}
-              onSave={v => saveRunFields({ vehicles_notes: v })}
-            />
-            <EditableInput
-              label="Hotel nights"
-              value={run?.hotels_overview_notes ?? ''}
-              canEdit={canEdit}
-              onSave={v => saveRunFields({ hotels_overview_notes: v })}
-            />
             {(synopsis || run?.synopsis) && (
               <div className="mt-3 pt-3 border-t border-slate-700">
                 <div className="text-slate-500 text-xs mb-1">Synopsis</div>
@@ -414,6 +440,21 @@ export default function ShowPackTab({
             )}
           </section>
         )}
+
+        <WorksheetTravelBlocks
+          blocks={travelBlocks}
+          workspaceId={travelWorkspaceId}
+          profiles={profiles}
+          canEdit={canEdit}
+          role={effectiveRole}
+          legacyNotes={{
+            flights_notes: run?.flights_notes ?? '',
+            vehicles_notes: run?.vehicles_notes ?? '',
+            hotels_overview_notes: run?.hotels_overview_notes ?? '',
+          }}
+          onSave={saveTravelBlocks}
+          onSaveLegacy={saveRunFields}
+        />
 
         {sortedShows.map((show, idx) => {
           const cityLine = [show.venue_city, show.state_territory].filter(Boolean).join(', ')

@@ -209,6 +209,7 @@ create policy "Authenticated users can submit requests" on feature_requests
 -- runs.show_pack_published_at timestamptz
 -- runs.show_pack_published_by uuid -> profiles
 -- runs.flights_notes, vehicles_notes, hotels_overview_notes
+-- run_advancing_workspaces.travel_blocks jsonb (W1 structured Worksheet cards; staging)
 
 -- Advancing Shows owners: gareth|michael|harbour|anita|brad|finance|nigel
 -- (legacy tour_manager/production_manager mapped in app to gareth/michael)
