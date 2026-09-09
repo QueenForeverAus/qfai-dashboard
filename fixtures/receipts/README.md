@@ -16,14 +16,22 @@ One run-level `accommodation` row on **Run Advancing** (`advancing_cost_fields`)
 
 ## Staging smoke
 
-1. Sign in as owner/admin. Open **Advancing Shows** → a **BOOKED** run → **Run Advancing**.
-2. Happy path needs an itinerary window covering **17–19 Sep 2026** (first show 18 Sep Newcastle, then Tamworth 19 Sep, Port Macquarie 20 Sep). If a staging BOOKED run already has those dates, use it.
-3. In **Apply receipt extract**, pick each fixture → **Preview match** (confidence high / medium, nights attached) → **Confirm apply**.
-4. Check:
+The Portal **Apply receipt extract** paste/fixture panel was removed in W2. Apply is API-only (`POST /api/runs/:runId/advancing-receipts/apply`) for the W3 scraper. Fixtures and unit tests stay.
+
+W2 UI check (owner/admin):
+
+1. **Advancing Shows** → a **BOOKED** run → **Run Advancing** (`/runs/<code>?tab=run_advancing`). Confirm there is no “Apply receipt extract” textarea / fixture chips.
+2. **Worksheet** (`/runs/<code>?tab=show_pack`) — structured travel cards still render (`worksheet-travel-blocks`).
+
+Happy-path apply (API / W3, not this UI):
+
+1. Itinerary window covering **17–19 Sep 2026** (first show 18 Sep Newcastle, then Tamworth 19 Sep, Port Macquarie 20 Sep).
+2. `POST` each fixture (`fixture_id` or `packet`) with `confirm: true`.
+3. Check:
    - Advancing Accommodation has three PAID night lines with `Booking confirm <vendor> conf <id> DD/MM/YY`.
    - Worksheet **Hotel** notes on the attached shows + run **Hotel nights** overview.
    - Advancing Checklist `hotel_confirmed` is done (P2 PAID→tick / explicit booked fact). One paid night is enough; there is no separate “all names” item.
    - **Run Costing** accommodation is unchanged (frozen / never written).
-5. **R01** (Broken Hill Feb 2027) is **not** a happy-path target. Preview must error *Low confidence / itinerary window* — that is correct. Do not invent production runs; if staging has no NSW Sep itinerary, BOOK a staging-only demo run with those three show dates, or stop after confirming the R01 reject.
+4. **R01** (Broken Hill Feb 2027) is **not** a happy-path target. Preview must error *Low confidence / itinerary window* — that is correct. Do not invent production runs; if staging has no NSW Sep itinerary, BOOK a staging-only demo run with those three show dates, or stop after confirming the R01 reject.
 
 Email scrape, Settlements Col2 bind, Settings toggles, Amex/bank feed, and Uber Eats band-meals are out of scope.

@@ -99,6 +99,8 @@ test('Run Advancing shows the BOOKED copy and stays editable without write-back'
 
   await expect(page.getByTestId('run-advancing-sheet')).toBeVisible({ timeout: 10000 })
   await expect(page.getByTestId('run-advancing-banner')).toBeVisible()
+  await expect(page.getByTestId('apply-receipt-extract')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: /apply receipt extract/i })).toHaveCount(0)
   await expect(page.getByTestId('cost-field-edit').first()).toBeVisible()
 
   const firstValue = page.getByTestId('cost-field-state').first()

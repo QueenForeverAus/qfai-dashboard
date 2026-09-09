@@ -29,6 +29,7 @@ async function resolveRun(
  * POST /api/runs/[runId]/advancing-receipts/apply
  * Owner/admin. Preview (default) or confirm-apply a hotel receipt extract.
  * Writes advancing_cost_fields + worksheet + checklist only.
+ * Portal paste UI was removed in W2 — this route stays for the W3 scraper.
  */
 export async function POST(
   req: NextRequest,
