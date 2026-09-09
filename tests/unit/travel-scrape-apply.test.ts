@@ -7,9 +7,12 @@ import {
 } from '../../lib/worksheet-travel-blocks.ts'
 import {
   assertTravelScrapeApplyTable,
+  findAccomNightMoneyEntry,
   isTravelScrapeMoneyConfirmed,
   LINE_HINT_TO_FIELD_KEY,
+  normalizeAccomMoneyCity,
   planTravelScrapeApply,
+  planTravelScrapeMoney,
   TRAVEL_SCRAPE_APPLY_TABLES,
   TRAVEL_SCRAPE_APPLY_WRITES_COST_FIELDS,
   TRAVEL_SCRAPE_PROPOSED_ERROR,
@@ -366,6 +369,270 @@ describe('money confirm hook', () => {
     })
     assert.equal(plan.money.field_key, 'ground_transport')
     assert.equal(plan.money.will_write, true)
+  })
+})
+
+const PORT_MACQUARIE_PACKET = {
+  ...THORNTON_SCRAPE_PACKET,
+  worksheet: {
+    ...THORNTON_SCRAPE_PACKET.worksheet,
+    name: "Port O'Call",
+    city: 'Port Macquarie',
+    check_in_date: '2026-09-19',
+    check_out_date: '2026-09-20',
+    confirmation: 'POC-1920',
+  },
+  money: { ...THORNTON_SCRAPE_PACKET.money, amount: 245 },
+  checklist: {
+    items_to_tick: ['hotel_confirmed'],
+    source_note: "from Port O'Call email 19/09/26 · conf POC-1920",
+    partial_names: false,
+  },
+}
+
+const PORT_MACQUARIE_GLANCE_PACKET = {
+  ...PORT_MACQUARIE_PACKET,
+  worksheet: {
+    name: "Port O'Call",
+    address: '1 Park St, Port Macquarie NSW 2444',
+    check_in: '2026-09-19T14:00',
+    check_out: '2026-09-20',
+    rooms: 1,
+    conf: 'POC-GLANCE',
+    city_night_key: 'PortMacquarie_2026-09-19',
+  },
+  checklist: {
+    items_to_tick: ['hotel_confirmed'],
+    source_note: '',
+    partial_names: false,
+  },
+}
+
+describe('accom_night money: one field, one charge per night', () => {
+  it('writes two hotels onto the same accommodation field as two night entries', () => {
+    assert.equal(LINE_HINT_TO_FIELD_KEY.accom_night, 'accommodation')
+    const first = planTravelScrapeMoney({
+      packet: THORNTON_SCRAPE_PACKET,
+      existingEntries: [],
+      confirm: { confirmMoney: true, moneyConfirmedBy: 'Gareth' },
+    })
+    const second = planTravelScrapeMoney({
+      packet: TAMWORTH_SCRAPE_PACKET,
+      existingEntries: first.next_entries,
+      confirm: { confirmMoney: true, moneyConfirmedBy: 'Gareth' },
+    })
+    assert.equal(first.field_key, 'accommodation')
+    assert.equal(second.field_key, first.field_key)
+    assert.equal(second.next_entries.length, 2)
+    assert.deepEqual(
+      second.next_entries.map(e => e.night_date).sort(),
+      ['2026-09-17', '2026-09-18'],
+    )
+    assert.deepEqual(
+      second.next_entries.map(e => e.confirmation_id).sort(),
+      ['TE-91718', 'TH-1819'],
+    )
+  })
+
+  it('re-applying the same night with a different city/conf updates one entry', () => {
+    const parsedGlance = parseTravelScrapePacket(THORNTON_GLANCE_PACKET)
+    assert.equal(parsedGlance.ok, true, parsedGlance.ok ? '' : parsedGlance.error)
+    if (!parsedGlance.ok) return
+
+    const demo = planTravelScrapeMoney({
+      packet: THORNTON_SCRAPE_PACKET,
+      existingEntries: [],
+      confirm: { confirmMoney: true },
+    })
+    const glance = planTravelScrapeMoney({
+      packet: parsedGlance.packet,
+      existingEntries: demo.next_entries,
+      confirm: { confirmMoney: true },
+    })
+    assert.equal(glance.next_entries.length, 1)
+    assert.equal(glance.next_entries[0]?.id, demo.next_entries[0]?.id)
+    assert.equal(glance.next_entries[0]?.night_date, '2026-09-17')
+    assert.equal(glance.next_entries[0]?.city, 'Maitland')
+    assert.equal(glance.next_entries[0]?.confirmation_id, '6031616996')
+    assert.equal(glance.field_key, 'accommodation')
+  })
+
+  it('soft-matches Port Macquarie vs PortMacquarie city_night_key on the same night', () => {
+    assert.equal(normalizeAccomMoneyCity('Port Macquarie'), 'portmacquarie')
+    assert.equal(normalizeAccomMoneyCity('PortMacquarie'), 'portmacquarie')
+    const parsedDemo = parseTravelScrapePacket(PORT_MACQUARIE_PACKET)
+    const parsedGlance = parseTravelScrapePacket(PORT_MACQUARIE_GLANCE_PACKET)
+    assert.equal(parsedDemo.ok, true, parsedDemo.ok ? '' : parsedDemo.error)
+    assert.equal(parsedGlance.ok, true, parsedGlance.ok ? '' : parsedGlance.error)
+    if (!parsedDemo.ok || !parsedGlance.ok) return
+
+    const first = planTravelScrapeMoney({
+      packet: parsedDemo.packet,
+      existingEntries: [],
+      confirm: { confirmMoney: true },
+    })
+    const second = planTravelScrapeMoney({
+      packet: parsedGlance.packet,
+      existingEntries: first.next_entries,
+      confirm: { confirmMoney: true },
+    })
+    assert.equal(first.next_entries[0]?.city, 'Port Macquarie')
+    assert.equal(second.next_entries.length, 1)
+    assert.equal(second.next_entries[0]?.id, first.next_entries[0]?.id)
+    assert.equal(second.next_entries[0]?.night_date, '2026-09-19')
+    assert.equal(normalizeAccomMoneyCity(second.next_entries[0]?.city), 'portmacquarie')
+    assert.equal(second.next_entries[0]?.confirmation_id, 'POC-GLANCE')
+  })
+
+  it('updates by confirmation_id even when city/night labels differ', () => {
+    const first = planTravelScrapeMoney({
+      packet: THORNTON_SCRAPE_PACKET,
+      existingEntries: [],
+      confirm: { confirmMoney: true },
+    })
+    const sameConf = {
+      ...THORNTON_SCRAPE_PACKET,
+      money: { ...THORNTON_SCRAPE_PACKET.money, amount: 230 },
+      worksheet: { ...THORNTON_SCRAPE_PACKET.worksheet, city: 'Newcastle' },
+    }
+    const updated = planTravelScrapeMoney({
+      packet: sameConf,
+      existingEntries: first.next_entries,
+      confirm: { confirmMoney: true },
+    })
+    assert.equal(updated.next_entries.length, 1)
+    assert.equal(updated.next_entries[0]?.id, first.next_entries[0]?.id)
+    assert.equal(updated.next_entries[0]?.confirmation_id, 'TE-91718')
+    assert.equal(updated.next_entries[0]?.amount, 230)
+    assert.equal(updated.next_entries[0]?.city, 'Newcastle')
+  })
+
+  it('updates via supersedes.prior_conf_id then keeps one night charge', () => {
+    const first = planTravelScrapeMoney({
+      packet: THORNTON_SCRAPE_PACKET,
+      existingEntries: [],
+      confirm: { confirmMoney: true },
+    })
+    const revised = {
+      ...THORNTON_SCRAPE_PACKET,
+      money: { ...THORNTON_SCRAPE_PACKET.money, amount: 199 },
+      worksheet: { ...THORNTON_SCRAPE_PACKET.worksheet, confirmation: 'TE-91718-R2', city: 'Maitland' },
+      supersedes: { prior_conf_id: 'TE-91718', prior_message_id: 'msg-te-91718' },
+    }
+    const updated = planTravelScrapeMoney({
+      packet: revised,
+      existingEntries: first.next_entries,
+      confirm: { confirmMoney: true },
+    })
+    assert.equal(updated.next_entries.length, 1)
+    assert.equal(updated.next_entries[0]?.id, first.next_entries[0]?.id)
+    assert.equal(updated.next_entries[0]?.confirmation_id, 'TE-91718-R2')
+    assert.equal(updated.next_entries[0]?.amount, 199)
+  })
+
+  it('collapses leftover demo + glance charges on the same night and leaves refunds', () => {
+    const demo = planTravelScrapeMoney({
+      packet: THORNTON_SCRAPE_PACKET,
+      existingEntries: [],
+      confirm: { confirmMoney: true },
+    })
+    const leftover = [
+      ...demo.next_entries,
+      {
+        ...demo.next_entries[0]!,
+        id: 'dup-glance',
+        city: 'Maitland',
+        confirmation_id: '6031616996',
+        amount: 214,
+      },
+      {
+        id: 'refund-17',
+        description: 'Refund — Thornton — 17/09/26',
+        notes: '',
+        amount: -50,
+        gst_included: true,
+        confirmed: true,
+        paid: true,
+        night_date: '2026-09-17',
+        city: 'Thornton',
+        vendor: 'Thornton Executive',
+        confirmation_id: 'TE-91718',
+        receipt_kind: 'refund' as const,
+      },
+    ]
+    const parsedGlance = parseTravelScrapePacket(THORNTON_GLANCE_PACKET)
+    assert.equal(parsedGlance.ok, true)
+    if (!parsedGlance.ok) return
+    const collapsed = planTravelScrapeMoney({
+      packet: parsedGlance.packet,
+      existingEntries: leftover,
+      confirm: { confirmMoney: true },
+    })
+    const charges = collapsed.next_entries.filter(e => e.receipt_kind !== 'refund')
+    const refunds = collapsed.next_entries.filter(e => e.receipt_kind === 'refund')
+    assert.equal(charges.length, 1)
+    assert.equal(charges[0]?.night_date, '2026-09-17')
+    assert.equal(charges[0]?.confirmation_id, '6031616996')
+    assert.equal(refunds.length, 1)
+    assert.equal(refunds[0]?.id, 'refund-17')
+    assert.equal(refunds[0]?.amount, -50)
+  })
+
+  it('finds the prior charge by confirmation, then night, never a refund', () => {
+    const refund = {
+      id: 'r1',
+      description: 'Refund',
+      notes: '',
+      amount: -214,
+      gst_included: true,
+      confirmed: true,
+      paid: true,
+      night_date: '2026-09-17',
+      city: 'Thornton',
+      confirmation_id: 'TE-91718',
+      receipt_kind: 'refund' as const,
+    }
+    const charge = {
+      id: 'c1',
+      description: 'Thornton — 2026-09-17',
+      notes: '',
+      amount: 214,
+      gst_included: true,
+      confirmed: true,
+      paid: true,
+      night_date: '2026-09-17',
+      city: 'Thornton',
+      confirmation_id: 'TE-91718',
+      receipt_kind: 'charge' as const,
+    }
+    assert.equal(
+      findAccomNightMoneyEntry({
+        existing: [refund, charge],
+        confirmation: 'TE-91718',
+        night: '2026-09-17',
+        city: 'Maitland',
+      })?.id,
+      'c1',
+    )
+    assert.equal(
+      findAccomNightMoneyEntry({
+        existing: [refund, charge],
+        confirmation: 'other',
+        priorConfId: 'TE-91718',
+        night: '2026-09-17',
+        city: 'Maitland',
+      })?.id,
+      'c1',
+    )
+    assert.equal(
+      findAccomNightMoneyEntry({
+        existing: [refund, { ...charge, confirmation_id: 'old' }],
+        confirmation: 'new-glance',
+        night: '2026-09-17',
+        city: 'Maitland',
+      })?.id,
+      'c1',
+    )
   })
 })
 

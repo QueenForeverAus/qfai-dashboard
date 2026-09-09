@@ -3,6 +3,9 @@
  * Worksheet cards + checklist follow details policy.
  * Money/PAID on Advancing never auto — explicit Gareth confirm only.
  * Never writes locked Run Costings.
+ *
+ * `accom_night` → one run-level `accommodation` field. Hotel POSTs share
+ * `money_field_id`; nights are JSON entries (one charge per `night_date`).
  */
 
 import { KNOWN_ITEM_KEYS } from '../advancement-checklist.ts'
@@ -255,6 +258,87 @@ function moneyCity(packet: TravelScrapePacket): string | null {
     || null
 }
 
+/** Soft city compare: Thornton≠Maitland still share a night; Port Macquarie ≡ PortMacquarie. */
+export function normalizeAccomMoneyCity(value: string | null | undefined): string {
+  return String(value ?? '').toLowerCase().replace(/[\s_]+/g, '')
+}
+
+function accomCitiesSoftEqual(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): boolean {
+  const a = normalizeAccomMoneyCity(left)
+  const b = normalizeAccomMoneyCity(right)
+  return Boolean(a && b && a === b)
+}
+
+function isMoneyRefund(entry: CostEntry): boolean {
+  return entry.receipt_kind === 'refund'
+}
+
+/**
+ * One Advancing accommodation charge per stay night.
+ * Match: confirmation_id → supersedes.prior_conf_id → same night_date
+ * (optional soft city pick among same-night leftovers). Refunds are never matched.
+ */
+export function findAccomNightMoneyEntry(opts: {
+  existing: CostEntry[]
+  confirmation: string
+  priorConfId?: string | null
+  night: string | null
+  city: string | null
+}): CostEntry | null {
+  const charges = opts.existing.filter(entry => !isMoneyRefund(entry))
+
+  if (opts.confirmation) {
+    const byConf = charges.find(entry => entry.confirmation_id === opts.confirmation)
+    if (byConf) return byConf
+  }
+
+  const prior = opts.priorConfId?.trim()
+  if (prior) {
+    const byPrior = charges.find(entry => entry.confirmation_id === prior)
+    if (byPrior) return byPrior
+  }
+
+  if (!opts.night) return null
+  const sameNight = charges.filter(entry => entry.night_date === opts.night)
+  if (sameNight.length === 0) return null
+  if (opts.city) {
+    const byCity = sameNight.find(entry => accomCitiesSoftEqual(entry.city, opts.city))
+    if (byCity) return byCity
+  }
+  return sameNight[0] ?? null
+}
+
+function findNonAccomMoneyEntry(existing: CostEntry[], confirmation: string): CostEntry | null {
+  if (!confirmation) return null
+  return existing.find(entry =>
+    !isMoneyRefund(entry) && entry.confirmation_id === confirmation,
+  ) ?? null
+}
+
+function nextMoneyEntries(opts: {
+  existing: CostEntry[]
+  found: CostEntry | null
+  entry: CostEntry
+  hint: TravelScrapeLineHint
+  night: string | null
+}): CostEntry[] {
+  const next = opts.found
+    ? opts.existing.map(row => row.id === opts.found!.id ? opts.entry : row)
+    : [...opts.existing, opts.entry]
+
+  if (opts.hint !== 'accom_night' || !opts.night) return next
+
+  // One charge per night — drop leftover demo + glance duplicates. Keep refunds.
+  return next.filter(row =>
+    row.id === opts.entry.id
+    || isMoneyRefund(row)
+    || row.night_date !== opts.night,
+  )
+}
+
 export function planTravelScrapeMoney(opts: {
   packet: TravelScrapePacket
   existingEntries?: unknown
@@ -315,12 +399,15 @@ export function planTravelScrapeMoney(opts: {
   const sourceNote = formatTravelScrapeSourceNote(opts.packet)
   const confirmedBy = opts.confirm.moneyConfirmedBy?.trim()
 
-  const found = existing.find(entry => {
-    if (entry.receipt_kind === 'refund') return false
-    if (confirmation && entry.confirmation_id === confirmation) return true
-    if (night && entry.night_date === night && (!entry.city || !city || entry.city === city)) return true
-    return false
-  }) ?? null
+  const found = hint === 'accom_night'
+    ? findAccomNightMoneyEntry({
+      existing,
+      confirmation,
+      priorConfId: opts.packet.supersedes.prior_conf_id,
+      night,
+      city,
+    })
+    : findNonAccomMoneyEntry(existing, confirmation)
 
   const entry: CostEntry = {
     id: found?.id ?? newEntryId(),
@@ -340,9 +427,7 @@ export function planTravelScrapeMoney(opts: {
     receipt_kind: 'charge',
   }
 
-  const next = found
-    ? existing.map(row => row.id === found.id ? entry : row)
-    : [...existing, entry]
+  const next = nextMoneyEntries({ existing, found, entry, hint, night })
 
   return {
     will_write: true,

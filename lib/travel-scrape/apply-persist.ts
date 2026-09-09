@@ -83,6 +83,7 @@ export async function persistTravelScrapeApply(opts: {
 
   let existingEntries = opts.existingEntries
   let moneyField: { id?: string; entries?: unknown } | null = null
+  // One Advancing row per field_key — hotel nights reuse the same money_field_id.
   if (hintPlan.money.field_key) {
     const { data } = await from('advancing_cost_fields')
       .select('id, entries')

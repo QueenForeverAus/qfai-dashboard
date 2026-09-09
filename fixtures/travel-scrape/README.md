@@ -24,6 +24,12 @@ Car merge is covered in unit tests (`trecv1-avis-car`). W2 hotel receipt-extract
 | Run Costings | **Never write** |
 | Proposed-only runs | **Never attach** — BOOKED + active advancing workspace required |
 
+## Money field (`money_field_id` is shared)
+
+`accom_night` maps to the single run-level **Accommodation** Advancing field (`field_key: accommodation`). Hotel POSTs reuse the same `money_field_id` — that is expected, not a last-write-wins collision. Stay nights live as JSON `entries[]` on that field: **one charge per `night_date`**.
+
+Re-applying the same night (demo fixture + glance packet, Thornton vs Maitland, `Port Macquarie` vs `PortMacquarie` from `city_night_key`, or a new `confirmation` / `supersedes.prior_conf_id`) **updates** that night’s charge. It does not add a second row or a second field. Refunds (`receipt_kind=refund`) stay beside the charge.
+
 ## Apply route
 
 `POST /api/runs/:runId/advancing-receipts/apply`
