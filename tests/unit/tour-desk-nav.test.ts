@@ -6,6 +6,8 @@ import {
   SETTLEMENTS_HREF,
   TOUR_DESK_NAV_CHILDREN,
   TOUR_DESK_NAV_HEADING,
+  filterAdvancingShowsList,
+  isAdvancingShowsListRun,
   isTourDeskChildActive,
   parseRunDetailTab,
   runDetailHref,
@@ -70,5 +72,52 @@ describe('tour desk nav IA', () => {
     assert.equal(isTourDeskChildActive({ href: SETTLEMENTS_HREF, pathname: '/settlements' }), true)
     assert.equal(isTourDeskChildActive({ href: SETTLEMENTS_HREF, pathname: '/settlements/r12' }), true)
     assert.equal(isTourDeskChildActive({ href: SETTLEMENTS_HREF, pathname: '/runs' }), false)
+  })
+
+  it('lists BOOKED runs and active workspaces only — proposed and archived UNBOOKED stay off', () => {
+    assert.equal(isAdvancingShowsListRun({ status: 'proposed' }), false)
+    assert.equal(isAdvancingShowsListRun({ status: 'proposed', workspace: null }), false)
+    assert.equal(isAdvancingShowsListRun({
+      status: 'proposed',
+      workspace: { archived_at: '2026-09-08T00:00:00.000Z' },
+    }), false)
+    assert.equal(isAdvancingShowsListRun({ status: 'placeholder' }), false)
+    assert.equal(isAdvancingShowsListRun({ status: 'declined' }), false)
+    assert.equal(isAdvancingShowsListRun({ status: 'held' }), false)
+
+    assert.equal(isAdvancingShowsListRun({ status: 'confirmed' }), true)
+    assert.equal(isAdvancingShowsListRun({ status: 'CONFIRMED' }), true)
+    assert.equal(isAdvancingShowsListRun({ status: 'confirmed', workspace: null }), true)
+    assert.equal(isAdvancingShowsListRun({
+      status: 'confirmed',
+      workspace: { archived_at: '2026-09-08T00:00:00.000Z' },
+    }), true)
+
+    assert.equal(isAdvancingShowsListRun({
+      status: 'proposed',
+      workspace: { archived_at: null },
+    }), true)
+    assert.equal(isAdvancingShowsListRun({
+      status: 'booking',
+      workspace: { archived_at: null },
+    }), true)
+    assert.equal(isAdvancingShowsListRun({ status: 'booking' }), false)
+
+    const listed = filterAdvancingShowsList(
+      [
+        { id: 'proposed', code: 'P01', status: 'proposed' },
+        { id: 'booked', code: 'R01', status: 'confirmed' },
+        { id: 'trecv1', code: 'TRECV1', status: 'confirmed' },
+        { id: 'tcomp1', code: 'TCOMP1', status: 'confirmed' },
+        { id: 'unbooked', code: 'U01', status: 'proposed' },
+        { id: 'orphan-ws', code: 'W01', status: 'proposed' },
+      ],
+      run => {
+        if (run.id === 'unbooked') return { archived_at: '2026-09-08T12:00:00.000Z' }
+        if (run.id === 'orphan-ws') return { archived_at: null }
+        return null
+      },
+    )
+    assert.deepEqual(listed.map(r => r.code), ['R01', 'TRECV1', 'TCOMP1', 'W01'])
   })
 })

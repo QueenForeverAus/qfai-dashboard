@@ -36,6 +36,46 @@ test('BOOKED Costing is locked, sell-through sliders stay editable', async ({ pa
   }
 })
 
+test('Advancing Shows lists BOOKED runs only — proposed stay on Run Costings', async ({ page }) => {
+  await page.goto('/runs')
+  await expect(page.getByTestId('run-costings-list')).toBeVisible({ timeout: 10000 })
+  await page.getByRole('button', { name: /^PROPOSED$/i }).click()
+  const proposedCodes = (await page.getByTestId('run-list-code').allTextContents())
+    .map(code => code.trim())
+    .filter(Boolean)
+
+  await page.getByRole('button', { name: /^BOOKED$/i }).click()
+  const bookedCodes = (await page.getByTestId('run-list-code').allTextContents())
+    .map(code => code.trim())
+    .filter(Boolean)
+
+  await page.getByRole('button', { name: /^COMPLETED$/i }).click()
+  const completedCodes = (await page.getByTestId('run-list-code').allTextContents())
+    .map(code => code.trim())
+    .filter(Boolean)
+
+  await page.goto('/advancing')
+  await expect(page.getByTestId('advancing-shows-list')).toBeVisible({ timeout: 10000 })
+  await expect(page.getByRole('heading', { name: /^advancing shows$/i })).toBeVisible()
+  await expect(page.getByText(/booked runs only/i)).toBeVisible()
+  await expect(page.getByRole('button', { name: /^PROPOSED$/i })).toHaveCount(0)
+
+  const advancingCodes = new Set(
+    (await page.getByTestId('run-list-code').allTextContents()).map(code => code.trim()),
+  )
+  for (const code of proposedCodes) {
+    expect(advancingCodes.has(code), `proposed ${code} must not appear under Advancing`).toBeFalsy()
+  }
+  for (const code of bookedCodes) {
+    expect(advancingCodes.has(code), `BOOKED ${code} must appear under Advancing`).toBeTruthy()
+  }
+  for (const code of ['R01', 'TRECV1', 'TCOMP1']) {
+    if (bookedCodes.includes(code) || completedCodes.includes(code)) {
+      expect(advancingCodes.has(code), `BOOKED ${code} must appear under Advancing`).toBeTruthy()
+    }
+  }
+})
+
 test('Run Advancing shows the BOOKED copy and stays editable without write-back', async ({ page }) => {
   await page.goto('/advancing')
   await page.getByRole('button', { name: /^BOOKED$/i }).click()

@@ -6,6 +6,9 @@
  * Advancing edits never write back into Run Costings.
  *
  * Settings toggles are PARKED — lock is hardcoded ON.
+ *
+ * Advancing Shows index membership lives in `isAdvancingShowsListRun`
+ * (lib/tour-desk-nav.ts): BOOKED and/or an active workspace only.
  */
 
 import { isBookedBookingStatus } from './booked-cost-freeze.ts'

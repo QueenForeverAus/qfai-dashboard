@@ -1,7 +1,14 @@
 /**
  * Tour Desk Phase 1 — nav IA only.
  * Tour Desk is a menu heading (not a destination). Children wire to existing routes.
+ *
+ * Advancing Shows list membership is HARD-locked (Tour Desk v2):
+ * BOOKED (`runs.status = confirmed`) and/or an active Run Advancing workspace.
+ * Proposed/held without a workspace stay on Run Costings.
  */
+
+import { isBookedBookingStatus } from './booked-cost-freeze.ts'
+import { isAdvancingWorkspaceActive } from './run-advancing.ts'
 
 export const TOUR_DESK_NAV_HEADING = 'Tour Desk'
 
@@ -53,6 +60,35 @@ export function runDetailTabUrl(pathname: string, currentSearch: string, tab: Ru
   else params.set('tab', tab)
   const qs = params.toString()
   return qs ? `${pathname}?${qs}` : pathname
+}
+
+/**
+ * Advancing Shows index / submenu list rule (Tour Desk v2 HARD lock).
+ *
+ * Include a run when:
+ *   - it is BOOKED (`runs.status = confirmed`), OR
+ *   - it has an active (non-archived) `run_advancing_workspaces` row
+ *
+ * Exclude proposed/held with no workspace, and UNBOOKED runs whose
+ * workspace was soft-archived. Deep links to `?tab=run_advancing` on a
+ * proposed run may still render the empty-state banner — the list must
+ * not advertise those runs.
+ */
+export function isAdvancingShowsListRun(opts: {
+  status?: string | null
+  workspace?: { archived_at?: string | null } | null
+}): boolean {
+  return isBookedBookingStatus(opts.status) || isAdvancingWorkspaceActive(opts.workspace)
+}
+
+export function filterAdvancingShowsList<T extends { status?: string | null }>(
+  runs: T[],
+  workspaceFor: (run: T) => { archived_at?: string | null } | null | undefined,
+): T[] {
+  return runs.filter(run => isAdvancingShowsListRun({
+    status: run.status,
+    workspace: workspaceFor(run),
+  }))
 }
 
 export function isTourDeskChildActive(opts: {
