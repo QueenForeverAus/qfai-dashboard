@@ -10,6 +10,7 @@ import { hotelReceiptFixtureById } from '@/lib/receipts/hotel-fixtures'
 import { parseReceiptExtractPacket } from '@/lib/receipts/packet'
 import { persistTravelScrapeApply } from '@/lib/travel-scrape/apply-persist'
 import { travelScrapeFixtureById } from '@/lib/travel-scrape/fixtures'
+import { resolveTravelScrapeApplyAuth } from '@/lib/travel-scrape/machine-auth'
 import { peekTravelScrapeSchema } from '@/lib/travel-scrape/packet'
 
 async function resolveRun(
@@ -30,30 +31,47 @@ async function resolveRun(
 
 /**
  * POST /api/runs/[runId]/advancing-receipts/apply
- * Owner/admin. One authenticated apply entry:
- *   - schema_version travel-scrape-packet-v1 → Worksheet travel_blocks + checklist
- *     (money/PAID only with confirm_money or money_confirmed_by)
- *   - receipt-extract v1 hotel fixtures (W2, kept) → preview unless confirm=true
- * Never writes locked Run Costings. Portal paste UI stays removed (W2).
+ * Owner/admin session, or staging machine token (travel-scrape-packet-v1):
+ *   Authorization: Bearer $TRAVEL_SCRAPE_APPLY_SECRET
+ *   or x-qfai-travel-scrape-key: $TRAVEL_SCRAPE_APPLY_SECRET
+ * Money/PAID still needs confirm_money / money_confirmed_by. Never writes Costings.
  */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ runId: string }> },
 ) {
   const { runId: runIdParam } = await params
-  const userClient = await createClient()
-  const { data: { user } } = await userClient.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
-
   const admin = createAdminClient()
-  const { data: profile } = await admin
-    .from('profiles')
-    .select('role, full_name')
-    .eq('id', user.id)
-    .single()
 
-  if (!profile || !['owner', 'admin'].includes(String(profile.role))) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  let sessionUserId: string | null = null
+  let sessionRole: string | null = null
+  let sessionName: string | null = null
+  if (!req.headers.get('authorization') && !req.headers.get('x-qfai-travel-scrape-key')) {
+    const userClient = await createClient()
+    const { data: { user } } = await userClient.auth.getUser()
+    if (user) {
+      const { data: profile } = await admin
+        .from('profiles')
+        .select('role, full_name')
+        .eq('id', user.id)
+        .single()
+      sessionUserId = user.id
+      sessionRole = profile?.role ? String(profile.role) : null
+      sessionName = staffDisplayName(profile?.full_name) ?? null
+    }
+  }
+
+  const auth = resolveTravelScrapeApplyAuth({
+    authorizationHeader: req.headers.get('authorization'),
+    travelScrapeKeyHeader: req.headers.get('x-qfai-travel-scrape-key'),
+    sessionUserId,
+    sessionRole,
+    sessionName,
+    secret: process.env.TRAVEL_SCRAPE_APPLY_SECRET ?? null,
+    vercelEnv: process.env.VERCEL_ENV ?? null,
+  })
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
   const run = await resolveRun(admin, runIdParam)
@@ -89,10 +107,16 @@ export async function POST(
       body,
       admin,
       run,
-      actorUserId: user.id,
-      actorName: staffDisplayName(profile.full_name) ?? 'Someone',
+      actorUserId: auth.actor.actorUserId,
+      actorName: auth.actor.actorName,
       packet,
     })
+  }
+
+  if (auth.actor.kind === 'machine') {
+    return NextResponse.json({
+      error: 'Machine auth is travel-scrape-packet-v1 only.',
+    }, { status: 403 })
   }
 
   const parsed = parseReceiptExtractPacket(packet)
@@ -127,8 +151,8 @@ export async function POST(
       workspaceId: workspace.id,
       bookingStatus: run.status,
       packet: parsed.packet,
-      actorUserId: user.id,
-      actorName: staffDisplayName(profile.full_name) ?? 'Someone',
+      actorUserId: auth.actor.actorUserId ?? '',
+      actorName: auth.actor.actorName,
       previewOnly,
     })
 
@@ -162,7 +186,7 @@ async function handleTravelScrapeApply(opts: {
   }
   admin: ReturnType<typeof createAdminClient>
   run: { id: string; code: string; status: string }
-  actorUserId: string
+  actorUserId: string | null
   actorName: string
   packet: unknown
 }) {
