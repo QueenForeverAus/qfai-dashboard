@@ -6,7 +6,12 @@ import { usePathname, useRouter } from 'next/navigation'
 import { formatDateAU } from '@/lib/dates'
 import { runDateRangeFromShows } from '@/lib/run-dates'
 import { formatBookingStatus } from '@/lib/format-booking-status'
-import { ADVANCING_SHOWS_NAV_LABEL, runDetailHref } from '@/lib/tour-desk-nav'
+import {
+  ADVANCING_SHOWS_NAV_LABEL,
+  filterAdvancingShowsList,
+  isAdvancingShowsListRun,
+  runDetailHref,
+} from '@/lib/tour-desk-nav'
 import { isBookedBookingStatus } from '@/lib/booked-cost-freeze'
 
 const STATUS_STYLES: Record<string, string> = {
@@ -55,14 +60,22 @@ function runDisplayDates(run: Run): { start: string | null; end: string | null }
 }
 
 type Tab = 'all' | 'proposed' | 'confirmed' | 'placeholders' | 'completed' | 'declined'
+type Desk = 'costing' | 'advancing'
 
-const TABS: { key: Tab; label: string }[] = [
+const COSTING_TABS: { key: Tab; label: string }[] = [
   { key: 'all',          label: 'ALL' },
   { key: 'proposed',     label: 'PROPOSED' },
   { key: 'confirmed',    label: 'BOOKED' },
   { key: 'placeholders', label: 'PLACEHOLDERS' },
   { key: 'completed',    label: 'COMPLETED' },
   { key: 'declined',     label: 'DECLINED' },
+]
+
+/** Advancing Shows is BOOKED-only — do not advertise proposed/held/declined. */
+const ADVANCING_TABS: { key: Tab; label: string }[] = [
+  { key: 'all',       label: 'ALL' },
+  { key: 'confirmed', label: 'BOOKED' },
+  { key: 'completed', label: 'COMPLETED' },
 ]
 
 function StatusChangeButtons({ runId, currentStatus, onStatusChange }: {
@@ -180,7 +193,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
             <div key={run.id} className={`px-4 py-3 ${isPlaceholder || isDeclined ? 'opacity-60' : ''}`}>
               <div className="flex items-center justify-between gap-2 mb-1">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className={`font-bold text-sm flex-shrink-0 ${isDeclined ? 'text-slate-500 line-through' : isPlaceholder ? 'text-slate-500' : completed ? 'text-slate-400' : 'text-amber-400'}`}>
+                  <span data-testid="run-list-code" className={`font-bold text-sm flex-shrink-0 ${isDeclined ? 'text-slate-500 line-through' : isPlaceholder ? 'text-slate-500' : completed ? 'text-slate-400' : 'text-amber-400'}`}>
                     {run.code}
                   </span>
                   <span className={`px-2 py-0.5 rounded border text-xs font-medium ${completed ? 'bg-slate-700 text-slate-400 border-slate-600' : (STATUS_STYLES[run.status] ?? STATUS_STYLES.confirmed)}`}>
@@ -236,7 +249,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
                 className={`border-b border-slate-700/50 transition-colors ${isPlaceholder || isDeclined ? 'opacity-60' : 'hover:bg-slate-700/30'} ${i === runs.length - 1 ? 'border-0' : ''}`}
               >
                 <td className="px-4 py-3">
-                  <span className={`font-bold text-sm ${isDeclined ? 'text-slate-500 line-through' : isPlaceholder ? 'text-slate-500' : completed ? 'text-slate-400' : 'text-amber-400'}`}>{run.code}</span>
+                  <span data-testid="run-list-code" className={`font-bold text-sm ${isDeclined ? 'text-slate-500 line-through' : isPlaceholder ? 'text-slate-500' : completed ? 'text-slate-400' : 'text-amber-400'}`}>{run.code}</span>
                 </td>
                 <td className="px-4 py-3">
                   {isPlaceholder || isDeclined ? (
@@ -291,6 +304,8 @@ export default function RunsPageClient({
   today,
   completionByRun,
   showStats,
+  desk,
+  activeAdvancingRunIds = [],
 }: {
   allRuns: Run[]
   today: string
@@ -299,20 +314,41 @@ export default function RunsPageClient({
   proposedCount?: number
   placeholderCount?: number
   showStats: { confirmed: number; proposed: number; placeholder: number; total: number }
+  desk?: Desk
+  activeAdvancingRunIds?: string[]
 }) {
   const [activeTab, setActiveTab] = useState<Tab>('all')
   const [runs, setRuns] = useState<Run[]>(initialRuns)
+  const [activeWorkspaceIds, setActiveWorkspaceIds] = useState(() => new Set(activeAdvancingRunIds))
   const router = useRouter()
   const pathname = usePathname()
-  const pageHeading = pathname.startsWith('/advancing') ? ADVANCING_SHOWS_NAV_LABEL : 'Tour Desk'
+  const advancingDesk = desk === 'advancing' || pathname.startsWith('/advancing')
+  const pageHeading = advancingDesk ? ADVANCING_SHOWS_NAV_LABEL : 'Tour Desk'
+  const tabs = advancingDesk ? ADVANCING_TABS : COSTING_TABS
+
+  const listedRuns = advancingDesk
+    ? filterAdvancingShowsList(runs, run => (
+      activeWorkspaceIds.has(run.id) ? { archived_at: null } : null
+    ))
+    : runs
 
   function handleStatusChange(runId: string, newStatus: string) {
     setRuns(prev => prev.map(r => r.id === runId ? { ...r, status: newStatus } : r))
+    if (advancingDesk && !isAdvancingShowsListRun({
+      status: newStatus,
+      workspace: null,
+    })) {
+      setActiveWorkspaceIds(prev => {
+        const next = new Set(prev)
+        next.delete(runId)
+        return next
+      })
+    }
     router.refresh()
   }
 
-  const declinedRuns      = runs.filter(r => r.status === 'declined')
-  const activeRuns        = runs.filter(r => r.status !== 'declined')
+  const declinedRuns      = listedRuns.filter(r => r.status === 'declined')
+  const activeRuns        = listedRuns.filter(r => r.status !== 'declined')
   const completedRuns     = activeRuns.filter(r => r.end_date && r.end_date < today)
   const upcomingRuns      = activeRuns.filter(r => !r.end_date || r.end_date >= today)
   const confirmedRuns     = upcomingRuns.filter(r => r.status === 'confirmed')
@@ -337,21 +373,30 @@ export default function RunsPageClient({
   }
 
   return (
-    <div className="p-4 sm:p-6">
+    <div className="p-4 sm:p-6" data-testid={advancingDesk ? 'advancing-shows-list' : 'run-costings-list'}>
       {/* Header */}
       <div className="mb-5">
         <h1 className="text-white text-2xl font-bold tracking-wide mb-2">{pageHeading}</h1>
+        {advancingDesk && (
+          <p className="text-slate-500 text-sm mb-2">
+            BOOKED runs only. Proposed and held stay on Run Costings.
+          </p>
+        )}
         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6">
           <div>
             <span className="text-white font-bold mr-2">RUNS: {upcomingRuns.length}</span>
             <span className="text-slate-400 text-sm">
-              ({liveConfirmed} booked · {liveProposed} proposed{livePlaceholder > 0 ? ` · ${livePlaceholder} placeholders` : ''}{liveOther > 0 ? ` · ${liveOther} other` : ''}{completedRuns.length > 0 ? ` · ${completedRuns.length} completed` : ''})
+              {advancingDesk
+                ? `(${liveConfirmed} booked${liveOther > 0 ? ` · ${liveOther} other` : ''}${completedRuns.length > 0 ? ` · ${completedRuns.length} completed` : ''})`
+                : `(${liveConfirmed} booked · ${liveProposed} proposed${livePlaceholder > 0 ? ` · ${livePlaceholder} placeholders` : ''}${liveOther > 0 ? ` · ${liveOther} other` : ''}${completedRuns.length > 0 ? ` · ${completedRuns.length} completed` : ''})`}
             </span>
           </div>
           <div>
             <span className="text-white font-bold mr-2">SHOWS: {showStats.total}</span>
             <span className="text-slate-400 text-sm">
-              ({showStats.confirmed} booked · {showStats.proposed} proposed{showStats.placeholder > 0 ? ` · ${showStats.placeholder} placeholders` : ''})
+              {advancingDesk
+                ? `(${showStats.confirmed} booked)`
+                : `(${showStats.confirmed} booked · ${showStats.proposed} proposed${showStats.placeholder > 0 ? ` · ${showStats.placeholder} placeholders` : ''})`}
             </span>
           </div>
         </div>
@@ -360,7 +405,7 @@ export default function RunsPageClient({
       {/* Tab bar */}
       <div className="mb-5 -mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto">
         <div className="flex gap-1 bg-slate-800/60 rounded-lg p-1 border border-slate-700 w-max min-w-full sm:min-w-0 sm:w-fit">
-          {TABS.map(tab => (
+          {tabs.map(tab => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
