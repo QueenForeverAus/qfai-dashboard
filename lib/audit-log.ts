@@ -283,14 +283,14 @@ export function auditLineItemDiffs(
  */
 export async function writeAuditLog(
   adminClient: SupabaseClient,
-  userId: string,
+  userId: string | null,
   rows: AuditLogWriteRow[],
 ): Promise<void> {
   if (!rows.length) return
   const changedAt = new Date().toISOString()
   const payload = rows.map(row => ({
     ...row,
-    changed_by: userId,
+    changed_by: userId || null,
     changed_at: changedAt,
   }))
   const { error } = await adminClient.from('audit_log').insert(payload)

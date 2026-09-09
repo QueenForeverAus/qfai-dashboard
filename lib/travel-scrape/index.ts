@@ -26,6 +26,15 @@ export {
 } from './apply-engine.ts'
 export { persistTravelScrapeApply } from './apply-persist.ts'
 export {
+  resolveTravelScrapeApplyAuth,
+  extractTravelScrapeMachineToken,
+  travelScrapeMachineTokenMatches,
+  TRAVEL_SCRAPE_APPLY_SECRET_ENV,
+  TRAVEL_SCRAPE_MACHINE_HEADER,
+  TRAVEL_SCRAPE_MACHINE_ACTOR_NAME,
+  TRAVEL_SCRAPE_MACHINE_ACTOR_SLUG,
+} from './machine-auth.ts'
+export {
   TRAVEL_SCRAPE_FIXTURES,
   travelScrapeFixtureById,
   THORNTON_SCRAPE_PACKET,

@@ -37,7 +37,7 @@ export async function persistTravelScrapeApply(opts: {
   workspaceId: string
   bookingStatus: string
   packet: unknown
-  actorUserId: string
+  actorUserId: string | null
   actorName: string
   previewOnly: boolean
   confirmMoney: boolean
@@ -149,8 +149,8 @@ export async function persistTravelScrapeApply(opts: {
       const updates: Record<string, unknown> = {
         notes: appendUniqueNote(item.notes as string | null, preview.checklist.source_note),
         updated_at: now,
-        updated_by: opts.actorUserId,
       }
+      if (opts.actorUserId) updates.updated_by = opts.actorUserId
       if (item.status === 'pending') updates.status = 'done'
 
       const { data, error } = await from('advancement_items')
@@ -168,12 +168,12 @@ export async function persistTravelScrapeApply(opts: {
   let moneyFieldId = moneyField?.id ? String(moneyField.id) : null
   if (preview.money.will_write && preview.money.field_key) {
     const def = DEFINED_RUN_COST_FIELDS.find(row => row.key === preview.money.field_key)
-    const fieldPatch = {
+    const fieldPatch: Record<string, unknown> = {
       entries: preview.money.next_entries,
       value: preview.money.field_value,
       updated_at: now,
-      updated_by: opts.actorUserId,
     }
+    if (opts.actorUserId) fieldPatch.updated_by = opts.actorUserId
     if (moneyFieldId) {
       const { error } = await from('advancing_cost_fields')
         .update(fieldPatch)

@@ -26,7 +26,14 @@ Car merge is covered in unit tests (`trecv1-avis-car`). W2 hotel receipt-extract
 
 ## Apply route
 
-`POST /api/runs/:runId/advancing-receipts/apply` (owner/admin session).
+`POST /api/runs/:runId/advancing-receipts/apply`
+
+Auth (either):
+
+- Owner/admin session cookie (humans)
+- Staging machine token: `Authorization: Bearer $TRAVEL_SCRAPE_APPLY_SECRET` **or** `x-qfai-travel-scrape-key: $TRAVEL_SCRAPE_APPLY_SECRET`
+
+If `TRAVEL_SCRAPE_APPLY_SECRET` is unset, Bearer / header attempts are 401. Set the secret on Vercel **qfai-staging only** — never commit a real value.
 
 `:runId` may be the run UUID or code (`TRECV1`, `R01`).
 
@@ -50,12 +57,21 @@ Optional:
 - `"confirm_money": true` **or** `"money_confirmed_by": "Gareth"` — write Advancing amount/PAID
 - query `?confirm_money=true` — same money hook
 
-W2 receipt-extract packets (`version: 1`) are unchanged: they still preview unless `confirm: true`. `confirm: true` does **not** count as a Gareth money confirm for travel-scrape packets.
+W2 receipt-extract packets (`version: 1`) are unchanged: they still preview unless `confirm: true`. `confirm: true` does **not** count as a Gareth money confirm for travel-scrape packets. Machine auth is travel-scrape-packet-v1 / scrape fixtures only.
 
 ## Staging smoke (BOOKED TRECV1 or R01)
 
-1. Sign in as owner/admin on staging. Confirm the target is **BOOKED** with an active Run Advancing workspace (Worksheet travel cards from W1).
-2. POST a hotel fixture (no money hook):
+1. Confirm the target is **BOOKED** with an active Run Advancing workspace (Worksheet travel cards from W1).
+2. POST a hotel fixture (no money hook) as Comms — Bearer, not a browser session:
+
+```bash
+curl -sS -X POST "$STAGING/api/runs/TRECV1/advancing-receipts/apply" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TRAVEL_SCRAPE_APPLY_SECRET" \
+  --data '{"fixture_id":"thornton-executive-scrape"}'
+```
+
+Owner/admin cookie still works:
 
 ```bash
 curl -sS -X POST "$STAGING/api/runs/TRECV1/advancing-receipts/apply" \
