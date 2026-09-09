@@ -444,6 +444,8 @@ export default function ShowPackTab({
         <WorksheetTravelBlocks
           blocks={travelBlocks}
           workspaceId={travelWorkspaceId}
+          runId={runId}
+          region={region}
           profiles={profiles}
           canEdit={canEdit}
           role={effectiveRole}

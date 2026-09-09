@@ -105,6 +105,7 @@ describe('travel_blocks merge', () => {
     assert.equal(flight.from, 'SYD')
     assert.equal(flight.to, 'BHQ')
     assert.equal(flight.date, '2027-02-10')
+    assert.equal(flight.airport_call, '')
     assert.equal(flight.travellers[0]?.profile_id, profiles[0].id)
     assert.equal(flight.travellers[1]?.profile_id, null)
     assert.equal(flight.travellers[1]?.name, 'Dave the driver')
