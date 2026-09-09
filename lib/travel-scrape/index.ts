@@ -1,7 +1,9 @@
 export {
   parseTravelScrapePacket,
   peekTravelScrapeSchema,
+  resolveTravelScrapeChecklistItemKey,
   TRAVEL_SCRAPE_SCHEMA_VERSION,
+  TRAVEL_SCRAPE_CHECKLIST_ALIASES,
   worksheetCollectionForCategory,
   type TravelScrapePacket,
 } from './packet.ts'
@@ -11,6 +13,8 @@ export {
   resolvePacketTravellers,
   formatTravelScrapeSourceNote,
   canApplyTravelDetails,
+  packetConfirmation,
+  worksheetHotelFields,
 } from './worksheet.ts'
 export {
   planTravelScrapeApply,

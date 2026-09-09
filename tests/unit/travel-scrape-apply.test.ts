@@ -23,9 +23,13 @@ import {
 } from '../../lib/travel-scrape/fixtures.ts'
 import { parseTravelScrapePacket } from '../../lib/travel-scrape/packet.ts'
 import {
+  draftTravelBlock,
   formatTravelScrapeSourceNote,
   mergeTravelBlocksFromPacket,
+  packetConfirmation,
   resolvePacketTravellers,
+  splitWorksheetDateTime,
+  worksheetHotelFields,
 } from '../../lib/travel-scrape/worksheet.ts'
 
 const profiles = [
@@ -60,6 +64,108 @@ describe('travel-scrape-packet-v1 schema', () => {
     })
     assert.equal(parsed.ok, false)
     if (!parsed.ok) assert.match(parsed.error, /schema_version/)
+  })
+})
+
+/** Live Comms glance shape — locked packet uses conf / ISO check_in, not W1 card names. */
+const THORNTON_GLANCE_PACKET = {
+  ...THORNTON_SCRAPE_PACKET,
+  worksheet: {
+    name: 'Thornton Executive',
+    address: '1 Weakleys Dr, Thornton NSW 2322',
+    check_in: '2026-09-17T14:00',
+    check_out: '2026-09-18',
+    rooms: 7,
+    conf: '6031616996',
+    pin: '8081',
+    eta_notes: 'Day-before first show. Newcastle catchment.',
+    city_night_key: 'Maitland_2026-09-17',
+  },
+  checklist: {
+    items_to_tick: ['hotel_booked'],
+    source_note: '',
+    partial_names: false,
+  },
+}
+
+describe('worksheet field aliases', () => {
+  it('splits glance ISO datetime and date-only into W1 date + time', () => {
+    assert.deepEqual(splitWorksheetDateTime('2026-09-17T14:00'), { date: '2026-09-17', time: '14:00' })
+    assert.deepEqual(splitWorksheetDateTime('2026-09-18'), { date: '2026-09-18', time: '' })
+    assert.deepEqual(splitWorksheetDateTime('2026-09-17T14:00:00+10:00'), { date: '2026-09-17', time: '14:00' })
+  })
+
+  it('maps a glance-shaped Thornton packet onto a filled HotelBlock', () => {
+    const parsed = parseTravelScrapePacket(THORNTON_GLANCE_PACKET)
+    assert.equal(parsed.ok, true, parsed.ok ? '' : parsed.error)
+    if (!parsed.ok) return
+
+    assert.equal(packetConfirmation(parsed.packet), '6031616996')
+    const fields = worksheetHotelFields(parsed.packet.worksheet)
+    assert.equal(fields.check_in_date, '2026-09-17')
+    assert.equal(fields.check_in_time, '14:00')
+    assert.equal(fields.check_out_date, '2026-09-18')
+    assert.equal(fields.check_out_time, '')
+    assert.equal(fields.city, 'Maitland')
+
+    const draft = draftTravelBlock(parsed.packet, profiles)
+    assert.equal(draft?.collection, 'hotels')
+    const hotel = draft?.block
+    assert.ok(hotel && 'check_in_date' in hotel)
+    if (!hotel || !('check_in_date' in hotel)) return
+    assert.equal(hotel.name, 'Thornton Executive')
+    assert.equal(hotel.confirmation, '6031616996')
+    assert.equal(hotel.check_in_date, '2026-09-17')
+    assert.equal(hotel.check_in_time, '14:00')
+    assert.equal(hotel.check_out_date, '2026-09-18')
+    assert.equal(hotel.check_out_time, '')
+    assert.equal(hotel.rooms, 7)
+    assert.equal(hotel.pin, '8081')
+
+    const plan = planTravelScrapeApply({
+      ...bookedGate,
+      packet: THORNTON_GLANCE_PACKET,
+      existingTravelBlocks: EMPTY_TRAVEL_BLOCKS,
+      profiles,
+    })
+    assert.equal(plan.ok, true, plan.error ?? '')
+    assert.equal(plan.details.will_apply, true)
+    const applied = plan.next_travel_blocks.hotels[0]
+    assert.equal(applied?.confirmation, '6031616996')
+    assert.equal(applied?.check_in_date, '2026-09-17')
+    assert.equal(applied?.check_in_time, '14:00')
+    assert.equal(applied?.check_out_date, '2026-09-18')
+    assert.equal(applied?.rooms, 7)
+    assert.deepEqual(plan.checklist.item_keys, ['hotel_confirmed'])
+    assert.match(plan.checklist.source_note, /conf 6031616996/)
+  })
+
+  it('maps glance flight aliases (flight_no / dep_local / arr_local / leg)', () => {
+    const plan = planTravelScrapeApply({
+      ...bookedGate,
+      packet: {
+        ...R01_DEP_FLIGHT_PACKET,
+        worksheet: {
+          leg: 'dep',
+          flight_no: 'QF441',
+          airline: 'Qantas',
+          from: 'SYD',
+          to: 'BHQ',
+          dep_local: '2027-02-10T06:30',
+          arr_local: '2027-02-10T08:15',
+          confirmation: 'QFR01DEP',
+        },
+      },
+      existingTravelBlocks: EMPTY_TRAVEL_BLOCKS,
+      profiles,
+    })
+    assert.equal(plan.ok, true)
+    const flight = plan.next_travel_blocks.flights[0]
+    assert.equal(flight?.kind, 'dep')
+    assert.equal(flight?.flight_number, 'QF441')
+    assert.equal(flight?.date, '2027-02-10')
+    assert.equal(flight?.dep_time, '06:30')
+    assert.equal(flight?.arr_time, '08:15')
   })
 })
 

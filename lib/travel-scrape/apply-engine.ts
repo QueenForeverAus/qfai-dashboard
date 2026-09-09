@@ -22,6 +22,7 @@ import {
 import {
   parseTravelScrapePacket,
   readWorksheetString,
+  resolveTravelScrapeChecklistItemKey,
   type TravelScrapeLineHint,
   type TravelScrapePacket,
 } from './packet.ts'
@@ -31,6 +32,8 @@ import {
   mergeTravelBlocksFromPacket,
   packetConfirmation,
   vendorLabel,
+  worksheetFlightFields,
+  worksheetHotelFields,
 } from './worksheet.ts'
 
 export const TRAVEL_SCRAPE_APPLY_WRITES_COST_FIELDS = false as const
@@ -207,12 +210,14 @@ function gstIncluded(packet: TravelScrapePacket): boolean {
 function moneyDescription(packet: TravelScrapePacket): string {
   const ws = packet.worksheet
   if (packet.category === 'hotel') {
-    const city = readWorksheetString(ws, 'city') || readWorksheetString(ws, 'name') || vendorLabel(packet)
-    const night = readWorksheetString(ws, 'check_in_date')
+    const hotel = worksheetHotelFields(ws)
+    const city = hotel.city || readWorksheetString(ws, 'name') || vendorLabel(packet)
+    const night = hotel.check_in_date
     return night ? `${city} — ${night}` : city
   }
   if (packet.category === 'flight') {
-    const number = readWorksheetString(ws, 'flight_number')
+    const flight = worksheetFlightFields(ws)
+    const number = flight.flight_number
     const from = readWorksheetString(ws, 'from')
     const to = readWorksheetString(ws, 'to')
     const airline = readWorksheetString(ws, 'airline')
@@ -238,13 +243,14 @@ function moneyDescription(packet: TravelScrapePacket): string {
 
 function moneyNightDate(packet: TravelScrapePacket): string | null {
   if (packet.money.advancing_line_hint !== 'accom_night') return null
-  const date = readWorksheetString(packet.worksheet, 'check_in_date')
+  const date = worksheetHotelFields(packet.worksheet).check_in_date
   return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null
 }
 
 function moneyCity(packet: TravelScrapePacket): string | null {
   if (packet.money.advancing_line_hint !== 'accom_night') return null
-  return readWorksheetString(packet.worksheet, 'city')
+  const hotel = worksheetHotelFields(packet.worksheet)
+  return hotel.city
     || readWorksheetString(packet.worksheet, 'name')
     || null
 }
@@ -358,9 +364,13 @@ function planChecklist(packet: TravelScrapePacket, detailsWillApply: boolean): T
   const sourceNote = formatTravelScrapeSourceNote(packet)
   const itemKeys: string[] = []
   const skipped: string[] = []
-  for (const key of packet.checklist.items_to_tick) {
-    if (KNOWN_ITEM_KEYS.has(key)) itemKeys.push(key)
-    else skipped.push(key)
+  for (const raw of packet.checklist.items_to_tick) {
+    const key = resolveTravelScrapeChecklistItemKey(raw)
+    if (KNOWN_ITEM_KEYS.has(key)) {
+      if (!itemKeys.includes(key)) itemKeys.push(key)
+    } else {
+      skipped.push(raw)
+    }
   }
   return {
     will_apply: detailsWillApply && itemKeys.length > 0,
