@@ -1,0 +1,57 @@
+{
+  "schema_version": "travel-scrape-packet-v1",
+  "category": "hotel",
+  "confidence": "high",
+  "details_action": "auto",
+  "money_action": "confirm",
+  "captured_at": "2026-09-18T11:20:00+10:00",
+  "email": {
+    "thread_id": "th-th-1819",
+    "message_id": "msg-th-1819",
+    "date": "2026-09-18T08:40:00+10:00",
+    "subject": "Your booking at Tamworth Hotel",
+    "from": "stay@tamworthhotel.com.au",
+    "vendor_domain": "tamworthhotel.com.au"
+  },
+  "run_match": {
+    "run_id": null,
+    "show_ids": [],
+    "match_score": null,
+    "match_notes": "Tamworth show night — one night / city.",
+    "ambiguous_candidates": []
+  },
+  "money": {
+    "amount": 189,
+    "currency": "AUD",
+    "gst": "inc",
+    "status_if_applied": "PAID",
+    "advancing_line_hint": "accom_night"
+  },
+  "worksheet": {
+    "name": "Tamworth Hotel",
+    "address": "152 Ebsworth St, Tamworth NSW 2340",
+    "phone": "",
+    "check_in_date": "2026-09-18",
+    "check_in_time": "14:00",
+    "check_out_date": "2026-09-19",
+    "check_out_time": "10:00",
+    "rooms": 1,
+    "room_type": "Queen",
+    "confirmation": "TH-1819",
+    "pin": "",
+    "guests_tbc": false,
+    "eta_notes": "",
+    "city": "Tamworth"
+  },
+  "travellers": [
+    { "raw_name": "Gareth Hill", "profile_user_id": null, "match": "unknown" }
+  ],
+  "checklist": {
+    "items_to_tick": ["hotel_confirmed"],
+    "source_note": "from Tamworth Hotel email 18/09/26 · conf TH-1819",
+    "partial_names": false
+  },
+  "supersedes": { "prior_conf_id": null, "prior_message_id": null },
+  "flags": [],
+  "apply_env": "staging"
+}
