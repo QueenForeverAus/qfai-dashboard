@@ -132,8 +132,85 @@ function mergePeople(existing: TravelPerson[], incoming: TravelPerson[]): Travel
   return out
 }
 
+function firstWorksheetString(
+  worksheet: TravelScrapePacket['worksheet'],
+  ...keys: string[]
+): string {
+  for (const key of keys) {
+    const value = readWorksheetString(worksheet, key)
+    if (value) return value
+  }
+  return ''
+}
+
+/** Split glance ISO date/datetime (`2026-09-17T14:00`) or date-only into W1 date + HH:MM. */
+export function splitWorksheetDateTime(value: string): { date: string; time: string } {
+  const raw = value.trim()
+  if (!raw) return { date: '', time: '' }
+  const dateTime = raw.match(
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/i,
+  )
+  if (dateTime) return { date: dateTime[1], time: dateTime[2] }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return { date: raw, time: '' }
+  const timeOnly = raw.match(/^(\d{2}:\d{2})(?::\d{2})?$/)
+  if (timeOnly) return { date: '', time: timeOnly[1] }
+  return { date: '', time: '' }
+}
+
+function resolveStayFields(
+  worksheet: TravelScrapePacket['worksheet'],
+  combinedKey: string,
+  dateKey: string,
+  timeKey: string,
+): { date: string; time: string } {
+  const explicitDate = readWorksheetString(worksheet, dateKey)
+  const explicitTime = readWorksheetString(worksheet, timeKey)
+  const split = splitWorksheetDateTime(readWorksheetString(worksheet, combinedKey))
+  return {
+    date: explicitDate || split.date,
+    time: explicitTime || split.time,
+  }
+}
+
+/** Glance `Maitland_2026-09-17` → city + night date. HotelBlock has no city field — city is the Advancing night line. */
+export function parseCityNightKey(value: string): { city: string; night: string } {
+  const raw = value.trim()
+  if (!raw) return { city: '', night: '' }
+  const match = raw.match(/^(.*)_(\d{4}-\d{2}-\d{2})$/)
+  if (match) return { city: match[1].replace(/_/g, ' ').trim(), night: match[2] }
+  return { city: raw, night: '' }
+}
+
+export function worksheetHotelFields(worksheet: TravelScrapePacket['worksheet']) {
+  const checkIn = resolveStayFields(worksheet, 'check_in', 'check_in_date', 'check_in_time')
+  const checkOut = resolveStayFields(worksheet, 'check_out', 'check_out_date', 'check_out_time')
+  const nightKey = parseCityNightKey(readWorksheetString(worksheet, 'city_night_key'))
+  return {
+    confirmation: firstWorksheetString(worksheet, 'confirmation', 'conf'),
+    check_in_date: checkIn.date || nightKey.night,
+    check_in_time: checkIn.time,
+    check_out_date: checkOut.date,
+    check_out_time: checkOut.time,
+    city: firstWorksheetString(worksheet, 'city') || nightKey.city,
+  }
+}
+
+export function worksheetFlightFields(worksheet: TravelScrapePacket['worksheet']) {
+  const depLocal = splitWorksheetDateTime(firstWorksheetString(worksheet, 'dep_local', 'dep_time'))
+  const arrLocal = splitWorksheetDateTime(firstWorksheetString(worksheet, 'arr_local', 'arr_time'))
+  const explicitDep = readWorksheetString(worksheet, 'dep_time')
+  const explicitArr = readWorksheetString(worksheet, 'arr_time')
+  return {
+    kind: worksheetFlightKind(worksheet),
+    flight_number: firstWorksheetString(worksheet, 'flight_number', 'flight_no'),
+    date: firstWorksheetString(worksheet, 'date') || depLocal.date || arrLocal.date,
+    dep_time: explicitDep || depLocal.time,
+    arr_time: explicitArr || arrLocal.time,
+  }
+}
+
 function worksheetFlightKind(worksheet: TravelScrapePacket['worksheet']): FlightKind {
-  const kind = readWorksheetString(worksheet, 'kind')
+  const kind = firstWorksheetString(worksheet, 'kind', 'leg').toLowerCase()
   return kind === 'dep' || kind === 'mid' || kind === 'ret' ? kind : 'mid'
 }
 
@@ -171,7 +248,7 @@ export function vendorLabel(packet: TravelScrapePacket): string {
 }
 
 export function packetConfirmation(packet: TravelScrapePacket): string {
-  return readWorksheetString(packet.worksheet, 'confirmation')
+  return firstWorksheetString(packet.worksheet, 'confirmation', 'conf')
     || packet.supersedes.prior_conf_id
     || ''
 }
@@ -198,16 +275,17 @@ export function draftTravelBlock(
   const ws = packet.worksheet
 
   if (packet.category === 'hotel') {
+    const hotel = worksheetHotelFields(ws)
     const base = emptyHotelBlock(existingId)
     const block: HotelBlock = {
       ...base,
       name: readWorksheetString(ws, 'name') || vendorLabel(packet),
       address: readWorksheetString(ws, 'address'),
       phone: readWorksheetString(ws, 'phone'),
-      check_in_date: readWorksheetString(ws, 'check_in_date'),
-      check_in_time: readWorksheetString(ws, 'check_in_time'),
-      check_out_date: readWorksheetString(ws, 'check_out_date'),
-      check_out_time: readWorksheetString(ws, 'check_out_time'),
+      check_in_date: hotel.check_in_date,
+      check_in_time: hotel.check_in_time,
+      check_out_date: hotel.check_out_date,
+      check_out_time: hotel.check_out_time,
       rooms: hotelRooms(ws),
       room_type: readWorksheetString(ws, 'room_type'),
       confirmation: packetConfirmation(packet),
@@ -220,18 +298,19 @@ export function draftTravelBlock(
   }
 
   if (packet.category === 'flight') {
-    const kind = worksheetFlightKind(ws)
+    const flight = worksheetFlightFields(ws)
+    const kind = flight.kind
     const base = emptyFlightBlock(kind, existingId)
     const block: FlightBlock = {
       ...base,
       kind,
-      flight_number: readWorksheetString(ws, 'flight_number'),
-      date: readWorksheetString(ws, 'date'),
+      flight_number: flight.flight_number,
+      date: flight.date,
       airline: readWorksheetString(ws, 'airline'),
       from: readWorksheetString(ws, 'from'),
       to: readWorksheetString(ws, 'to'),
-      dep_time: readWorksheetString(ws, 'dep_time'),
-      arr_time: readWorksheetString(ws, 'arr_time'),
+      dep_time: flight.dep_time,
+      arr_time: flight.arr_time,
       dep_terminal: readWorksheetString(ws, 'dep_terminal'),
       arr_terminal: readWorksheetString(ws, 'arr_terminal'),
       airport_call: readWorksheetString(ws, 'airport_call'),
@@ -318,9 +397,10 @@ export function findExistingTravelBlock(
     if (hit) return hit
   }
   if (packet.category === 'flight') {
-    const kind = worksheetFlightKind(packet.worksheet)
-    const number = readWorksheetString(packet.worksheet, 'flight_number')
-    const date = readWorksheetString(packet.worksheet, 'date')
+    const flight = worksheetFlightFields(packet.worksheet)
+    const kind = flight.kind
+    const number = flight.flight_number
+    const date = flight.date
     if (number && date) {
       const hit = list.find(row =>
         'kind' in row

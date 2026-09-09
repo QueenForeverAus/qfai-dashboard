@@ -106,7 +106,7 @@ export type TravelScrapeSupersedes = {
   prior_message_id: string | null
 }
 
-/** Category worksheet — W1 travel_blocks field names plus hotel `city` for the night line. */
+/** Category worksheet — W1 names plus glance aliases (`conf`, `check_in`, `city_night_key`, `flight_no`, `leg`). */
 export type TravelScrapeWorksheet = Record<string, unknown>
 
 export type TravelScrapePacket = {
@@ -217,10 +217,19 @@ function parseTravellers(raw: unknown): TravelScrapeTraveller[] {
   }).filter(row => row.raw_name || row.profile_user_id)
 }
 
+/** Glance / Comms aliases → staging advancement_items keys. */
+export const TRAVEL_SCRAPE_CHECKLIST_ALIASES: Record<string, string> = {
+  hotel_booked: 'hotel_confirmed',
+}
+
+export function resolveTravelScrapeChecklistItemKey(key: string): string {
+  return TRAVEL_SCRAPE_CHECKLIST_ALIASES[key] ?? key
+}
+
 function parseChecklist(raw: unknown): TravelScrapeChecklist {
   const row = asRecord(raw) ?? {}
   return {
-    items_to_tick: readStringList(row.items_to_tick),
+    items_to_tick: [...new Set(readStringList(row.items_to_tick).map(resolveTravelScrapeChecklistItemKey))],
     source_note: readString(row, 'source_note'),
     partial_names: row.partial_names === true || row.partial_names === 'true',
   }
