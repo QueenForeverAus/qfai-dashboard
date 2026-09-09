@@ -542,6 +542,19 @@ test('BOOKED cost freeze narrative is a plain sentence and not Finalise', () => 
   )
 })
 
+test('Worksheet travel blocks narrative is a plain sentence without PIN', () => {
+  assert.equal(
+    sentence({
+      table_name: 'run_advancing_workspaces',
+      record_id: 'ws-1',
+      field_name: 'Worksheet travel blocks',
+      old_value: 'worksheet travel blocks',
+      new_value: 'Gareth updated Worksheet travel blocks on R01 (1 flight, 1 car, 2 hotels, 0 transfers, 0 ferries).',
+    }),
+    'Gareth updated Worksheet travel blocks on R01 (1 flight, 1 car, 2 hotels, 0 transfers, 0 ferries).',
+  )
+})
+
 test('Run Advancing copy / archive narratives are plain sentences', () => {
   assert.equal(
     sentence({

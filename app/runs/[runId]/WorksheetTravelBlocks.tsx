@@ -1,0 +1,874 @@
+'use client'
+
+import { useMemo, useState, type ReactNode } from 'react'
+import {
+  FLIGHT_KIND_LABEL,
+  canExposeHotelPin,
+  carHandoutFields,
+  emptyCarBlock,
+  emptyFerryBlock,
+  emptyFlightBlock,
+  emptyHotelBlock,
+  emptyTransferBlock,
+  ferryHandoutFields,
+  flightHandoutFields,
+  formatTravelPeople,
+  hotelHandoutFields,
+  isCarBlockComplete,
+  isFlightBlockComplete,
+  isHotelBlockComplete,
+  omitBlankTravelFields,
+  resolveTravelPersonName,
+  sortFlightBlocks,
+  transferHandoutFields,
+  type CarBlock,
+  type FerryBlock,
+  type FlightBlock,
+  type FlightKind,
+  type HotelBlock,
+  type ProfileDirectoryRow,
+  type TransferBlock,
+  type TravelPerson,
+  type WorksheetTravelBlocks,
+} from '@/lib/worksheet-travel-blocks'
+
+const inputClass =
+  'w-full text-sm bg-slate-900/80 border border-slate-700 rounded px-2 py-1 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-amber-400 disabled:opacity-70'
+
+type ViewMode = 'edit' | 'handout'
+
+export default function WorksheetTravelBlocks({
+  blocks,
+  workspaceId,
+  profiles,
+  canEdit,
+  role,
+  legacyNotes,
+  onSave,
+  onSaveLegacy,
+}: {
+  blocks: WorksheetTravelBlocks
+  workspaceId: string | null
+  profiles: ProfileDirectoryRow[]
+  canEdit: boolean
+  role: string | undefined
+  legacyNotes: { flights_notes: string; vehicles_notes: string; hotels_overview_notes: string }
+  onSave: (next: WorksheetTravelBlocks) => void
+  onSaveLegacy: (fields: Record<string, string>) => void
+}) {
+  const [view, setView] = useState<ViewMode>('edit')
+  const handout = view === 'handout'
+  const canSeePin = canExposeHotelPin(role)
+  const locked = !canEdit || !workspaceId
+  const flights = useMemo(() => sortFlightBlocks(blocks.flights), [blocks.flights])
+
+  function patch(next: WorksheetTravelBlocks) {
+    if (locked) return
+    onSave(next)
+  }
+
+  return (
+    <section className="space-y-4" data-testid="worksheet-travel-blocks">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-400/80">
+            Travel
+          </div>
+          <p className="text-slate-500 text-xs mt-0.5">
+            Structured cards · BOOKED Advancing workspace · scrape later
+          </p>
+        </div>
+        <div className="flex items-center gap-1" data-testid="travel-view-toggle">
+          <button
+            type="button"
+            onClick={() => setView('edit')}
+            className={`text-xs px-2 py-1 rounded border ${
+              view === 'edit'
+                ? 'border-amber-400 text-amber-400 bg-amber-900/20'
+                : 'border-slate-700 text-slate-500 hover:text-slate-300'
+            }`}
+            data-testid="travel-view-edit"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('handout')}
+            className={`text-xs px-2 py-1 rounded border ${
+              view === 'handout'
+                ? 'border-amber-400 text-amber-400 bg-amber-900/20'
+                : 'border-slate-700 text-slate-500 hover:text-slate-300'
+            }`}
+            data-testid="travel-view-handout"
+          >
+            Handout preview
+          </button>
+        </div>
+      </div>
+
+      {!workspaceId && (
+        <div className="rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-2 text-amber-200/90 text-xs">
+          Travel cards save on the BOOKED Run Advancing workspace. Accept / BOOK the run first.
+        </div>
+      )}
+
+      <TravelSection
+        title="Flights"
+        testId="travel-flights"
+        addLabel={canEdit && workspaceId && !handout ? (
+          <div className="flex gap-1">
+            {(['dep', 'mid', 'ret'] as const).map(kind => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => patch({ ...blocks, flights: [...blocks.flights, emptyFlightBlock(kind)] })}
+                className="text-xs px-2 py-0.5 rounded border border-slate-600 text-slate-400 hover:text-amber-400 hover:border-amber-400"
+              >
+                + {FLIGHT_KIND_LABEL[kind]}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      >
+        {flights.length === 0 && (
+          <p className="text-slate-600 text-xs italic">No flight blocks yet.</p>
+        )}
+        {flights.map(block => (
+          <FlightCard
+            key={block.id}
+            block={block}
+            profiles={profiles}
+            handout={handout}
+            locked={locked}
+            onChange={next => patch({
+              ...blocks,
+              flights: blocks.flights.map(row => row.id === next.id ? next : row),
+            })}
+            onDelete={() => patch({ ...blocks, flights: blocks.flights.filter(row => row.id !== block.id) })}
+          />
+        ))}
+      </TravelSection>
+
+      <TravelSection
+        title="Cars"
+        testId="travel-cars"
+        addLabel={canEdit && workspaceId && !handout ? (
+          <AddBtn onClick={() => patch({ ...blocks, cars: [...blocks.cars, emptyCarBlock()] })}>+ Hire</AddBtn>
+        ) : null}
+      >
+        {blocks.cars.length === 0 && <p className="text-slate-600 text-xs italic">No car hire blocks yet.</p>}
+        {blocks.cars.map(block => (
+          <CarCard
+            key={block.id}
+            block={block}
+            profiles={profiles}
+            handout={handout}
+            locked={locked}
+            onChange={next => patch({
+              ...blocks,
+              cars: blocks.cars.map(row => row.id === next.id ? next : row),
+            })}
+            onDelete={() => patch({ ...blocks, cars: blocks.cars.filter(row => row.id !== block.id) })}
+          />
+        ))}
+      </TravelSection>
+
+      <TravelSection
+        title="Hotels"
+        testId="travel-hotels"
+        addLabel={canEdit && workspaceId && !handout ? (
+          <AddBtn onClick={() => patch({ ...blocks, hotels: [...blocks.hotels, emptyHotelBlock()] })}>+ Night / city</AddBtn>
+        ) : null}
+      >
+        {blocks.hotels.length === 0 && <p className="text-slate-600 text-xs italic">No hotel night blocks yet.</p>}
+        {blocks.hotels.map(block => (
+          <HotelCard
+            key={block.id}
+            block={block}
+            profiles={profiles}
+            handout={handout}
+            locked={locked}
+            canSeePin={canSeePin}
+            onChange={next => patch({
+              ...blocks,
+              hotels: blocks.hotels.map(row => row.id === next.id ? next : row),
+            })}
+            onDelete={() => patch({ ...blocks, hotels: blocks.hotels.filter(row => row.id !== block.id) })}
+          />
+        ))}
+      </TravelSection>
+
+      <TravelSection
+        title="Uber / transfers"
+        testId="travel-transfers"
+        optional
+        addLabel={canEdit && workspaceId && !handout ? (
+          <AddBtn onClick={() => patch({ ...blocks, transfers: [...blocks.transfers, emptyTransferBlock()] })}>+ Transfer</AddBtn>
+        ) : null}
+      >
+        {blocks.transfers.length === 0 && <p className="text-slate-600 text-xs italic">Optional — no transfers yet.</p>}
+        {blocks.transfers.map(block => (
+          <TransferCard
+            key={block.id}
+            block={block}
+            handout={handout}
+            locked={locked}
+            onChange={next => patch({
+              ...blocks,
+              transfers: blocks.transfers.map(row => row.id === next.id ? next : row),
+            })}
+            onDelete={() => patch({ ...blocks, transfers: blocks.transfers.filter(row => row.id !== block.id) })}
+          />
+        ))}
+      </TravelSection>
+
+      <TravelSection
+        title="Ferry"
+        testId="travel-ferries"
+        optional
+        addLabel={canEdit && workspaceId && !handout ? (
+          <AddBtn onClick={() => patch({ ...blocks, ferries: [...blocks.ferries, emptyFerryBlock()] })}>+ Ferry</AddBtn>
+        ) : null}
+      >
+        {blocks.ferries.length === 0 && <p className="text-slate-600 text-xs italic">Optional — no ferry blocks yet.</p>}
+        {blocks.ferries.map(block => (
+          <FerryCard
+            key={block.id}
+            block={block}
+            profiles={profiles}
+            handout={handout}
+            locked={locked}
+            onChange={next => patch({
+              ...blocks,
+              ferries: blocks.ferries.map(row => row.id === next.id ? next : row),
+            })}
+            onDelete={() => patch({ ...blocks, ferries: blocks.ferries.filter(row => row.id !== block.id) })}
+          />
+        ))}
+      </TravelSection>
+
+      <details className="bg-slate-800/20 border border-slate-800 rounded-xl p-4">
+        <summary className="text-slate-500 text-xs cursor-pointer hover:text-slate-300">
+          Legacy free-text notes (kept readable)
+        </summary>
+        <div className="mt-3 space-y-1">
+          <LegacyNote
+            label="Flights / PAX"
+            value={legacyNotes.flights_notes}
+            canEdit={canEdit}
+            onSave={v => onSaveLegacy({ flights_notes: v })}
+          />
+          <LegacyNote
+            label="Cars / vans"
+            value={legacyNotes.vehicles_notes}
+            canEdit={canEdit}
+            onSave={v => onSaveLegacy({ vehicles_notes: v })}
+          />
+          <LegacyNote
+            label="Hotel nights"
+            value={legacyNotes.hotels_overview_notes}
+            canEdit={canEdit}
+            onSave={v => onSaveLegacy({ hotels_overview_notes: v })}
+          />
+        </div>
+      </details>
+    </section>
+  )
+}
+
+function TravelSection({
+  title,
+  testId,
+  optional,
+  addLabel,
+  children,
+}: {
+  title: string
+  testId: string
+  optional?: boolean
+  addLabel: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-5" data-testid={testId}>
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider">
+          {title}
+          {optional ? <span className="ml-2 text-slate-600 font-normal normal-case tracking-normal">optional</span> : null}
+        </div>
+        {addLabel}
+      </div>
+      <div className="space-y-3">{children}</div>
+    </div>
+  )
+}
+
+function AddBtn({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-xs px-2 py-0.5 rounded border border-slate-600 text-slate-400 hover:text-amber-400 hover:border-amber-400"
+    >
+      {children}
+    </button>
+  )
+}
+
+function IncompleteBadge({ show }: { show: boolean }) {
+  if (!show) return null
+  return (
+    <span
+      data-testid="travel-incomplete-badge"
+      className="text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide bg-amber-900/40 text-amber-300 border-amber-700"
+    >
+      Incomplete
+    </span>
+  )
+}
+
+function CardShell({
+  title,
+  incomplete,
+  handout,
+  locked,
+  onDelete,
+  testId,
+  children,
+}: {
+  title: string
+  incomplete: boolean
+  handout: boolean
+  locked: boolean
+  onDelete: () => void
+  testId: string
+  children: ReactNode
+}) {
+  return (
+    <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-3" data-testid={testId}>
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="text-slate-200 text-sm font-semibold">{title}</div>
+        <div className="flex items-center gap-2">
+          <IncompleteBadge show={!handout && incomplete} />
+          {!handout && !locked && (
+            <button
+              type="button"
+              onClick={onDelete}
+              className="text-xs text-slate-600 hover:text-red-400"
+              title="Delete block"
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function HandoutRows({ fields }: { fields: { label: string; value: string }[] }) {
+  if (fields.length === 0) {
+    return <p className="text-slate-600 text-xs italic">Nothing filled — omitted from handout.</p>
+  }
+  return (
+    <div className="space-y-0.5" data-testid="travel-handout-fields">
+      {fields.map(field => (
+        <div key={field.label} className="flex gap-2 text-sm py-0.5">
+          <span className="text-slate-500 w-28 flex-shrink-0">{field.label}</span>
+          <span className="text-slate-200">{field.value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Slot({
+  label,
+  value,
+  handout,
+  children,
+}: {
+  label: string
+  value: string | number | boolean | null | undefined
+  handout: boolean
+  children: ReactNode
+}) {
+  if (handout) return null
+  return (
+    <label className="block">
+      <span className="block text-[11px] text-slate-500 mb-0.5">{label}</span>
+      {children}
+    </label>
+  )
+}
+
+function FlightCard({
+  block,
+  profiles,
+  handout,
+  locked,
+  onChange,
+  onDelete,
+}: {
+  block: FlightBlock
+  profiles: ProfileDirectoryRow[]
+  handout: boolean
+  locked: boolean
+  onChange: (next: FlightBlock) => void
+  onDelete: () => void
+}) {
+  const title = [
+    FLIGHT_KIND_LABEL[block.kind],
+    block.flight_number || 'Flight',
+    block.from && block.to ? `${block.from}→${block.to}` : null,
+  ].filter(Boolean).join(' · ')
+
+  if (handout) {
+    return (
+      <CardShell title={title} incomplete={!isFlightBlockComplete(block)} handout locked onDelete={onDelete} testId="travel-flight-card">
+        <HandoutRows fields={omitBlankTravelFields(flightHandoutFields(block, profiles))} />
+      </CardShell>
+    )
+  }
+
+  return (
+    <CardShell title={title} incomplete={!isFlightBlockComplete(block)} handout={false} locked={locked} onDelete={onDelete} testId="travel-flight-card">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <Slot label="Leg" value={block.kind} handout={handout}>
+          <select
+            value={block.kind}
+            disabled={locked}
+            onChange={e => onChange({ ...block, kind: e.target.value as FlightKind })}
+            className={inputClass}
+          >
+            <option value="dep">Dep</option>
+            <option value="mid">Mid</option>
+            <option value="ret">Ret</option>
+          </select>
+        </Slot>
+        <TextSlot label="Flight #" value={block.flight_number} locked={locked} onChange={v => onChange({ ...block, flight_number: v })} />
+        <DateSlot label="Date" value={block.date} locked={locked} onChange={v => onChange({ ...block, date: v })} />
+        <TextSlot label="Airline" value={block.airline} locked={locked} onChange={v => onChange({ ...block, airline: v })} />
+        <TextSlot label="From" value={block.from} locked={locked} onChange={v => onChange({ ...block, from: v })} />
+        <TextSlot label="To" value={block.to} locked={locked} onChange={v => onChange({ ...block, to: v })} />
+        <TimeSlot label="Dep" value={block.dep_time} locked={locked} onChange={v => onChange({ ...block, dep_time: v })} />
+        <TimeSlot label="Arr" value={block.arr_time} locked={locked} onChange={v => onChange({ ...block, arr_time: v })} />
+        <TextSlot label="Dep terminal" value={block.dep_terminal} locked={locked} onChange={v => onChange({ ...block, dep_terminal: v })} />
+        <TextSlot label="Arr terminal" value={block.arr_terminal} locked={locked} onChange={v => onChange({ ...block, arr_terminal: v })} />
+        <TextSlot label="Airport call" value={block.airport_call} locked={locked} onChange={v => onChange({ ...block, airport_call: v })} />
+        <TextSlot label="Check-in open" value={block.check_in_open} locked={locked} onChange={v => onChange({ ...block, check_in_open: v })} />
+        <TextSlot label="Conf / PNR" value={block.confirmation} locked={locked} onChange={v => onChange({ ...block, confirmation: v })} />
+      </div>
+      <PeoplePicker
+        label="Travellers"
+        people={block.travellers}
+        profiles={profiles}
+        locked={locked}
+        onChange={travellers => onChange({ ...block, travellers })}
+      />
+    </CardShell>
+  )
+}
+
+function CarCard({
+  block, profiles, handout, locked, onChange, onDelete,
+}: {
+  block: CarBlock
+  profiles: ProfileDirectoryRow[]
+  handout: boolean
+  locked: boolean
+  onChange: (next: CarBlock) => void
+  onDelete: () => void
+}) {
+  const title = [block.provider || 'Car hire', block.confirmation].filter(Boolean).join(' · ')
+  if (handout) {
+    return (
+      <CardShell title={title} incomplete={!isCarBlockComplete(block)} handout locked onDelete={onDelete} testId="travel-car-card">
+        <HandoutRows fields={omitBlankTravelFields(carHandoutFields(block, profiles))} />
+      </CardShell>
+    )
+  }
+  return (
+    <CardShell title={title} incomplete={!isCarBlockComplete(block)} handout={false} locked={locked} onDelete={onDelete} testId="travel-car-card">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <TextSlot label="Provider" value={block.provider} locked={locked} onChange={v => onChange({ ...block, provider: v })} />
+        <TextSlot label="Vehicle class" value={block.vehicle_class} locked={locked} onChange={v => onChange({ ...block, vehicle_class: v })} />
+        <TextSlot label="Pickup location" value={block.pickup_location} locked={locked} onChange={v => onChange({ ...block, pickup_location: v })} />
+        <DateSlot label="Pickup date" value={block.pickup_date} locked={locked} onChange={v => onChange({ ...block, pickup_date: v })} />
+        <TimeSlot label="Pickup time" value={block.pickup_time} locked={locked} onChange={v => onChange({ ...block, pickup_time: v })} />
+        <TextSlot label="Return location" value={block.return_location} locked={locked} onChange={v => onChange({ ...block, return_location: v })} />
+        <DateSlot label="Return date" value={block.return_date} locked={locked} onChange={v => onChange({ ...block, return_date: v })} />
+        <TimeSlot label="Return time" value={block.return_time} locked={locked} onChange={v => onChange({ ...block, return_time: v })} />
+        <TextSlot label="Conf #" value={block.confirmation} locked={locked} onChange={v => onChange({ ...block, confirmation: v })} />
+        <TextSlot label="Fuel" value={block.fuel} locked={locked} onChange={v => onChange({ ...block, fuel: v })} />
+        <TextSlot label="E-tag" value={block.e_tag} locked={locked} onChange={v => onChange({ ...block, e_tag: v })} />
+        <Slot label="Unlimited km" value={block.unlimited_km} handout={false}>
+          <select
+            value={block.unlimited_km == null ? '' : block.unlimited_km ? 'yes' : 'no'}
+            disabled={locked}
+            onChange={e => onChange({
+              ...block,
+              unlimited_km: e.target.value === '' ? null : e.target.value === 'yes',
+            })}
+            className={inputClass}
+          >
+            <option value="">—</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </Slot>
+        <TextSlot label="After-hours" value={block.after_hours} locked={locked} onChange={v => onChange({ ...block, after_hours: v })} />
+        <TextSlot label="Notes" value={block.notes} locked={locked} onChange={v => onChange({ ...block, notes: v })} />
+      </div>
+      <PeoplePicker
+        label="Drivers"
+        people={block.drivers}
+        profiles={profiles}
+        locked={locked}
+        onChange={drivers => onChange({ ...block, drivers })}
+      />
+    </CardShell>
+  )
+}
+
+function HotelCard({
+  block, profiles, handout, locked, canSeePin, onChange, onDelete,
+}: {
+  block: HotelBlock
+  profiles: ProfileDirectoryRow[]
+  handout: boolean
+  locked: boolean
+  canSeePin: boolean
+  onChange: (next: HotelBlock) => void
+  onDelete: () => void
+}) {
+  const title = [block.name || 'Hotel night', block.check_in_date].filter(Boolean).join(' · ')
+  if (handout) {
+    return (
+      <CardShell title={title} incomplete={!isHotelBlockComplete(block)} handout locked onDelete={onDelete} testId="travel-hotel-card">
+        <HandoutRows fields={omitBlankTravelFields(hotelHandoutFields(block, profiles))} />
+      </CardShell>
+    )
+  }
+  return (
+    <CardShell title={title} incomplete={!isHotelBlockComplete(block)} handout={false} locked={locked} onDelete={onDelete} testId="travel-hotel-card">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <TextSlot label="Name" value={block.name} locked={locked} onChange={v => onChange({ ...block, name: v })} />
+        <TextSlot label="Address" value={block.address} locked={locked} onChange={v => onChange({ ...block, address: v })} />
+        <TextSlot label="Phone" value={block.phone} locked={locked} onChange={v => onChange({ ...block, phone: v })} />
+        <DateSlot label="Check-in date" value={block.check_in_date} locked={locked} onChange={v => onChange({ ...block, check_in_date: v })} />
+        <TimeSlot label="Check-in time" value={block.check_in_time} locked={locked} onChange={v => onChange({ ...block, check_in_time: v })} />
+        <DateSlot label="Check-out date" value={block.check_out_date} locked={locked} onChange={v => onChange({ ...block, check_out_date: v })} />
+        <TimeSlot label="Check-out time" value={block.check_out_time} locked={locked} onChange={v => onChange({ ...block, check_out_time: v })} />
+        <Slot label="# rooms" value={block.rooms} handout={false}>
+          <input
+            type="number"
+            min={1}
+            max={99}
+            value={block.rooms ?? ''}
+            disabled={locked}
+            onChange={e => onChange({
+              ...block,
+              rooms: e.target.value === '' ? null : Number(e.target.value),
+            })}
+            className={inputClass}
+          />
+        </Slot>
+        <TextSlot label="Room type" value={block.room_type} locked={locked} onChange={v => onChange({ ...block, room_type: v })} />
+        <TextSlot label="Conf #" value={block.confirmation} locked={locked} onChange={v => onChange({ ...block, confirmation: v })} />
+        {canSeePin ? (
+          <TextSlot label="PIN" value={block.pin} locked={locked} onChange={v => onChange({ ...block, pin: v })} />
+        ) : (
+          <p className="text-[11px] text-slate-600 sm:col-span-1 self-end pb-1">PIN hidden (admin/owner)</p>
+        )}
+        <TextSlot label="ETA / notes" value={block.eta_notes} locked={locked} onChange={v => onChange({ ...block, eta_notes: v })} />
+      </div>
+      <label className="flex items-center gap-2 mt-2 text-xs text-slate-400">
+        <input
+          type="checkbox"
+          checked={block.guests_tbc}
+          disabled={locked}
+          onChange={e => onChange({ ...block, guests_tbc: e.target.checked })}
+        />
+        TBC guests
+      </label>
+      <PeoplePicker
+        label="Guests"
+        people={block.guests}
+        profiles={profiles}
+        locked={locked}
+        onChange={guests => onChange({ ...block, guests })}
+      />
+    </CardShell>
+  )
+}
+
+function TransferCard({
+  block, handout, locked, onChange, onDelete,
+}: {
+  block: TransferBlock
+  handout: boolean
+  locked: boolean
+  onChange: (next: TransferBlock) => void
+  onDelete: () => void
+}) {
+  const title = [block.provider || 'Transfer', block.from && block.to ? `${block.from}→${block.to}` : null]
+    .filter(Boolean).join(' · ')
+  if (handout) {
+    return (
+      <CardShell title={title} incomplete={false} handout locked onDelete={onDelete} testId="travel-transfer-card">
+        <HandoutRows fields={omitBlankTravelFields(transferHandoutFields(block))} />
+      </CardShell>
+    )
+  }
+  return (
+    <CardShell title={title} incomplete={false} handout={false} locked={locked} onDelete={onDelete} testId="travel-transfer-card">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <DateSlot label="Date" value={block.date} locked={locked} onChange={v => onChange({ ...block, date: v })} />
+        <TimeSlot label="Time" value={block.time} locked={locked} onChange={v => onChange({ ...block, time: v })} />
+        <TextSlot label="From" value={block.from} locked={locked} onChange={v => onChange({ ...block, from: v })} />
+        <TextSlot label="To" value={block.to} locked={locked} onChange={v => onChange({ ...block, to: v })} />
+        <TextSlot label="Provider" value={block.provider} locked={locked} onChange={v => onChange({ ...block, provider: v })} />
+        <Slot label="Amount" value={block.amount} handout={false}>
+          <input
+            type="number"
+            step="0.01"
+            value={block.amount ?? ''}
+            disabled={locked}
+            onChange={e => onChange({
+              ...block,
+              amount: e.target.value === '' ? null : Number(e.target.value),
+            })}
+            className={inputClass}
+          />
+        </Slot>
+        <TextSlot label="Notes" value={block.notes} locked={locked} onChange={v => onChange({ ...block, notes: v })} />
+      </div>
+    </CardShell>
+  )
+}
+
+function FerryCard({
+  block, profiles, handout, locked, onChange, onDelete,
+}: {
+  block: FerryBlock
+  profiles: ProfileDirectoryRow[]
+  handout: boolean
+  locked: boolean
+  onChange: (next: FerryBlock) => void
+  onDelete: () => void
+}) {
+  const title = [block.operator || 'Ferry', block.dep_port && block.arr_port ? `${block.dep_port}→${block.arr_port}` : null]
+    .filter(Boolean).join(' · ')
+  if (handout) {
+    return (
+      <CardShell title={title} incomplete={false} handout locked onDelete={onDelete} testId="travel-ferry-card">
+        <HandoutRows fields={omitBlankTravelFields(ferryHandoutFields(block, profiles))} />
+      </CardShell>
+    )
+  }
+  return (
+    <CardShell title={title} incomplete={false} handout={false} locked={locked} onDelete={onDelete} testId="travel-ferry-card">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <TextSlot label="Operator" value={block.operator} locked={locked} onChange={v => onChange({ ...block, operator: v })} />
+        <TextSlot label="Dep port" value={block.dep_port} locked={locked} onChange={v => onChange({ ...block, dep_port: v })} />
+        <TextSlot label="Arr port" value={block.arr_port} locked={locked} onChange={v => onChange({ ...block, arr_port: v })} />
+        <TimeSlot label="Dep" value={block.dep_time} locked={locked} onChange={v => onChange({ ...block, dep_time: v })} />
+        <TimeSlot label="Arr" value={block.arr_time} locked={locked} onChange={v => onChange({ ...block, arr_time: v })} />
+        <TextSlot label="Conf #" value={block.confirmation} locked={locked} onChange={v => onChange({ ...block, confirmation: v })} />
+      </div>
+      <PeoplePicker
+        label="Travellers"
+        people={block.travellers}
+        profiles={profiles}
+        locked={locked}
+        onChange={travellers => onChange({ ...block, travellers })}
+      />
+    </CardShell>
+  )
+}
+
+function TextSlot({
+  label, value, locked, onChange,
+}: {
+  label: string
+  value: string
+  locked: boolean
+  onChange: (next: string) => void
+}) {
+  return (
+    <Slot label={label} value={value} handout={false}>
+      <input
+        type="text"
+        value={value}
+        disabled={locked}
+        placeholder=""
+        onChange={e => onChange(e.target.value)}
+        className={inputClass}
+      />
+    </Slot>
+  )
+}
+
+function DateSlot({
+  label, value, locked, onChange,
+}: {
+  label: string
+  value: string
+  locked: boolean
+  onChange: (next: string) => void
+}) {
+  return (
+    <Slot label={label} value={value} handout={false}>
+      <input type="date" value={value} disabled={locked} onChange={e => onChange(e.target.value)} className={inputClass} />
+    </Slot>
+  )
+}
+
+function TimeSlot({
+  label, value, locked, onChange,
+}: {
+  label: string
+  value: string
+  locked: boolean
+  onChange: (next: string) => void
+}) {
+  return (
+    <Slot label={label} value={value} handout={false}>
+      <input type="time" value={value} disabled={locked} onChange={e => onChange(e.target.value)} className={inputClass} />
+    </Slot>
+  )
+}
+
+function PeoplePicker({
+  label,
+  people,
+  profiles,
+  locked,
+  onChange,
+}: {
+  label: string
+  people: TravelPerson[]
+  profiles: ProfileDirectoryRow[]
+  locked: boolean
+  onChange: (next: TravelPerson[]) => void
+}) {
+  const [freeText, setFreeText] = useState('')
+  const selectedIds = new Set(people.map(p => p.profile_id).filter(Boolean))
+
+  function toggleProfile(row: ProfileDirectoryRow) {
+    if (selectedIds.has(row.id)) {
+      onChange(people.filter(p => p.profile_id !== row.id))
+      return
+    }
+    onChange([...people, { profile_id: row.id, name: row.full_name }])
+  }
+
+  function addFree() {
+    const name = freeText.trim()
+    if (!name) return
+    onChange([...people, { profile_id: null, name }])
+    setFreeText('')
+  }
+
+  return (
+    <div className="mt-3">
+      <div className="text-[11px] text-slate-500 mb-1">{label}</div>
+      <div className="flex flex-wrap gap-1 mb-2">
+        {people.map((person, idx) => (
+          <span
+            key={`${person.profile_id ?? 'free'}-${idx}`}
+            className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-slate-600 text-slate-200"
+          >
+            {resolveTravelPersonName(person, profiles) || person.name || 'Unnamed'}
+            {!locked && (
+              <button
+                type="button"
+                onClick={() => onChange(people.filter((_, i) => i !== idx))}
+                className="text-slate-500 hover:text-red-400"
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+        {people.length === 0 && (
+          <span className="text-xs text-slate-600 italic">None yet — pick a Profile or add a name</span>
+        )}
+      </div>
+      {!locked && (
+        <>
+          <div className="flex flex-wrap gap-1 mb-2">
+            {profiles.map(row => (
+              <button
+                key={row.id}
+                type="button"
+                onClick={() => toggleProfile(row)}
+                className={`text-xs px-2 py-0.5 rounded border ${
+                  selectedIds.has(row.id)
+                    ? 'border-amber-400 text-amber-400 bg-amber-900/20'
+                    : 'border-slate-700 text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {row.nickname || row.full_name}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-1">
+            <input
+              type="text"
+              value={freeText}
+              placeholder="Unmatched name"
+              onChange={e => setFreeText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addFree() } }}
+              className={inputClass}
+            />
+            <button
+              type="button"
+              onClick={addFree}
+              className="text-xs px-2 py-1 rounded bg-amber-400 text-slate-900 font-semibold hover:bg-amber-300"
+            >
+              Add
+            </button>
+          </div>
+        </>
+      )}
+      {people.length > 0 && (
+        <p className="sr-only">{formatTravelPeople(people, profiles)}</p>
+      )}
+    </div>
+  )
+}
+
+function LegacyNote({
+  label,
+  value,
+  canEdit,
+  onSave,
+}: {
+  label: string
+  value: string
+  canEdit: boolean
+  onSave: (next: string) => void
+}) {
+  const [draft, setDraft] = useState(value)
+  const [dirty, setDirty] = useState(false)
+  return (
+    <div className="flex gap-2 text-sm py-0.5 items-start">
+      <span className="text-slate-500 w-28 flex-shrink-0 pt-1">{label}</span>
+      <textarea
+        value={dirty ? draft : value}
+        disabled={!canEdit}
+        rows={2}
+        onChange={e => { setDraft(e.target.value); setDirty(true) }}
+        onBlur={() => {
+          if (!canEdit || !dirty) return
+          setDirty(false)
+          if (draft !== value) onSave(draft)
+        }}
+        className={inputClass}
+      />
+    </div>
+  )
+}
