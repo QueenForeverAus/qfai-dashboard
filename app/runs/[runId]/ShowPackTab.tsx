@@ -13,7 +13,7 @@ import {
   EMPTY_TRAVEL_BLOCKS,
   parseTravelBlocks,
   type ProfileDirectoryRow,
-  type WorksheetTravelBlocks,
+  type WorksheetTravelBlocks as TravelBlocksDoc,
 } from '@/lib/worksheet-travel-blocks'
 import WorksheetTravelBlocks from './WorksheetTravelBlocks'
 
@@ -191,7 +191,7 @@ export default function ShowPackTab({
   const [shows, setShows] = useState<PackShow[]>(() =>
     initialShows.map(s => ({ ...s, ...emptyShowFields })),
   )
-  const [travelBlocks, setTravelBlocks] = useState<WorksheetTravelBlocks>(EMPTY_TRAVEL_BLOCKS)
+  const [travelBlocks, setTravelBlocks] = useState<TravelBlocksDoc>(EMPTY_TRAVEL_BLOCKS)
   const [travelWorkspaceId, setTravelWorkspaceId] = useState<string | null>(null)
   const [profiles, setProfiles] = useState<ProfileDirectoryRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -241,7 +241,7 @@ export default function ShowPackTab({
     })
   }, [runId])
 
-  const saveTravelBlocks = useCallback((next: WorksheetTravelBlocks) => {
+  const saveTravelBlocks = useCallback((next: TravelBlocksDoc) => {
     setTravelBlocks(next)
     if (travelSaveTimer.current) clearTimeout(travelSaveTimer.current)
     travelSaveTimer.current = setTimeout(() => {
