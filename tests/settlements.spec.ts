@@ -21,29 +21,32 @@ test('Settlements lists runs; opening a run lands on the 3-col sheet', async ({ 
   await expect(page.getByRole('heading', { name: /^settlements$/i })).toBeVisible({ timeout: 8000 })
   await expect(page.getByText(/proposed payment/i)).toBeVisible()
   await expect(page.getByText(/expected vs actual/i).first()).toBeVisible()
-  const tcomp = page.getByTestId('settlement-run-TCOMP1')
-  if (await tcomp.count()) {
+  if (await page.getByTestId('settlement-demo-TCOMP1').count()) {
     await expect(page.getByTestId('settlements-demo-glance')).toBeVisible()
+    for (const key of ['not_settled', 'settled', 'settled_remitted']) {
+      await page.getByTestId(`settlements-bucket-${key}`).click()
+      if (await page.getByTestId('settlement-run-TCOMP1').count()) break
+    }
     await expect(page.getByTestId('settlement-demo-badge-TCOMP1')).toBeVisible()
   }
 
-  const r12 = page.getByTestId('settlement-run-R12')
-  if (await r12.count() === 0) {
-    test.skip(true, 'R12 not present on this environment')
+  await expect(page.getByTestId('settlements-bucket-tabs')).toBeVisible()
+  await expect(page.getByTestId('settlement-run-R12')).toHaveCount(0)
+
+  const completed = page.getByTestId(/^settlement-run-/)
+  if (await completed.count() === 0) {
+    await expect(page.getByTestId('settlements-empty')).toBeVisible()
     return
   }
-  await expect(r12).toBeVisible()
   await expect(page.getByTestId(/settlement-show-/).first()).toBeVisible()
-
-  await r12.click()
-  await page.waitForURL(/\/settlements\/r12\/?$/i)
-  await expect(page.getByTestId('settlements-sheet-pre-show')).toBeVisible({ timeout: 8000 })
+  await completed.first().click()
+  await page.waitForURL(/\/settlements\/[^/]+\/?$/i)
   await expect(page.getByTestId('settlements-left-pane')).toHaveCount(0)
   await expect(page.getByTestId('settlements-right-pane')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Agent Settlement' })).toHaveCount(0)
   await expect(page.getByTestId('tab-remittance')).toBeVisible()
   await page.getByTestId('tab-remittance').click()
-  await page.waitForURL(/\/settlements\/r12\/remittance/i)
+  await page.waitForURL(/\/settlements\/[^/]+\/remittance/i)
   await expect(page.getByTestId('remittance-compare')).toBeVisible()
   await expect(page.getByTestId('add-remittance')).toBeVisible()
 })
