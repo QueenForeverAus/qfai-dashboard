@@ -195,8 +195,12 @@ export function isV3RunModel(model: V3ShowModel | V3RunModel): model is V3RunMod
 /** Sum only when every venue has a figure — never invent a partial run total. */
 export function sumAllOrNull(values: Array<number | null | undefined>): number | null {
   if (values.length === 0) return null
-  if (values.some(v => v == null || !Number.isFinite(Number(v)))) return null
-  return roundMoney(values.reduce((n, v) => n + Number(v), 0))
+  let total = 0
+  for (const value of values) {
+    if (value == null || !Number.isFinite(Number(value))) return null
+    total += Number(value)
+  }
+  return roundMoney(total)
 }
 
 function money(n: number | null | undefined): number | null {
