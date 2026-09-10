@@ -3,14 +3,24 @@
  * Reuses existing tables: runs, shows, cost_fields, run_advancing_workspaces,
  * advancing_cost_fields, settlement_actual_lines, remittance_lines, run_settlements.
  * Never mutates R01 / TRECV1 / TCOMP1 / R12.
+ *
+ * Booking status is always BOOKED (`confirmed`) so Run Advancing stays open.
+ * Settlements completed-only still lists these runs via past show_date.
+ * Re-seed must not flip SAMPLE runs to post_show/settled.
  */
 
 import { classifyRunRegion } from './region-classify.ts'
 import { syncRunDatesFromShows } from './run-dates.ts'
 import { buildAdvancingShowsChrome } from './run-advancing.ts'
 import { loadActiveAdvancingWorkspace } from './run-advancing-persist.ts'
-import { ensureMinimumEntry } from './cost-fields.ts'
 import {
+  CONFIRMED_FIELD_STATE,
+  ENTRY_EXEMPT_FIELD_KEYS,
+  defaultCostEntryDescription,
+  ensureMinimumEntry,
+} from './cost-fields.ts'
+import {
+  SAMPLE_RUN_BOOKING_STATUS,
   isProtectedSettlementsSeedCode,
   isSettlementsSampleCode,
   isSettlementsSeedTargetAllowed,
@@ -84,13 +94,14 @@ async function upsertSampleRun(
     state_territory: fixture.show.state_territory,
     venue_city: fixture.show.venue_city,
   }])
-  const runStatus = fixture.lifecycle === 'not_settled' ? 'post_show' : 'settled'
+  // BOOKED (`confirmed`) so Advancing stays open. Settlements uses past show_date.
+  // Do not seed post_show/settled — that regresses Advancing for SAMPLE test vehicles.
   const now = new Date().toISOString()
   const runPayload = {
     code: fixture.code,
     name: fixture.name,
     notes: fixture.notes,
-    status: runStatus,
+    status: SAMPLE_RUN_BOOKING_STATUS,
     region,
     updated_at: now,
   }
@@ -202,8 +213,9 @@ async function upsertSampleCostFields(
   )
   const saved: CostFieldRow[] = []
 
+  const paidAt = `${fixture.show.show_date}T10:00:00.000Z`
   for (const line of fixture.advancing) {
-    const row = costFieldPayload(runId, showId, line)
+    const row = costFieldPayload(runId, showId, line, paidAt)
     const key = `${row.show_id ?? 'run'}::${row.field_key}`
     const found = byKey.get(key)
     if (found) {
@@ -229,13 +241,35 @@ async function upsertSampleCostFields(
   return saved
 }
 
-function costFieldPayload(runId: string, showId: string, line: SampleCostLine) {
-  const entries = line.field_key === 'flights' && /duplicate/i.test(line.notes ?? '')
-    ? [
-        moneyEntry('SAMPLE flight SYD→DRW', line.amount / 2),
-        moneyEntry('SAMPLE flight SYD→DRW (duplicate)', line.amount / 2),
-      ]
-    : ensureMinimumEntry([], line.label, line.amount)
+export function sampleCostFieldState(line: SampleCostLine): string {
+  if (line.state) return line.state
+  if (line.entryPaid === true || line.entryConfirmed === true) return CONFIRMED_FIELD_STATE
+  return 'estimated'
+}
+
+export function buildSampleCostFieldEntries(
+  line: SampleCostLine,
+  paidAt?: string | null,
+) {
+  if (ENTRY_EXEMPT_FIELD_KEYS.has(line.field_key)) return []
+  if (line.field_key === 'flights' && /duplicate/i.test(line.notes ?? '')) {
+    return [
+      moneyEntry('SAMPLE flight SYD→DRW', line.amount / 2, line, paidAt),
+      moneyEntry('SAMPLE flight SYD→DRW (duplicate)', line.amount / 2, line, paidAt),
+    ]
+  }
+  const description = defaultCostEntryDescription(line.field_key, line.label)
+  return ensureMinimumEntry([], description, line.amount).map(entry =>
+    moneyEntry(entry.description, entry.amount, line, paidAt),
+  )
+}
+
+function costFieldPayload(
+  runId: string,
+  showId: string,
+  line: SampleCostLine,
+  paidAt?: string | null,
+) {
   return {
     run_id: runId,
     show_id: line.scope === 'show' ? showId : null,
@@ -243,23 +277,30 @@ function costFieldPayload(runId: string, showId: string, line: SampleCostLine) {
     field_key: line.field_key,
     label: line.label,
     value: line.amount,
-    state: 'estimated' as const,
+    state: sampleCostFieldState(line),
     source: line.notes ? `${SAMPLE_SOURCE}. ${line.notes}` : SAMPLE_SOURCE,
-    entries,
+    entries: buildSampleCostFieldEntries(line, paidAt),
     ...(line.field_key === 'venue_staff' ? { line_items: [] } : {}),
   }
 }
 
-function moneyEntry(description: string, amount: number) {
+function moneyEntry(
+  description: string,
+  amount: number,
+  line: SampleCostLine,
+  paidAt?: string | null,
+) {
+  const paid = line.entryPaid === true
+  const confirmed = paid || line.entryConfirmed === true
   return {
     id: crypto.randomUUID(),
     description,
     notes: 'SAMPLE',
     amount,
     gst_included: true,
-    confirmed: false,
-    paid: false,
-    paid_at: null,
+    confirmed,
+    paid,
+    paid_at: paid ? (paidAt ?? new Date().toISOString()) : null,
   }
 }
 
