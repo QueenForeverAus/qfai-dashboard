@@ -30,7 +30,7 @@ test('Settlements list hides proposed/future R12; deep-link still pre-show block
   await expect(page.getByTestId('tab-sheet')).toHaveCount(0)
 })
 
-test('Tour Desk → Settlements → TCOMP1 lands on the 3-col sheet, not Wave-1 dual pane', async ({ page }) => {
+test('Tour Desk → Settlements → TCOMP1 lands on Settlements v3, not Wave-1 dual pane', async ({ page }) => {
   await page.goto('/runs')
   await page.getByRole('link', { name: /^settlements$/i }).click()
   await expect(page).toHaveURL(/\/settlements\/?$/)
@@ -51,9 +51,14 @@ test('Tour Desk → Settlements → TCOMP1 lands on the 3-col sheet, not Wave-1 
   await expect(page.getByTestId('settlements-sheet')).toBeVisible({ timeout: 8000 })
   await expect(page.getByTestId('settlements-demo-banner')).toBeVisible()
   await expect(page.getByTestId('settlements-sheet-pre-show')).toHaveCount(0)
+  await expect(page.getByTestId('settlements-v3-s1')).toBeVisible()
+  await expect(page.getByTestId('settlements-v3-s2')).toBeVisible()
+  await expect(page.getByTestId('settlements-v3-s3')).toBeVisible()
+  await expect(page.getByTestId('settlements-v3-s4')).toBeVisible()
+  await expect(page.getByTestId('settlements-v3-assessment')).toBeVisible()
   await expect(page.getByTestId('settlements-sheet-col1').first()).toHaveText(/line/i)
-  await expect(page.getByTestId('settlements-sheet-col2').first()).toHaveText(/expected \(advancing\)/i)
-  await expect(page.getByTestId('settlements-sheet-col3').first()).toHaveText(/actuals/i)
+  await expect(page.getByTestId('settlements-sheet-col2').first()).toHaveText(/expected/i)
+  await expect(page.getByTestId('settlements-sheet-col3').first()).toHaveText(/actual/i)
   await expect(page.getByTestId('settlements-left-pane')).toHaveCount(0)
   await expect(page.getByTestId('settlements-right-pane')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Agent Settlement' })).toHaveCount(0)
@@ -83,7 +88,7 @@ test('legacy /sheet redirects to the canonical run sheet', async ({ page }) => {
   await expect(page.getByTestId('settlements-sheet-pre-show')).toBeVisible({ timeout: 8000 })
 })
 
-test('post-show TCOMP1 Sheet fills Col3 actuals, confirm, challenge (not sent), band edit until PAID', async ({ page }) => {
+test('post-show TCOMP1 v3 sheet: sections, fixture, challenge (not sent), band edit until PAID', async ({ page }) => {
   await page.goto('/settlements/tcomp1')
   if (!page.url().match(/\/settlements\/tcomp1\/?$/i)) {
     test.skip(true, 'TCOMP1 sheet not available')
@@ -91,14 +96,19 @@ test('post-show TCOMP1 Sheet fills Col3 actuals, confirm, challenge (not sent), 
   }
   await expect(page.getByTestId('settlements-sheet')).toBeVisible({ timeout: 8000 })
   await expect(page.getByTestId('settlements-sheet-pre-show')).toHaveCount(0)
+  await expect(page.getByTestId('settlements-v3-s1')).toBeVisible()
+  await expect(page.getByTestId('settlements-v3-assessment')).toBeVisible()
+  await expect(page.getByTestId('v3-nigel-assessment')).toContainText(/Nigel assessment/)
   await expect(page.getByTestId('settlements-sheet-col1').first()).toHaveText(/line/i)
-  await expect(page.getByTestId('settlements-sheet-col2').first()).toHaveText(/expected \(advancing\)/i)
-  await expect(page.getByTestId('settlements-sheet-col3').first()).toHaveText(/actuals/i)
+  await expect(page.getByTestId('settlements-sheet-col2').first()).toHaveText(/expected/i)
+  await expect(page.getByTestId('settlements-sheet-col3').first()).toHaveText(/actual/i)
   await expect(page.getByTestId('settlements-sheet-col3-note')).toContainText(/confirmed/i)
   await expect(page.getByTestId('settlements-sheet-col3-note')).toContainText(/Challenge/)
   await expect(page.getByText('Tickets sold (actual count)').first()).toBeVisible()
   await expect(page.getByTestId('sheet-row-harbour_commission').first()).toBeVisible()
   await expect(page.getByText('Venue Hire').first()).toBeVisible()
+  await expect(page.getByText('Due to Hirer').first()).toBeVisible()
+  await expect(page.getByText('Due to QF').first()).toBeVisible()
   await expect(page.locator('input[type="range"]')).toHaveCount(0)
   await expect(page.getByTestId('pnl-owner-revenue')).toHaveCount(0)
 
@@ -140,9 +150,9 @@ test('post-show TCOMP1 Sheet fills Col3 actuals, confirm, challenge (not sent), 
 
   await expect(page.getByTestId('settlements-sheet-expected-pnl').first()).toBeVisible()
   await expect(page.getByTestId('settlements-sheet-actual-pnl').first()).toBeVisible()
-  await expect(page.getByTestId('settlements-sheet-expected-pnl').first()).toContainText(/Expected P&L \(Col2\)/)
-  await expect(page.getByTestId('settlements-sheet-actual-pnl').first()).toContainText(/Actual \/ true P&L \(Col3\)/)
   await expect(page.getByTestId('settlements-sheet-expected-pnl').first()).toContainText(/Pre-Distribution Margin/)
+  await expect(page.getByTestId('v3-pre-dist-margin').first()).toBeVisible()
+  await expect(page.getByTestId('v3-owner-gareth').first()).toBeVisible()
 
   await expect(page.getByTestId('distribute-gate').first()).toBeVisible()
   await expect(page.getByTestId('distribute-gate-rule').first()).toContainText(/confirm-tick/)

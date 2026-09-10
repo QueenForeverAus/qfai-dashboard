@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import { getSettlementsActor } from '@/lib/settlements-access'
 import { loadSettlementWorkspace, type SettlementWorkspaceData } from '@/lib/settlements-load'
 import { SETTLEMENTS_MODULE_LABEL } from '@/lib/settlements'
-import SettlementSheetClient from './SettlementSheetClient'
+import SettlementV3Client from './SettlementV3Client'
 import SettlementWorkspaceClient from './SettlementWorkspaceClient'
 import RemittanceWorkspaceClient from './RemittanceWorkspaceClient'
 
@@ -35,7 +35,7 @@ export function SettlementSheetView({
   focusedShowId: string | null
 }) {
   return (
-    <SettlementSheetClient
+    <SettlementV3Client
       run={data.run}
       shows={data.shows}
       liveFields={data.liveFields}
@@ -44,9 +44,11 @@ export function SettlementSheetView({
       insideFactors={data.insideFactors}
       remittanceKnownLines={data.remittanceKnownLines}
       gstKnownLines={data.gstKnownLines}
+      remittanceLines={data.remittanceLines}
       actuals={data.actuals}
       challenges={data.challenges}
       bandCosts={data.bandCosts}
+      assessmentMessages={data.assessmentMessages}
     />
   )
 }
