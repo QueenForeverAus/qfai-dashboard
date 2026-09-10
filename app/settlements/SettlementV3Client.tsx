@@ -415,7 +415,11 @@ function SectionCard({
 }) {
   const meta = v3SectionMeta(id)
   return (
-    <section className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-3" data-testid={meta.testId}>
+    <section
+      className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-3"
+      data-testid={meta.testId}
+      {...(id === 3 ? { 'data-advancing-once': 'true' } : {})}
+    >
       <div>
         <h2 className="text-white font-semibold">{meta.title}</h2>
         <p className="text-[11px] text-slate-500 mt-1">{meta.note}</p>
@@ -478,7 +482,6 @@ export default function SettlementV3Client({
   const [draftPreview, setDraftPreview] = useState<RemittanceChallenge | null>(null)
   const [chatBody, setChatBody] = useState('')
 
-  const focusedShow = shows.find(s => s.id === focusedShowId) ?? null
   const gstLines = gstKnownLines ?? remittanceKnownLines
   const runModel = useMemo(
     () => buildRunSheet({
@@ -982,7 +985,7 @@ function RunV3Blocks({
         </div>
         <ul className="space-y-3">
           {shows.map(show => (
-            <li key={show.id} id={`venue-${show.id}`} className="flex flex-wrap items-end justify-between gap-3">
+            <li key={show.id} id={`venue-${show.id}`} className="flex flex-wrap items-end justify-between gap-3 scroll-mt-4 target:ring-1 target:ring-amber-600 rounded-lg">
               <div>
                 <div className="text-slate-200 text-sm">{show.venue_name}</div>
                 <p className="text-slate-500 text-xs mt-0.5">

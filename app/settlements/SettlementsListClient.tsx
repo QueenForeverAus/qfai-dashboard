@@ -197,7 +197,7 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
           {query.trim() ? 'No runs match.' : SETTLEMENTS_LIST_BUCKET_EMPTY}
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2" data-testid="settlements-list-run-grain">
           {filtered.map(run => {
             const expanded = Boolean(open[run.id])
             const badge = BUCKET_BADGE[run.bucket]

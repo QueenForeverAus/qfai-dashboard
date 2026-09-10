@@ -22,7 +22,9 @@ import {
   computeDueToQf,
   computeV3Margin,
   findCancelingDeltaTwins,
+  settlementCostColumns,
   settlementDelta,
+  uniqueRunCostLines,
   unsignedSettlementCost,
   v3HarbourLivesInSection1,
 } from '../../lib/settlements-v3.ts'
@@ -609,4 +611,208 @@ test('signed venue actual does not invent a −X/+X hire pair', () => {
   assert.equal(hire?.actual, 1900)
   assert.equal(hire?.delta, 0)
   assert.deepEqual(findCancelingDeltaTwins(model.section1), [])
+})
+
+test('placeholder Actual $0 does not invent Expected −X / Advancing +X', () => {
+  const empty = settlementCostColumns({ expected: 7267.88, actual: 0 })
+  assert.equal(empty.expected, 7267.88)
+  assert.equal(empty.actual, null)
+  assert.equal(empty.delta, null)
+  const laycock = settlementCostColumns({ expected: 1900, actual: 0 })
+  assert.equal(laycock.expected, 1900)
+  assert.equal(laycock.actual, null)
+  assert.equal(laycock.delta, null)
+  const signed = settlementCostColumns({ expected: 1900, actual: -1900, actualIsReal: true })
+  assert.equal(signed.expected, 1900)
+  assert.equal(signed.actual, 1900)
+  assert.equal(signed.delta, 0)
+  const realZero = settlementCostColumns({ expected: 1900, actual: 0, actualIsReal: true })
+  assert.equal(realZero.actual, 0)
+  assert.equal(realZero.delta, -1900)
+})
+
+test('Advancing Costs stay run-level once when every show sheet embeds run_costs', () => {
+  const gosford = {
+    id: 'show-gosford',
+    venue_name: 'Laycock St Theatre',
+    venue_city: 'Gosford',
+    show_date: '2026-08-21',
+    show_order: 1,
+    capacity: 396,
+    capacity_bands: null,
+    ticket_price: 70,
+    tickets_sold: 200,
+    booking_fee_per_payer: null,
+    cc_fee_pct: null,
+  }
+  const richmond = {
+    id: 'show-richmond',
+    venue_name: 'The Regent',
+    venue_city: 'Richmond',
+    show_date: '2026-08-22',
+    show_order: 2,
+    capacity: 518,
+    capacity_bands: null,
+    ticket_price: 72,
+    tickets_sold: 250,
+    booking_fee_per_payer: null,
+    cc_fee_pct: null,
+  }
+  const fields = [
+    {
+      id: 'g-hire', run_id: '26r01', show_id: gosford.id, category: 'Venue Costs',
+      field_key: 'venue_hire', label: 'Venue Hire', value: 1900, state: 'known',
+      source: null, entries: [], line_items: [],
+    },
+    {
+      id: 'r-hire', run_id: '26r01', show_id: richmond.id, category: 'Venue Costs',
+      field_key: 'venue_hire', label: 'Venue Hire', value: 5500, state: 'known',
+      source: null, entries: [], line_items: [],
+    },
+    {
+      id: 'flights', run_id: '26r01', show_id: null, category: 'Travel',
+      field_key: 'flights', label: 'Flights', value: 2000, state: 'estimated',
+      source: null, entries: [], line_items: [],
+    },
+    {
+      id: 'accom', run_id: '26r01', show_id: null, category: 'Travel',
+      field_key: 'accommodation', label: 'Accommodation', value: 2800, state: 'known',
+      source: null, entries: [], line_items: [],
+    },
+  ]
+  const gosfordBuilt = applyCol3Actuals({
+    lines: buildShowSheetLines({
+      show: gosford, fields, tickets: 200, ticketsSource: 'entered', includeRunCosts: true,
+    }).lines,
+    actuals: [],
+    showId: gosford.id,
+  })
+  const richmondBuilt = applyCol3Actuals({
+    lines: buildShowSheetLines({
+      show: richmond, fields, tickets: 250, ticketsSource: 'entered', includeRunCosts: true,
+    }).lines,
+    actuals: [],
+    showId: richmond.id,
+  })
+  const leakedRun = [...gosfordBuilt.filter(l => l.group === 'run_costs'), ...richmondBuilt.filter(l => l.group === 'run_costs')]
+  assert.ok(leakedRun.filter(l => l.key === 'run:flights').length >= 2)
+  const model = buildV3RunModel({
+    shows: [gosford, richmond],
+    showSheets: [
+      { show: gosford, lines: gosfordBuilt },
+      { show: richmond, lines: richmondBuilt },
+    ],
+    runLines: uniqueRunCostLines(leakedRun),
+    fields,
+    actuals: [],
+  })
+  const advancing = model.section3.filter(r => r.key === 'band_costs')
+  assert.equal(advancing.length, 1)
+  const childKeys = advancing[0]!.children.map(c => c.key)
+  assert.equal(childKeys.length, new Set(childKeys).size)
+  assert.equal(model.section1.filter(r => r.key === 'due_to_hirer').length, 1)
+  assert.equal(model.section1.filter(r => r.key === 'hire').length, 1)
+  const hire = model.section1.find(r => r.key === 'hire')
+  assert.equal(hire?.expected, 7400)
+  assert.equal(hire?.actual, null)
+  assert.equal(hire?.delta, null)
+})
+
+test('26R02 BNZ-shaped costing does not emit ± twin Δ on hire / staff / marketing / AV', () => {
+  const auckland = {
+    id: 'show-bmc',
+    venue_name: 'Bruce Mason Centre',
+    venue_city: 'Auckland',
+    show_date: '2026-09-04',
+    show_order: 1,
+    capacity: 700,
+    capacity_bands: null,
+    ticket_price: 80,
+    tickets_sold: 300,
+    booking_fee_per_payer: null,
+    cc_fee_pct: null,
+  }
+  const hamilton = {
+    id: 'show-bnz',
+    venue_name: 'BNZ Theatre',
+    venue_city: 'Hamilton',
+    show_date: '2026-09-05',
+    show_order: 2,
+    capacity: 600,
+    capacity_bands: null,
+    ticket_price: 80,
+    tickets_sold: 280,
+    booking_fee_per_payer: null,
+    cc_fee_pct: null,
+  }
+  const fields = [
+    {
+      id: 'a-hire', run_id: '26r02', show_id: auckland.id, category: 'Venue Costs',
+      field_key: 'venue_hire', label: 'Venue Hire', value: 7150, state: 'known',
+      source: null, entries: [], line_items: [],
+    },
+    {
+      id: 'a-staff', run_id: '26r02', show_id: auckland.id, category: 'Venue Costs',
+      field_key: 'venue_staff', label: 'Venue Staff / On-costs', value: 1991.37, state: 'known',
+      source: null, entries: [], line_items: [],
+    },
+    {
+      id: 'a-prod', run_id: '26r02', show_id: auckland.id, category: 'Venue Costs',
+      field_key: 'production_costs', label: 'Production / AV', value: 4208.50, state: 'known',
+      source: null, entries: [], line_items: [],
+    },
+    {
+      id: 'h-hire', run_id: '26r02', show_id: hamilton.id, category: 'Venue Costs',
+      field_key: 'venue_hire', label: 'Venue Hire', value: 7267.88, state: 'known',
+      source: null, entries: [], line_items: [],
+    },
+    {
+      id: 'h-staff', run_id: '26r02', show_id: hamilton.id, category: 'Venue Costs',
+      field_key: 'venue_staff', label: 'Venue Staff / On-costs', value: 1197.44, state: 'known',
+      source: null, entries: [], line_items: [],
+    },
+    {
+      id: 'h-mkt', run_id: '26r02', show_id: hamilton.id, category: 'Venue Costs',
+      field_key: 'venue_marketing', label: 'Venue Marketing', value: 975, state: 'known',
+      source: null, entries: [], line_items: [],
+    },
+    {
+      id: 'h-prod', run_id: '26r02', show_id: hamilton.id, category: 'Venue Costs',
+      field_key: 'production_costs', label: 'Production / AV', value: 6725, state: 'known',
+      source: null, entries: [], line_items: [],
+    },
+  ]
+  const sheets = [auckland, hamilton].map(show => ({
+    show,
+    lines: applyCol3Actuals({
+      lines: buildShowSheetLines({
+        show, fields, tickets: show.tickets_sold, ticketsSource: 'entered', includeRunCosts: true,
+      }).lines,
+      actuals: [],
+      showId: show.id,
+    }),
+  }))
+  const model = buildV3RunModel({
+    shows: [auckland, hamilton],
+    showSheets: sheets,
+    runLines: uniqueRunCostLines(sheets.flatMap(s => s.lines.filter(l => l.group === 'run_costs'))),
+    fields,
+    actuals: [],
+  })
+  for (const key of ['hire', 'staff', 'marketing', 'production'] as const) {
+    const row = model.section1.find(r => r.key === key)
+    assert.ok(row, key)
+    assert.ok((row!.expected ?? 0) >= 0, `${key} expected ≥0`)
+    assert.equal(row!.actual, null, `${key} actual stays empty until a statement`)
+    assert.equal(row!.delta, null, `${key} Δ is not −Expected`)
+    assert.ok(row!.children.every(c => (c.expected ?? 0) >= 0 && c.actual == null))
+  }
+  assert.equal(model.section1.find(r => r.key === 'hire')?.expected, 14417.88)
+  assert.equal(model.section3.filter(r => r.key === 'band_costs').length, 1)
+  assert.deepEqual(findCancelingDeltaTwins([
+    ...model.section1,
+    ...model.section2,
+    ...model.section3,
+    ...model.section4,
+  ]), [])
 })

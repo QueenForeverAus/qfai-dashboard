@@ -191,7 +191,9 @@ test('run sheet opens occurred shows and keeps upcoming out of Col2', () => {
 
 test('sheet is the canonical Settlements front door; Wave-1 and remittance are secondary', () => {
   assert.equal(settlementSheetHref('TCOMP1'), '/settlements/tcomp1')
-  assert.equal(settlementSheetHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1')
+  assert.equal(settlementSheetHref('TCOMP1', 'show-1'), '/settlements/tcomp1#venue-show-1')
+  assert.equal(settlementSheetHref('26R01', '2b585dbb-6e07-4fe9-8365-91b4020b67a3'), '/settlements/26r01#venue-2b585dbb-6e07-4fe9-8365-91b4020b67a3')
+  assert.doesNotMatch(settlementSheetHref('26R01', '2b585dbb-6e07-4fe9-8365-91b4020b67a3'), /\/26r01\/[0-9a-f-]{36}/i)
   assert.equal(wave1SettlementHref('TCOMP1'), '/settlements/tcomp1/agent')
   assert.equal(wave1SettlementHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1/agent')
   assert.equal(remittanceHref('TCOMP1'), '/settlements/tcomp1/remittance')

@@ -175,6 +175,41 @@ export function settlementDelta(expected: number | null, actual: number | null):
   return roundMoney(actual - expected)
 }
 
+/**
+ * Cost pair for Expected | Actual | Δ.
+ * Both columns are unsigned (≥0) when present. A missing statement or a
+ * placeholder `$0` is not a real Actual — never invent Δ = −Expected
+ * (the Expected −X / Advancing +X twin on 26R0x).
+ */
+export function settlementCostColumns(opts: {
+  expected: number | null | undefined
+  actual: number | null | undefined
+  actualIsReal?: boolean
+}): { expected: number | null; actual: number | null; delta: number | null } {
+  const expected = unsignedSettlementCost(opts.expected)
+  const placeholder = opts.actualIsReal !== true && (opts.actual == null || Number(opts.actual) === 0)
+  if (placeholder) {
+    return { expected, actual: null, delta: null }
+  }
+  let actual = unsignedSettlementCost(opts.actual)
+  if (expected != null && actual != null && amountsMirror(Number(opts.expected), Number(opts.actual))) {
+    actual = expected
+  }
+  return { expected, actual, delta: settlementDelta(expected, actual) }
+}
+
+/** Run-level Advancing Cost rows — one row per key, never once-per-show. */
+export function uniqueRunCostLines<T extends { key: string }>(lines: T[]): T[] {
+  const seen = new Set<string>()
+  const out: T[] = []
+  for (const line of lines) {
+    if (seen.has(line.key)) continue
+    seen.add(line.key)
+    out.push(line)
+  }
+  return out
+}
+
 function deltaOf(expected: number | null, actual: number | null): number | null {
   return settlementDelta(expected, actual)
 }
@@ -682,8 +717,8 @@ export function buildV3ShowModel(opts: {
   statementLines?: V3RawLine[] | null
 }): V3ShowModel {
   const grain: V3SettlementGrain = opts.grain ?? 'show'
-  const lines = opts.lines
-  const runLines = opts.runLines ?? lines.filter(l => l.group === 'run_costs')
+  const lines = opts.lines.filter(l => l.group !== 'run_costs')
+  const runLines = uniqueRunCostLines(opts.runLines ?? opts.lines.filter(l => l.group === 'run_costs'))
   const classified = classifySettlementLines(
     opts.statementLines ?? statementLinesFromActuals(opts.actuals, opts.showId, grain),
     'venue_statement',
@@ -856,8 +891,7 @@ export function buildV3ShowModel(opts: {
       section: 1,
       label: '− Venue Hire',
       sign: '−',
-      expected: expected.hire,
-      actual: hireDisplay,
+      ...settlementCostColumns({ expected: expected.hire, actual: hireDisplay, actualIsReal: hireDisplay != null }),
       kind: 'money',
       children: childrenForBucket(lines, 'show:venue_hire', grain === 'run' ? null : opts.showId),
       testId: 'sheet-actual-show:venue_hire',
@@ -867,8 +901,7 @@ export function buildV3ShowModel(opts: {
       section: 1,
       label: '− Venue Staff',
       sign: '−',
-      expected: expected.staff,
-      actual: staffDisplay,
+      ...settlementCostColumns({ expected: expected.staff, actual: staffDisplay, actualIsReal: staffDisplay != null }),
       kind: 'money',
       children: childrenForBucket(lines, 'show:venue_staff', grain === 'run' ? null : opts.showId),
     }),
@@ -877,8 +910,7 @@ export function buildV3ShowModel(opts: {
       section: 1,
       label: '− Venue Marketing',
       sign: '−',
-      expected: expected.marketing,
-      actual: marketingDisplay,
+      ...settlementCostColumns({ expected: expected.marketing, actual: marketingDisplay, actualIsReal: marketingDisplay != null }),
       kind: 'money',
       children: childrenForBucket(lines, 'show:venue_marketing', grain === 'run' ? null : opts.showId),
       testId: 'sheet-rollup-show:venue_marketing',
@@ -888,8 +920,7 @@ export function buildV3ShowModel(opts: {
       section: 1,
       label: `− ${VENUE_PRODUCTION_AV_LABEL}`,
       sign: '−',
-      expected: expected.production,
-      actual: productionDisplay,
+      ...settlementCostColumns({ expected: expected.production, actual: productionDisplay, actualIsReal: productionDisplay != null }),
       kind: 'money',
       children: childrenForBucket(lines, 'show:production_costs', grain === 'run' ? null : opts.showId),
     }),
@@ -1143,7 +1174,7 @@ export function buildV3RunModel(opts: {
     showId: opts.shows[0]?.id ?? 'run',
     grain: 'run',
     lines,
-    runLines: opts.runLines,
+    runLines: uniqueRunCostLines(opts.runLines),
     fields: opts.fields,
     actuals: opts.actuals,
     remittanceLines: opts.remittanceLines,

@@ -1,7 +1,10 @@
-import { requireSettlementWorkspace, SettlementsAccessDenied, SettlementSheetView } from '../../require-settlement-workspace'
+import { redirect } from 'next/navigation'
+import { settlementSheetHref } from '@/lib/settlements-sheet'
+import { requireSettlementWorkspace, SettlementsAccessDenied } from '../../require-settlement-workspace'
 
 export const dynamic = 'force-dynamic'
 
+/** Show-scoped sheet URLs are bookmarks, not a second settlement. */
 export default async function SettlementShowPage({
   params,
 }: {
@@ -10,5 +13,5 @@ export default async function SettlementShowPage({
   const { runId, showId } = await params
   const loaded = await requireSettlementWorkspace(runId, showId)
   if (loaded.denied) return <SettlementsAccessDenied />
-  return <SettlementSheetView data={loaded.data} focusedShowId={showId} />
+  redirect(settlementSheetHref(loaded.data.run.code, showId))
 }
