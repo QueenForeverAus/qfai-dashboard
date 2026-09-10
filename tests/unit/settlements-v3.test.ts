@@ -12,6 +12,7 @@ import {
   sumBuckets,
 } from '../../lib/settlements-v3-buckets.ts'
 import {
+  ADVANCING_COSTS_LABEL,
   V3_NO_HARBOUR_IN_S1,
   V3_SECTION1_TITLE,
   buildV3ShowModel,
@@ -277,7 +278,7 @@ test('assessment draft never auto-sends and prefers challenge when flags are har
   assert.match(nigel, /challenge/)
 })
 
-test('Michael fact-check draft is preview-only and not a Harbour send', () => {
+test('Michael fact-check draft is Nigel→Michael, scoped, preview-only', () => {
   const emptyModel = {
     dueToHirerExpected: 10_000,
     dueToHirerActual: 10_000,
@@ -291,24 +292,53 @@ test('Michael fact-check draft is preview-only and not a Harbour send', () => {
     actual: { harbourCommission: 1_000, gstKnown: true, gstSourceLabel: 'known', depositNetted: false, deposit: 0 },
     depositNetting: null,
     statementLines: [],
-    section1: [],
-    section2: [],
-    section3: [],
-    section4: [],
+    section1: [
+      { key: 'staff', label: '− Venue Staff', expected: 3600, actual: 4150, children: [{ key: 'ushers', label: 'Ushers', expected: 2000, actual: 2200 }] },
+      { key: 'production', label: '− Venue Production/AV', expected: 800, actual: 750, children: [{ key: 'av', label: 'Sound & Lighting package', expected: 800, actual: 750 }] },
+      { key: 'other', label: '− Other venue charges', expected: 0, actual: 200, children: [
+        { key: 'lpa', label: 'LPA Fee', expected: null, actual: 80 },
+        { key: 'backline-other', label: 'Extra backline risers', expected: null, actual: 120 },
+      ] },
+    ],
+    section2: [{ key: 'harbour_commission', label: 'Harbour 10%', expected: 1000, actual: 1000, children: [] }],
+    section3: [{
+      key: 'band_costs',
+      label: '− Advancing Costs',
+      expected: 5000,
+      actual: 5000,
+      children: [
+        { key: 'run:flights', label: 'Flights', expected: 1840, actual: 1840, note: 'PAID' },
+        { key: 'run:backline_hire', label: 'Backline Hire (local)', expected: 330, actual: 330 },
+      ],
+    }],
+    section4: [{ key: 'owner_gareth', label: 'Gareth 40%', expected: 1600, actual: 1600, children: [] }],
   }
   const draft = buildAssessmentEmailDraft({
     kind: 'michael_factcheck',
-    runCode: 'SAMP01',
-    venueName: 'The Marble Room',
+    runCode: 'SAMP04',
+    venueName: 'Northwharf Studio Theatre',
     actorName: 'Gareth',
     model: emptyModel as never,
     flags: [],
-    messages: [],
+    messages: [{ author_name: 'Gareth', body: 'Harbour hire looks high.', created_at: '2026-09-10' }],
   })
-  assert.equal(draft.to_label, 'Michael (fact-check)')
+  assert.equal(draft.to_label, 'Michael')
+  assert.equal(draft.from_label, 'Nigel (tours@)')
+  assert.match(draft.body, /From: Nigel \(tours@\)/)
+  assert.match(draft.body, /To: Michael/)
+  assert.match(draft.body, /Ushers/)
+  assert.match(draft.body, /Sound & Lighting package/)
+  assert.match(draft.body, /Extra backline risers/)
+  assert.match(draft.body, /Backline Hire/)
   assert.match(draft.body, /never auto-sends/)
   assert.match(draft.body, /Not sent/)
-  assert.doesNotMatch(draft.body, /auto-send to Harbour/)
+  assert.doesNotMatch(draft.body, /Flights/)
+  assert.doesNotMatch(draft.body, /Harbour 10%/)
+  assert.doesNotMatch(draft.body, /Gareth 40/)
+  assert.doesNotMatch(draft.body, /Due to Hirer/)
+  assert.doesNotMatch(draft.body, /Pre-Distribution/)
+  assert.doesNotMatch(draft.body, /Harbour hire looks high/)
+  assert.doesNotMatch(draft.body, /LPA Fee/)
 })
 
 test('buildV3ShowModel wires §1–§4 from Advancing expected + classified actuals', () => {
@@ -369,4 +399,7 @@ test('buildV3ShowModel wires §1–§4 from Advancing expected + classified actu
   assert.equal(model.actual.gstQuarantine, 550)
   assert.ok(model.section4.some(r => r.key === 'owner_gareth'))
   assert.equal(model.ownerSplitsActual?.gareth, computeOwnerSplits(model.preDistActual ?? 0).gareth)
+  const advancing = model.section3.find(r => r.key === 'band_costs')
+  assert.ok(advancing)
+  assert.match(advancing.label, new RegExp(ADVANCING_COSTS_LABEL))
 })

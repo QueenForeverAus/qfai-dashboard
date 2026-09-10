@@ -68,7 +68,7 @@ Gareth 40 / Brad 30 / Scott 30 of Pre-Distribution Margin + the existing distrib
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Run chrome · tickets sold (actual count) · fixture ingest      │
+│  Run chrome · tickets sold (actual count) · email-scrape ingest │
 ├─────────────────────────────────────────────────────────────────┤
 │  NIGEL ASSESSMENT (paragraph)                                   │
 │  PROMINENT RED FLAGS                                            │
@@ -143,7 +143,19 @@ PR(s) with clear phase coverage; unit tests for bucket maths + Harbour commissio
 | PDF / statement classifier + deposit netting | `lib/settlements-v3-buckets.ts` |
 | Red flags + Nigel paragraph | `lib/settlements-v3-flags.ts` |
 | Assessment chat + Harbour/Michael drafts | `lib/settlements-v3-assessment.ts` |
-| BNZ-shaped invented fixture | `lib/settlements-v3-bnz.ts` |
+| BNZ-shaped invented fixture (unit/classifier only) | `lib/settlements-v3-bnz.ts` |
+| Email scrape packet + apply | `lib/settlement-scrape/` + `app/api/settlements/[runId]/email-scrape/apply` |
 | Front door UI | `app/settlements/SettlementV3Client.tsx` |
 | Portal chat store (staging) | `supabase/migrations/20260910_settlement_assessment_chat.sql` |
 | Smoke notes | `fixtures/settlements-sample-shows/README.md` |
+
+---
+
+## UNPARK 2026-09-10 (Gareth / Lead — staging)
+
+- **Email scrape:** settlement and remittance attachments ingest via `settlement-scrape-packet-v1` (same Comms POST / machine-auth pattern as travel-scrape). No manual paste. **Removed** Load Harbour fixture and Load BNZ-shaped venue statement (UI + fixture POST → 410).
+- **§3:** Settlements label is **Advancing Costs**. Expected | Actual | Δ chrome is dropped on §3 only. Figures are the live Advancing mix (PAID / confirmed / AUTO CALC).
+- **PAID transfer:** lines PAID on Run Advancing appear on Settlements as locked + marked PAID (SAMP04 flights / accommodation / Production Bought In).
+- **Michael fact-check:** draft email **from Nigel (tours@) to Michael**. Venue Staff, Venue Production/AV, other venue production charges, Backline Hire only. Preview; never auto-send.
+
+Prod remains held.

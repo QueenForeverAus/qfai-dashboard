@@ -44,10 +44,17 @@ Canonical figures live in `lib/settlements-sample-fixtures.ts`.
 
 Prod is held. On staging, after SAMPLE seed:
 
-1. **BNZ-shaped** — open any completed SAMPLE (or TCOMP1) → **Load BNZ-shaped venue statement**. Confirm Hire / Staff / Marketing / Venue Production/AV / other buckets, insides **known** from the ticket block, and hire deposit applied **once** (printed Due to Hirer already nets $930 — do not add again). Unit fixture: `lib/settlements-v3-bnz.ts`.
-2. **SAMP04 Northwharf (Advancing + Settlements)** — Settlements completed / not settled → open Advancing. Status must be BOOKED (`confirmed`), not `post_show`. Mix: flights / accommodation / Production Bought In **PAID**; venue hire / staff / Venue Production/AV + crew **confirmed unpaid**; Social Media Marketing Co. **AUTO CALC**. Re-seed must not regress this.
+1. **Email scrape (no UI loaders)** — **Load Harbour fixture** and **Load BNZ-shaped venue statement** are gone. Ingest via `POST /api/settlements/:runId/email-scrape/apply` with `settlement-scrape-packet-v1` (or `fixture_id`: `bnz-shaped-settlement`, `samp04-northwharf-settlement`, `samp04-northwharf-remittance`). Confirm Hire / Staff / Marketing / Venue Production/AV / other buckets, insides **known** from the ticket block, hire deposit applied **once**. Never auto-send. PAID never auto without `confirm_money` / `money_confirmed_by` (and scrape still does not mark PAID).
+2. **SAMP04 Northwharf (Advancing + Settlements)** — Settlements completed / not settled → open Advancing. Status must be BOOKED (`confirmed`), not `post_show`. Mix: flights / accommodation / Production Bought In **PAID** — those lines must show on Settlements §3 **Advancing Costs** as **locked + PAID** (no Expected|Actual|Δ chrome on §3). Venue hire / staff / Venue Production/AV + crew **confirmed unpaid**; Social Media Marketing Co. **AUTO CALC**. Re-seed must not regress this.
 3. **SAMP01 Accurate / not settled** — Expected from Advancing only. No venue actuals. Nigel assessment should stay quiet on venue Δ. Chat + Harbour/Michael drafts are preview only (never auto-send).
 4. **SAMP02 Accurate / settled** — Col3 within ~1–2%. Soft flags only if any.
-5. **SAMP08 Completely wrong / remitted** — wild tickets, duplicate staff, missing AV → prominent red flags. Draft Harbour challenge / Michael fact-check from the assessment thread. `sent_at` stays null.
+5. **SAMP08 Completely wrong / remitted** — wild tickets, duplicate staff, missing AV → prominent red flags. Draft Harbour challenge from the assessment thread. **Draft Michael fact-check** is from Nigel (tours@) to Michael and lists only Venue Staff / Venue Production/AV / other production charges / Backline Hire. `sent_at` stays null.
 
 Honest residuals: GST quarantines $0 when not on the statement (no NZ 15% / AU 10% invented). If printed Due to Hirer matches neither with- nor without-deposit arithmetic, the page says so and does not double-count.
+
+### Removed
+
+- Load Harbour fixture (Settlements UI button + help)
+- Load BNZ-shaped venue statement (Settlements UI button + help)
+- Manual paste of Harbour / BNZ fixture lines on Settlements
+- `POST /api/settlements/:runId/sheet/fixture` (410 — use email-scrape apply)

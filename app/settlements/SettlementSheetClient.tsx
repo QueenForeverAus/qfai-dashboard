@@ -9,6 +9,7 @@ import type { CostingSnapshotField } from '@/lib/settlements'
 import type { SettlementShow } from '@/lib/settlements-load'
 import type { RemittanceChallenge } from '@/lib/remittance'
 import {
+  ADVANCING_COSTS_LABEL,
   COL1_HEADER,
   COL2_HEADER,
   COL3_HEADER,
@@ -44,8 +45,7 @@ import {
 import {
   CHALLENGE_BUTTON_LABEL,
   COL3_ACTUALS_NOTE,
-  HARBOUR_FIXTURE_BUTTON_LABEL,
-  HARBOUR_FIXTURE_HELP,
+  EMAIL_SCRAPE_INGEST_NOTE,
   SHEET_BAND_PAID_HELP,
   SHEET_CHALLENGE_NEVER_SEND_NOTE,
   VENUE_CHALLENGED_LABEL,
@@ -590,25 +590,6 @@ export default function SettlementSheetClient({
     }
   }
 
-  async function loadFixture() {
-    setBusy(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/settlements/${run.id}/sheet/fixture`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ show_id: focusedShowId }),
-      })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body.error || 'Could not load Harbour fixture')
-      router.refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load Harbour fixture')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function createChallenge() {
     if (!challengeLine) return
     if (!challengeReason.trim()) {
@@ -754,17 +735,8 @@ export default function SettlementSheetClient({
         <div className="space-y-4" data-testid="settlements-sheet">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <p className="text-[11px] text-slate-500 max-w-2xl" data-testid="settlements-sheet-col3-note">{COL3_ACTUALS_NOTE}</p>
-            <button
-              type="button"
-              disabled={busy}
-              data-testid="sheet-harbour-fixture"
-              onClick={() => void loadFixture()}
-              className="text-[11px] font-semibold px-3 py-1.5 rounded border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-50"
-            >
-              {HARBOUR_FIXTURE_BUTTON_LABEL}
-            </button>
           </div>
-          <p className="text-[11px] text-slate-600">{HARBOUR_FIXTURE_HELP}</p>
+          <p className="text-[11px] text-slate-600" data-testid="settlements-email-scrape-note">{EMAIL_SCRAPE_INGEST_NOTE}</p>
           <p className="text-[11px] text-slate-600">{SHEET_BAND_PAID_HELP}</p>
           <p className="text-[11px] text-slate-600" data-testid="sheet-smart-match-note">{SMART_MATCH_NOTE}</p>
 
@@ -879,7 +851,7 @@ export default function SettlementSheetClient({
 
           {!focusedShow && (
             <section className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-3" data-testid="settlements-sheet-run-costs">
-              <h2 className="text-white font-semibold">Run-level advancing costs</h2>
+              <h2 className="text-white font-semibold">{ADVANCING_COSTS_LABEL}</h2>
               <LineTable
                 lines={col3Run.runLines}
                 showId="run"

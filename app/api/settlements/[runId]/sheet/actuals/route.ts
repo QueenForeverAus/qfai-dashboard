@@ -80,7 +80,7 @@ export async function POST(
   }
 
   const existing = await findExisting(admin, run.id, showId, lineKey)
-  const source: SettlementActualSource = body.source === 'harbour_fixture' || body.source === 'advancing_copy'
+  const source: SettlementActualSource = body.source === 'harbour_fixture' || body.source === 'advancing_copy' || body.source === 'email_scrape'
     ? body.source
     : 'manual'
   const now = new Date().toISOString()

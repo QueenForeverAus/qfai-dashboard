@@ -40,7 +40,9 @@ export const CHALLENGE_BUTTON_LABEL = 'Challenge'
 export const SHEET_CHALLENGE_NEVER_SEND_NOTE = CHALLENGE_NEVER_SEND_NOTE
 export const HARBOUR_FIXTURE_BUTTON_LABEL = 'Load Harbour fixture'
 export const HARBOUR_FIXTURE_HELP =
-  'Manual / fixture ingest for Harbour settlement docs. Email OCR is later. Figures land as confirmed.'
+  'Removed. Settlement and remittance figures ingest from email attachments — no manual paste or fixture loader.'
+export const EMAIL_SCRAPE_INGEST_NOTE =
+  'Venue settlement and remittance figures ingest from email attachments (staging). No manual paste. Money / PAID never auto without the same confirm pattern as travel scrape.'
 
 export const SHEET_BAND_PAID_LOCK =
   'Paid line is locked — un-pay before editing amount, description, notes, or confirm'
@@ -58,7 +60,7 @@ export type SettlementActualKind = (typeof SETTLEMENT_ACTUAL_KINDS)[number]
 export const SETTLEMENT_ACTUAL_STATUSES = ['confirmed', 'challenged'] as const
 export type SettlementActualStatus = (typeof SETTLEMENT_ACTUAL_STATUSES)[number]
 
-export const SETTLEMENT_ACTUAL_SOURCES = ['manual', 'harbour_fixture', 'advancing_copy'] as const
+export const SETTLEMENT_ACTUAL_SOURCES = ['manual', 'harbour_fixture', 'advancing_copy', 'email_scrape'] as const
 export type SettlementActualSource = (typeof SETTLEMENT_ACTUAL_SOURCES)[number]
 
 export type SheetActualSource = SettlementActualSource | 'tickets_sold' | 'computed'
@@ -286,7 +288,7 @@ function decorateLine(
       actualKind: 'band_cost',
       actualStatus: actual == null ? null : 'confirmed',
       actualSource: actual == null ? null : 'advancing_copy',
-      actualPaid: false,
+      actualPaid: Boolean(line.expectedPaid),
       actualId: null,
       challengeId: null,
       quoteNote: null,

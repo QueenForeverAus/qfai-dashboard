@@ -88,7 +88,7 @@ test('legacy /sheet redirects to the canonical run sheet', async ({ page }) => {
   await expect(page.getByTestId('settlements-sheet-pre-show')).toBeVisible({ timeout: 8000 })
 })
 
-test('post-show TCOMP1 v3 sheet: sections, fixture, challenge (not sent), band edit until PAID', async ({ page }) => {
+test('post-show TCOMP1 v3 sheet: sections, email scrape (no fixture loaders), Advancing Costs', async ({ page }) => {
   await page.goto('/settlements/tcomp1')
   if (!page.url().match(/\/settlements\/tcomp1\/?$/i)) {
     test.skip(true, 'TCOMP1 sheet not available')
@@ -111,48 +111,23 @@ test('post-show TCOMP1 v3 sheet: sections, fixture, challenge (not sent), band e
   await expect(page.getByText('Due to QF').first()).toBeVisible()
   await expect(page.locator('input[type="range"]')).toHaveCount(0)
   await expect(page.getByTestId('pnl-owner-revenue')).toHaveCount(0)
+  await expect(page.getByTestId('sheet-harbour-fixture')).toHaveCount(0)
+  await expect(page.getByTestId('sheet-bnz-fixture')).toHaveCount(0)
+  await expect(page.getByTestId('settlements-email-scrape-note')).toContainText(/email attachments/)
 
-  await page.getByTestId('sheet-harbour-fixture').click()
-  await expect(page.getByTestId('sheet-harbour-fixture')).toBeEnabled({ timeout: 15000 })
-  await page.reload()
-  await expect(page.getByTestId('settlements-sheet')).toBeVisible({ timeout: 8000 })
-  await expect(page.getByTestId('sheet-actual-show:venue_hire').first()).toBeVisible({ timeout: 8000 })
-  await expect(page.getByTestId('sheet-challenge-show:venue_hire').first()).toBeVisible({ timeout: 8000 })
-  await expect(page.getByTestId('sheet-actual-status-show:venue_hire').first()).toContainText(/confirmed|challenged/i)
-  await expect(page.getByTestId('sheet-variance-show:venue_hire').first()).toBeVisible()
-
-  await page.getByTestId('sheet-challenge-show:venue_hire').first().click()
-  await expect(page.getByTestId('sheet-challenge-panel')).toBeVisible()
-  await page.getByTestId('sheet-challenge-reason').fill('Harbour hire is $3,100 not the advancing $3,200')
-  await page.getByTestId('sheet-create-challenge-draft').click()
-  await expect(page.getByTestId('sheet-challenge-draft-preview')).toBeVisible({ timeout: 8000 })
-  await expect(page.getByTestId('sheet-challenge-draft-preview')).toContainText(/Draft only — not sent/)
-  await expect(page.getByTestId('sheet-challenge-draft-preview')).toContainText(/never auto-sends/)
-
-  const bandInput = page.getByTestId('sheet-band-input-run:accommodation').first()
-  await expect(bandInput).toBeVisible()
-  if (await page.getByTestId('sheet-band-reopen-run:accommodation').first().isVisible().catch(() => false)) {
-    await page.getByTestId('sheet-band-reopen-run:accommodation').first().click()
-    await expect(bandInput).toBeEnabled({ timeout: 8000 })
-  }
-  await expect(bandInput).toBeEnabled()
-  await bandInput.fill('2700')
-  await page.getByTestId('sheet-band-save-run:accommodation').first().click()
-  await expect(page.getByTestId('sheet-band-save-run:accommodation').first()).toBeEnabled({ timeout: 15000 })
-  await page.getByTestId('sheet-band-paid-btn-run:accommodation').first().click()
-  await expect(page.getByTestId('sheet-band-paid-run:accommodation').first()).toHaveText(/PAID/, { timeout: 15000 })
-  await expect(page.getByTestId('sheet-band-input-run:accommodation').first()).toBeDisabled()
-
-  await expect(page.getByTestId('sheet-rollup-show:venue_marketing').first()).toBeVisible()
-  await expect(page.getByTestId('sheet-rollup-child-show:venue_marketing::edm').first()).toContainText(/EDM/i)
-  await expect(page.getByTestId('sheet-rollup-child-show:venue_marketing::banner').first()).toContainText(/Banner/i)
-  await expect(page.getByTestId('sheet-rollup-child-show:venue_marketing::fb').first()).toContainText(/FB/i)
-
-  await expect(page.getByTestId('settlements-sheet-expected-pnl').first()).toBeVisible()
-  await expect(page.getByTestId('settlements-sheet-actual-pnl').first()).toBeVisible()
-  await expect(page.getByTestId('settlements-sheet-expected-pnl').first()).toContainText(/Pre-Distribution Margin/)
+  await expect(page.getByTestId('settlements-v3-s3')).toBeVisible()
+  await expect(page.getByTestId('settlements-sheet-advancing-costs').first()).toHaveText(/Advancing Costs/i)
+  await expect(page.getByTestId('settlements-v3-s3').getByTestId('settlements-sheet-col2')).toHaveCount(0)
+  await expect(page.getByTestId('settlements-sheet-expected-pnl')).toHaveCount(0)
+  await expect(page.getByTestId('settlements-sheet-actual-pnl')).toHaveCount(0)
   await expect(page.getByTestId('v3-pre-dist-margin').first()).toBeVisible()
   await expect(page.getByTestId('v3-owner-gareth').first()).toBeVisible()
+
+  await page.getByTestId('v3-expand-band_costs').first().click()
+  const paidBadge = page.getByTestId('sheet-band-paid-run:accommodation').first()
+  if (await paidBadge.count()) {
+    await expect(paidBadge).toBeVisible()
+  }
 
   await expect(page.getByTestId('distribute-gate').first()).toBeVisible()
   await expect(page.getByTestId('distribute-gate-rule').first()).toContainText(/confirm-tick/)

@@ -23,8 +23,10 @@ import {
 import {
   DEFINED_RUN_COST_FIELDS,
   DEFINED_SHOW_COST_FIELDS,
+  allEntriesPaid,
   entriesSum,
   lineItemsSum,
+  sectionPayableLines,
 } from './cost-fields.ts'
 import {
   HARBOUR_COMMISSION_RATE,
@@ -51,7 +53,8 @@ export const WAVE1_AGENT_SEGMENT = 'agent'
 export const SETTLEMENTS_DEMO_BADGE = 'DEMO'
 export const SETTLEMENTS_DEMO_GLANCE_LABEL = 'Sample completed show'
 export const SETTLEMENTS_DEMO_BANNER =
-  'DEMO sample completed show — glance Settlements v3 here. Figures come from Advancing and the Harbour / BNZ fixture path; nothing is invented on this page.'
+  'DEMO sample completed show — glance Settlements v3 here. Figures come from Advancing and settlement / remittance email attachments; nothing is invented on this page.'
+export const ADVANCING_COSTS_LABEL = 'Advancing Costs'
 export const COL1_HEADER = 'Line'
 export const COL2_HEADER = 'Expected (Advancing)'
 export const COL2_LIVE_ADVANCING_NOTE =
@@ -93,6 +96,8 @@ export type SheetLine = {
   expected: number | null
   note?: string
   kind: 'count' | 'money'
+  /** Live Advancing PAID roll-up. Settlements must show this as locked PAID. */
+  expectedPaid?: boolean
 }
 
 export type SheetShowInput = {
@@ -189,6 +194,12 @@ export function liveCostAmount(field: CostingSnapshotField): number {
   }
   if (field.entries.length > 0) return entriesSum(field.entries)
   return snapshotFieldTotal(field)
+}
+
+/** True when every Advancing payable on the field is PAID (same roll-up as Run Advancing). */
+export function fieldIsPaidOnAdvancing(field: CostingSnapshotField | undefined): boolean {
+  if (!field) return false
+  return allEntriesPaid(sectionPayableLines(field.field_key, field.entries, field.line_items))
 }
 
 export function venueStaffExpected(opts: {
@@ -326,6 +337,7 @@ export function buildShowSheetLines(opts: {
       expected,
       note: field?.source ?? undefined,
       kind: 'money',
+      expectedPaid: fieldIsPaidOnAdvancing(field),
     })
   }
 
@@ -344,6 +356,7 @@ export function buildShowSheetLines(opts: {
         expected,
         note: def.key === 'social_ads_var' ? `AUTO CALC · $${SOCIAL_ADS_PER_TICKET.toFixed(2)}/ticket` : field?.source ?? undefined,
         kind: 'money',
+        expectedPaid: fieldIsPaidOnAdvancing(field),
       })
     }
   } else {
@@ -466,6 +479,7 @@ export function buildRunSheet(opts: {
       expected,
       note: def.key === 'social_ads_var' ? `AUTO CALC · $${SOCIAL_ADS_PER_TICKET.toFixed(2)}/ticket` : field?.source ?? undefined,
       kind: 'money' as const,
+      expectedPaid: fieldIsPaidOnAdvancing(field),
     }
   })
 
