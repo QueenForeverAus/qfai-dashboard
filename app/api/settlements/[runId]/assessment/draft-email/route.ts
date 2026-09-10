@@ -3,9 +3,9 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { writeAuditLog } from '@/lib/audit-log'
 import { getSettlementsActor, resolveSettlementsRun } from '@/lib/settlements-access'
 import { loadSettlementWorkspace } from '@/lib/settlements-load'
-import { buildRunSheet, showHasOccurred } from '@/lib/settlements-sheet'
+import { buildRunSheet } from '@/lib/settlements-sheet'
 import { applyCol3Actuals, applyCol3ToRunSheet } from '@/lib/settlements-sheet-actuals'
-import { buildV3ShowModel } from '@/lib/settlements-v3'
+import { buildV3RunModel } from '@/lib/settlements-v3'
 import { buildV3RedFlags, formatV3NigelAssessment } from '@/lib/settlements-v3-flags'
 import {
   buildAssessmentEmailDraft,
@@ -44,16 +44,6 @@ export async function POST(
   const data = await loadSettlementWorkspace(run.code)
   if (!data) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
 
-  const show = body.show_id
-    ? data.shows.find(s => s.id === body.show_id)
-    : data.shows.find(s => showHasOccurred(s.show_date)) ?? data.shows[0]
-  if (!show) return NextResponse.json({ error: 'No occurred show on this run' }, { status: 404 })
-  if (!showHasOccurred(show.show_date)) {
-    return NextResponse.json({
-      error: 'Data not yet available — check back when the show has occurred.',
-    }, { status: 409 })
-  }
-
   const runModel = buildRunSheet({
     shows: data.shows,
     fields: data.liveFields,
@@ -61,24 +51,34 @@ export async function POST(
     remittanceLines: data.remittanceKnownLines,
     gstLines: data.gstKnownLines,
   })
+  if (runModel.blocked) {
+    return NextResponse.json({
+      error: 'Data not yet available — check back when the show has occurred.',
+    }, { status: 409 })
+  }
+
   const col3Run = applyCol3ToRunSheet({
     sections: runModel.sections,
     runLines: runModel.runLines,
     actuals: data.actuals,
     remittanceLines: data.gstKnownLines,
   })
-  const section = runModel.sections.find(sec => sec.show.id === show.id)
-  const decorated = section
-    ? applyCol3Actuals({
-        lines: section.lines.filter(l => l.group !== 'run_costs' || l.key === 'run:social_ads_var'),
+  const showSheets = runModel.occurred.map(show => {
+    const section = runModel.sections.find(sec => sec.show.id === show.id)
+    const rawLines = (section?.lines ?? []).filter(l => l.group !== 'run_costs')
+    return {
+      show,
+      lines: applyCol3Actuals({
+        lines: rawLines,
         actuals: data.actuals,
         showId: show.id,
         remittanceLines: data.gstKnownLines,
-      })
-    : []
-  const model = buildV3ShowModel({
-    showId: show.id,
-    lines: decorated,
+      }),
+    }
+  })
+  const model = buildV3RunModel({
+    shows: runModel.occurred,
+    showSheets,
     runLines: col3Run.runLines,
     fields: data.liveFields,
     actuals: data.actuals,
@@ -88,14 +88,14 @@ export async function POST(
   const flags = buildV3RedFlags(model)
   const nigel = formatV3NigelAssessment({
     runCode: data.run.code,
-    venueName: show.venue_name,
+    venueName: data.run.name,
     model,
     flags,
   })
   const draft = buildAssessmentEmailDraft({
     kind: body.kind,
     runCode: data.run.code,
-    venueName: show.venue_name,
+    venueName: data.run.name,
     actorName: actor.fullName,
     model,
     flags,
@@ -107,7 +107,7 @@ export async function POST(
     .from('remittance_challenges')
     .insert({
       run_id: run.id,
-      show_id: show.id,
+      show_id: body.show_id ?? null,
       status: 'draft',
       reason: draft.reason,
       subject: draft.subject,

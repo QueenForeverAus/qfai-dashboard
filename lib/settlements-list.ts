@@ -1,5 +1,9 @@
 /**
- * Settlements index — completed shows only, in three lifecycle buckets.
+ * Settlements index — completed **runs** only, in three lifecycle buckets.
+ *
+ * Grain is the run: one list card per run. Multi-show weekends (Gosford+Richmond,
+ * Auckland+Hamilton, and every future pairing) are a single Settlements entry.
+ * Nested venue rows are roster, not separate settlements.
  *
  * The list is post-show close. Proposed, BOOKED-future, in-progress, and
  * not-yet-complete runs stay on Tour Desk (Advancing / Run Costings).

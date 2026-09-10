@@ -24,7 +24,11 @@ export const V3_FLAG_CODES = [
   'other-venue-charges',
   'harbour-variance',
   'wild-variance',
+  'vt-package-staff-overlap',
 ] as const
+
+export const VT_PACKAGE_STAFF_OVERLAP_NOTE =
+  'Venue Production/AV (VT / tech package) and Venue Staff both have Expected from costings. Expanding both can look like duplicate Expected. This is an overlap FLAG, not a −X/+X variance and not a second Actual.'
 
 export type V3FlagCode = (typeof V3_FLAG_CODES)[number]
 
@@ -156,6 +160,18 @@ export function buildV3RedFlags(model: V3ShowModel): V3RedFlag[] {
       title: 'GST quarantine missing',
       detail: model.actual.gstSourceLabel,
       rowKey: 'gst_quarantine',
+    })
+  }
+
+  const staffRow = byKey('staff')
+  const productionRow = byKey('production')
+  if ((staffRow?.expected ?? 0) > 0 && (productionRow?.expected ?? 0) > 0) {
+    flags.push({
+      code: 'vt-package-staff-overlap',
+      severity: 'info',
+      title: 'VT package / staff Expected overlap',
+      detail: VT_PACKAGE_STAFF_OVERLAP_NOTE,
+      rowKey: 'production',
     })
   }
 

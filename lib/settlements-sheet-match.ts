@@ -48,6 +48,10 @@ export type SheetMatchChild = {
   lineKey: string
   label: string
   amount: number
+  /** Costing Expected for a venue child. Actual stays `amount` only when a statement line exists. */
+  expected?: number | null
+  /** True when this child is costings-only (no settlement_actual_lines / PDF). */
+  expectedOnly?: boolean
   status: MatchableActual['status']
   paid: boolean
   challengeId: string | null

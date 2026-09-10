@@ -10,6 +10,7 @@ import {
   hasSettlementIn,
   isSettlementsListCompletedRun,
 } from '../../lib/settlements-list.ts'
+import { settlementSheetHref } from '../../lib/settlements-sheet.ts'
 
 const TODAY = '2026-09-07'
 const past = { show_date: '2026-07-18' }
@@ -105,6 +106,26 @@ test('buckets: not settled / settled / settled & remitted', () => {
     remittanceStatus: 'accepted',
     hasVenueSettlementActuals: true,
   }), 'settled_remitted')
+})
+
+test('multi-show completed run is one list entry, never one card per show', () => {
+  const kept = filterSettlementsListRuns([
+    {
+      code: '26R01',
+      status: 'confirmed',
+      shows: [{ show_date: '2026-08-21' }, { show_date: '2026-08-22' }],
+    },
+    {
+      code: '26R02',
+      status: 'confirmed',
+      shows: [{ show_date: '2026-09-04' }, { show_date: '2026-09-05' }],
+    },
+  ], TODAY)
+  assert.deepEqual(kept.map(r => r.code), ['26R01', '26R02'])
+  assert.equal(kept[0].shows.length, 2)
+  assert.equal(kept[1].shows.length, 2)
+  assert.equal(settlementSheetHref('26R01'), '/settlements/26r01')
+  assert.equal(settlementSheetHref('26R02', 'd96aa3b0-cfed-4db4-926f-34490291d677'), '/settlements/26r02#venue-d96aa3b0-cfed-4db4-926f-34490291d677')
 })
 
 test('server-side filter drops proposed / BOOKED future / in-progress', () => {

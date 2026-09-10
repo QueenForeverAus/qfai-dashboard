@@ -115,6 +115,7 @@ test('post-show TCOMP1 v3 sheet: sections, email scrape (no fixture loaders), Ad
   await expect(page.getByTestId('sheet-bnz-fixture')).toHaveCount(0)
   await expect(page.getByTestId('settlements-email-scrape-note')).toContainText(/email attachments/)
 
+  await expect(page.getByTestId('settlements-v3-s3')).toHaveCount(1)
   await expect(page.getByTestId('settlements-v3-s3')).toBeVisible()
   await expect(page.getByTestId('settlements-sheet-advancing-costs').first()).toHaveText(/Advancing Costs/i)
   await expect(page.getByTestId('settlements-v3-s3').getByTestId('settlements-sheet-col2')).toHaveCount(0)

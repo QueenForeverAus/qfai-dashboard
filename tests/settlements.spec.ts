@@ -31,6 +31,16 @@ test('Settlements lists runs; opening a run lands on the 3-col sheet', async ({ 
   }
 
   await expect(page.getByTestId('settlements-bucket-tabs')).toBeVisible()
+  if (await page.getByTestId('settlements-list-run-grain').count()) {
+    await expect(page.getByTestId('settlements-list-run-grain')).toBeVisible()
+  }
+  for (const code of ['26R01', '26R02']) {
+    const card = page.getByTestId(`settlement-run-${code}`)
+    if (await card.count()) {
+      await expect(card).toHaveCount(1)
+      await expect(card).toHaveAttribute('href', new RegExp(`/settlements/${code.toLowerCase()}/?$`))
+    }
+  }
   await expect(page.getByTestId('settlement-run-R12')).toHaveCount(0)
 
   const completed = page.getByTestId(/^settlement-run-/)

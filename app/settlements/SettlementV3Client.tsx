@@ -16,12 +16,9 @@ import {
   TICKETS_SOLD_HELP,
   TICKETS_SOLD_LABEL,
   buildRunSheet,
-  buildShowSheetLines,
   col2SourceNote,
   isSettlementsDemoRun,
-  resolveTicketsSold,
   settlementSheetHref,
-  showHasOccurred,
   type SettlementExpectedSource,
 } from '@/lib/settlements-sheet'
 import {
@@ -56,7 +53,7 @@ import {
   V3_COL_EXPECTED,
   V3_COL_LINE,
   V3_HEADING,
-  buildV3ShowModel,
+  buildV3RunModel,
   v3SectionMeta,
   type V3RollupRow,
   type V3SectionId,
@@ -72,6 +69,14 @@ import {
   type SettlementAssessmentMessage,
 } from '@/lib/settlements-v3-assessment'
 import SettlementsTabBar from './SettlementsTabBar'
+
+function hireActualConfirmed(row: V3RollupRow): boolean {
+  return row.children.some(child => {
+    const source = child.sheetLine?.actualSource
+    return child.sheetLine?.actualStatus === 'confirmed'
+      && (source === 'manual' || source === 'harbour_fixture' || source === 'email_scrape')
+  })
+}
 
 function fmtMoneyOrDash(value: number | null | undefined, kind: 'count' | 'money' = 'money'): string {
   if (value == null) return '—'
@@ -136,6 +141,7 @@ function DistributeGateBlock({
 
 function ChildActions({
   line,
+  showId,
   busy,
   onConfirmVenue,
   onChallenge,
@@ -144,12 +150,13 @@ function ChildActions({
   onQuoteNote,
 }: {
   line: DecoratedSheetLine
+  showId: string | null
   busy: boolean
-  onConfirmVenue: (line: DecoratedSheetLine, amount: number) => void
-  onChallenge: (line: DecoratedSheetLine) => void
-  onSaveBand: (line: DecoratedSheetLine, amount: number) => void
-  onTogglePaid: (line: DecoratedSheetLine, paid: boolean) => void
-  onQuoteNote: (line: DecoratedSheetLine, note: string) => void
+  onConfirmVenue: (line: DecoratedSheetLine, amount: number, showId: string | null) => void
+  onChallenge: (line: DecoratedSheetLine, showId: string | null) => void
+  onSaveBand: (line: DecoratedSheetLine, amount: number, showId: string | null) => void
+  onTogglePaid: (line: DecoratedSheetLine, paid: boolean, showId: string | null) => void
+  onQuoteNote: (line: DecoratedSheetLine, note: string, showId: string | null) => void
 }) {
   const [draft, setDraft] = useState(line.actual == null ? '' : String(line.actual))
   const [note, setNote] = useState(line.quoteNote ?? '')
@@ -174,7 +181,7 @@ function ChildActions({
               type="button"
               disabled={busy || draft === ''}
               data-testid={`sheet-actual-confirm-${line.key}`}
-              onClick={() => onConfirmVenue(line, Number(draft))}
+              onClick={() => onConfirmVenue(line, Number(draft), showId)}
               className="text-[10px] font-semibold px-2 py-1 rounded bg-teal-900/50 text-teal-300 border border-teal-800 disabled:opacity-40"
             >
               Confirm
@@ -190,7 +197,7 @@ function ChildActions({
             type="button"
             disabled={busy}
             data-testid={`sheet-challenge-${line.key}`}
-            onClick={() => onChallenge(line)}
+            onClick={() => onChallenge(line, showId)}
             className="text-[10px] font-semibold px-2 py-1 rounded border border-slate-600 text-slate-400 hover:text-amber-300"
           >
             {CHALLENGE_BUTTON_LABEL} line
@@ -217,7 +224,7 @@ function ChildActions({
             type="button"
             disabled={busy || locked || draft === ''}
             data-testid={`sheet-band-save-${line.key}`}
-            onClick={() => onSaveBand(line, Number(draft))}
+            onClick={() => onSaveBand(line, Number(draft), showId)}
             className="text-[10px] font-semibold px-2 py-1 rounded bg-slate-700 text-slate-200 disabled:opacity-40"
           >
             Save
@@ -233,11 +240,11 @@ function ChildActions({
             {line.actualPaid ? 'PAID' : 'OPEN'}
           </span>
           {line.actualPaid ? (
-            <button type="button" disabled={busy} data-testid={`sheet-band-reopen-${line.key}`} onClick={() => onTogglePaid(line, false)} className="text-[10px] text-slate-500">
+            <button type="button" disabled={busy} data-testid={`sheet-band-reopen-${line.key}`} onClick={() => onTogglePaid(line, false, showId)} className="text-[10px] text-slate-500">
               Reopen
             </button>
           ) : (
-            <button type="button" disabled={busy} data-testid={`sheet-band-paid-btn-${line.key}`} onClick={() => onTogglePaid(line, true)} className="text-[10px] font-semibold text-teal-300">
+            <button type="button" disabled={busy} data-testid={`sheet-band-paid-btn-${line.key}`} onClick={() => onTogglePaid(line, true, showId)} className="text-[10px] font-semibold text-teal-300">
               Mark PAID
             </button>
           )}
@@ -249,7 +256,7 @@ function ChildActions({
           data-testid={`sheet-band-quote-${line.key}`}
           onChange={e => setNote(e.target.value)}
           onBlur={() => {
-            if ((note.trim() || null) !== (line.quoteNote ?? null)) onQuoteNote(line, note)
+            if ((note.trim() || null) !== (line.quoteNote ?? null)) onQuoteNote(line, note, showId)
           }}
           placeholder={quoteInvoiceStubLabel()}
           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-300 disabled:opacity-50"
@@ -274,11 +281,11 @@ function RollupTable({
   busy: boolean
   compareChrome?: boolean
   childHandlers: {
-    onConfirmVenue: (line: DecoratedSheetLine, amount: number) => void
-    onChallenge: (line: DecoratedSheetLine) => void
-    onSaveBand: (line: DecoratedSheetLine, amount: number) => void
-    onTogglePaid: (line: DecoratedSheetLine, paid: boolean) => void
-    onQuoteNote: (line: DecoratedSheetLine, note: string) => void
+    onConfirmVenue: (line: DecoratedSheetLine, amount: number, showId: string | null) => void
+    onChallenge: (line: DecoratedSheetLine, showId: string | null) => void
+    onSaveBand: (line: DecoratedSheetLine, amount: number, showId: string | null) => void
+    onTogglePaid: (line: DecoratedSheetLine, paid: boolean, showId: string | null) => void
+    onQuoteNote: (line: DecoratedSheetLine, note: string, showId: string | null) => void
   }
 }) {
   return (
@@ -332,7 +339,7 @@ function RollupTable({
                       </td>
                       <td className={`py-2 px-3 text-right tabular-nums ${row.highlight ? 'text-teal-300 font-semibold' : 'text-white'}`} data-testid={row.key === 'hire' ? 'sheet-actual-show:venue_hire' : undefined}>
                         {fmtMoneyOrDash(row.actual, row.kind)}
-                        {row.key === 'hire' && row.actual != null && (
+                        {row.key === 'hire' && hireActualConfirmed(row) && (
                           <div className="text-[10px] text-teal-400" data-testid="sheet-actual-status-show:venue_hire">{VENUE_CONFIRMED_LABEL}</div>
                         )}
                       </td>
@@ -370,8 +377,9 @@ function RollupTable({
                     <td className="py-1.5 pl-3 align-top">
                       {child.sheetLine && (
                         <ChildActions
-                          key={`${child.sheetLine.key}:${child.sheetLine.actual}:${child.sheetLine.actualPaid}`}
+                          key={`${child.sheetLine.key}:${child.showId ?? ''}:${child.sheetLine.actual}:${child.sheetLine.actualPaid}`}
                           line={child.sheetLine}
+                          showId={child.showId ?? null}
                           busy={busy}
                           {...childHandlers}
                         />
@@ -407,7 +415,11 @@ function SectionCard({
 }) {
   const meta = v3SectionMeta(id)
   return (
-    <section className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-3" data-testid={meta.testId}>
+    <section
+      className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-3"
+      data-testid={meta.testId}
+      {...(id === 3 ? { 'data-advancing-once': 'true' } : {})}
+    >
       <div>
         <h2 className="text-white font-semibold">{meta.title}</h2>
         <p className="text-[11px] text-slate-500 mt-1">{meta.note}</p>
@@ -470,7 +482,6 @@ export default function SettlementV3Client({
   const [draftPreview, setDraftPreview] = useState<RemittanceChallenge | null>(null)
   const [chatBody, setChatBody] = useState('')
 
-  const focusedShow = shows.find(s => s.id === focusedShowId) ?? null
   const gstLines = gstKnownLines ?? remittanceKnownLines
   const runModel = useMemo(
     () => buildRunSheet({
@@ -502,56 +513,34 @@ export default function SettlementV3Client({
     [liveFields, bandCosts, actuals],
   )
 
-  const focusedBlocked = focusedShow ? !showHasOccurred(focusedShow.show_date) : runModel.blocked
-  const displayShows: SettlementShow[] = focusedShow
-    ? [focusedShow]
-    : shows.filter(s => runModel.occurred.some(o => o.id === s.id))
+  const displayShows: SettlementShow[] = shows.filter(s => runModel.occurred.some(o => o.id === s.id))
+  const focusedBlocked = runModel.blocked
 
-  const models = useMemo(() => {
-    return displayShows.map(show => {
-      const resolved = resolveTicketsSold({ entered: show.tickets_sold })
-      const built = focusedShow
-        ? buildShowSheetLines({
-            show,
-            fields: liveFields,
-            tickets: resolved.tickets,
-            ticketsSource: resolved.source,
-            factors: insideFactors,
-            remittanceLines: remittanceKnownLines,
-            gstLines,
-            includeRunCosts: true,
-          })
-        : runModel.sections.find(sec => sec.show.id === show.id)!
-      const rawLines = focusedShow
-        ? built.lines
-        : built.lines.filter(l => l.group !== 'run_costs' || l.key === 'run:social_ads_var')
+  const model = useMemo(() => {
+    const showSheets = displayShows.map(show => {
+      const built = runModel.sections.find(sec => sec.show.id === show.id)
+      const rawLines = (built?.lines ?? []).filter(l => l.group !== 'run_costs')
       const lines = applyCol3Actuals({ lines: rawLines, actuals, showId: show.id, remittanceLines: gstLines })
-      const runLines = focusedShow
-        ? lines.filter(l => l.group === 'run_costs')
-        : col3Run.runLines
-      const model = buildV3ShowModel({
-        showId: show.id,
-        lines,
-        runLines,
-        fields: liveFields,
-        actuals,
-        remittanceLines,
-        gstLines,
-      })
-      return { show, lines, model }
+      return { show, lines }
     })
-  }, [displayShows, focusedShow, liveFields, insideFactors, remittanceKnownLines, gstLines, runModel, actuals, col3Run.runLines, remittanceLines])
+    return buildV3RunModel({
+      shows: displayShows,
+      showSheets,
+      runLines: col3Run.runLines,
+      fields: liveFields,
+      actuals,
+      remittanceLines,
+      gstLines,
+    })
+  }, [displayShows, liveFields, gstLines, runModel, actuals, col3Run.runLines, remittanceLines])
 
-  const primary = models[0]
-  const flags = primary ? buildV3RedFlags(primary.model) : []
-  const nigel = primary
-    ? formatV3NigelAssessment({
-        runCode: run.code,
-        venueName: primary.show.venue_name,
-        model: primary.model,
-        flags,
-      })
-    : ''
+  const flags = buildV3RedFlags(model)
+  const nigel = formatV3NigelAssessment({
+    runCode: run.code,
+    venueName: run.name,
+    model,
+    flags,
+  })
 
   function toggle(key: string) {
     setExpanded(prev => {
@@ -683,7 +672,7 @@ export default function SettlementV3Client({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           kind,
-          show_id: primary?.show.id ?? focusedShowId,
+          show_id: null,
           send: false,
         }),
       })
@@ -699,29 +688,29 @@ export default function SettlementV3Client({
   }
 
   const childHandlers = {
-    onConfirmVenue: (line: DecoratedSheetLine, amount: number) => {
-      void upsertActual({ line, showId: primary?.show.id ?? null, amount })
+    onConfirmVenue: (line: DecoratedSheetLine, amount: number, showId: string | null) => {
+      void upsertActual({ line, showId: line.key.startsWith('run:') ? null : showId, amount })
     },
-    onChallenge: (line: DecoratedSheetLine) => {
+    onChallenge: (line: DecoratedSheetLine, showId: string | null) => {
       setDraftPreview(null)
-      setChallengeLine({ line, showId: primary?.show.id ?? null })
+      setChallengeLine({ line, showId: line.key.startsWith('run:') ? null : showId })
     },
-    onSaveBand: (line: DecoratedSheetLine, amount: number) => {
-      void upsertActual({ line, showId: line.key.startsWith('run:') ? null : primary?.show.id ?? null, amount, source: 'manual' })
+    onSaveBand: (line: DecoratedSheetLine, amount: number, showId: string | null) => {
+      void upsertActual({ line, showId: line.key.startsWith('run:') ? null : showId, amount, source: 'manual' })
     },
-    onTogglePaid: (line: DecoratedSheetLine, paid: boolean) => {
+    onTogglePaid: (line: DecoratedSheetLine, paid: boolean, showId: string | null) => {
       void upsertActual({
         line,
-        showId: line.key.startsWith('run:') ? null : primary?.show.id ?? null,
+        showId: line.key.startsWith('run:') ? null : showId,
         amount: line.actual ?? line.expected ?? 0,
         paid,
         source: line.actualSource === 'advancing_copy' ? 'advancing_copy' : 'manual',
       })
     },
-    onQuoteNote: (line: DecoratedSheetLine, note: string) => {
+    onQuoteNote: (line: DecoratedSheetLine, note: string, showId: string | null) => {
       void upsertActual({
         line,
-        showId: line.key.startsWith('run:') ? null : primary?.show.id ?? null,
+        showId: line.key.startsWith('run:') ? null : showId,
         amount: line.actual ?? line.expected ?? 0,
         quote_note: note,
         source: line.actualSource === 'advancing_copy' ? 'advancing_copy' : 'manual',
@@ -745,9 +734,8 @@ export default function SettlementV3Client({
           </div>
           <h1 className="text-white text-2xl font-bold">{run.name}</h1>
           <p className="text-slate-400 text-sm mt-1">
-            {focusedShow
-              ? `${focusedShow.venue_name} · ${formatDateAU(focusedShow.show_date)}`
-              : `${formatDateAU(run.start_date)}${run.start_date !== run.end_date ? ` – ${formatDateAU(run.end_date)}` : ''}`}
+            {formatDateAU(run.start_date)}{run.start_date !== run.end_date ? ` – ${formatDateAU(run.end_date)}` : ''}
+            {displayShows.length > 1 ? ` · ${displayShows.length} shows on this run` : ''}
           </p>
           <p className="text-slate-500 text-xs mt-2 max-w-2xl" data-testid="settlements-sheet-col2-note">
             {col2SourceNote(expectedSource)} Expected is Advancing. {COL2_LIVE_ADVANCING_NOTE}
@@ -760,25 +748,22 @@ export default function SettlementV3Client({
         </div>
       </div>
 
-      <SettlementsTabBar runCode={run.code} showId={focusedShowId} active="sheet" />
+      <SettlementsTabBar runCode={run.code} showId={null} active="sheet" />
 
       {shows.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-4">
-          <Link
-            href={settlementSheetHref(run.code)}
-            className={`px-2.5 py-1 rounded-md text-xs border ${!focusedShowId ? 'bg-amber-400/10 text-amber-400 border-amber-700' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}
-          >
-            All shows
-          </Link>
+        <div className="flex flex-wrap gap-1.5 mb-4" data-testid="settlements-run-venues">
+          <span className="px-2.5 py-1 rounded-md text-xs border bg-amber-400/10 text-amber-400 border-amber-700">
+            Run settlement
+          </span>
           {shows.map(show => (
-            <Link
+            <a
               key={show.id}
-              href={settlementSheetHref(run.code, show.id)}
-              className={`px-2.5 py-1 rounded-md text-xs border ${focusedShowId === show.id ? 'bg-amber-400/10 text-amber-400 border-amber-700' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}
+              href={`#venue-${show.id}`}
+              className={`px-2.5 py-1 rounded-md text-xs border ${focusedShowId === show.id ? 'bg-slate-700 text-white border-slate-500' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}
             >
               {show.venue_name}
               <span className="text-slate-600 ml-1">{formatDateShortAU(show.show_date)}</span>
-            </Link>
+            </a>
           ))}
         </div>
       )}
@@ -809,6 +794,16 @@ export default function SettlementV3Client({
                       ? 'border-red-700 bg-red-950/40 text-red-200'
                       : 'border-orange-800 bg-orange-950/30 text-orange-200'
                   }`}
+                >
+                  <span className="font-semibold">{flag.title}</span>
+                  <span className="block text-xs opacity-80 mt-0.5">{flag.detail}</span>
+                </div>
+              ))}
+              {flags.filter(f => f.code === 'vt-package-staff-overlap').map(flag => (
+                <div
+                  key={flag.code}
+                  data-testid={`v3-flag-${flag.code}`}
+                  className="rounded-lg border border-slate-600 bg-slate-900/50 px-3 py-2 text-sm text-slate-300"
                 >
                   <span className="font-semibold">{flag.title}</span>
                   <span className="block text-xs opacity-80 mt-0.5">{flag.detail}</span>
@@ -874,24 +869,21 @@ export default function SettlementV3Client({
           </div>
           <p className="text-[11px] text-slate-600" data-testid="settlements-email-scrape-note">{EMAIL_SCRAPE_INGEST_NOTE}</p>
 
-          {models.map(({ show, model }) => (
-            <ShowV3Blocks
-              key={show.id}
-              show={show}
-              model={model}
-              draftTickets={draftTickets[show.id] ?? ''}
-              onTickets={v => setDraftTickets(prev => ({ ...prev, [show.id]: v }))}
-              onSaveTickets={() => void saveTickets(show.id)}
-              busy={busy}
-              expanded={expanded}
-              onToggle={toggle}
-              childHandlers={childHandlers}
-              gate={distributeGate}
-              runId={run.id}
-              onBusy={setBusy}
-              onError={setError}
-            />
-          ))}
+          <RunV3Blocks
+            shows={displayShows}
+            model={model}
+            draftTickets={draftTickets}
+            onTickets={(showId, v) => setDraftTickets(prev => ({ ...prev, [showId]: v }))}
+            onSaveTickets={showId => void saveTickets(showId)}
+            busy={busy}
+            expanded={expanded}
+            onToggle={toggle}
+            childHandlers={childHandlers}
+            gate={distributeGate}
+            runId={run.id}
+            onBusy={setBusy}
+            onError={setError}
+          />
 
           {challengeLine && (
             <section className="bg-slate-800 rounded-xl border border-amber-800/50 p-4 space-y-3" data-testid="sheet-challenge-panel">
@@ -953,8 +945,8 @@ export default function SettlementV3Client({
   )
 }
 
-function ShowV3Blocks({
-  show,
+function RunV3Blocks({
+  shows,
   model,
   draftTickets,
   onTickets,
@@ -968,11 +960,11 @@ function ShowV3Blocks({
   onBusy,
   onError,
 }: {
-  show: SettlementShow
+  shows: SettlementShow[]
   model: V3ShowModel
-  draftTickets: string
-  onTickets: (v: string) => void
-  onSaveTickets: () => void
+  draftTickets: Record<string, string>
+  onTickets: (showId: string, v: string) => void
+  onSaveTickets: (showId: string) => void
   busy: boolean
   expanded: Set<string>
   onToggle: (key: string) => void
@@ -983,42 +975,54 @@ function ShowV3Blocks({
   onError: (msg: string | null) => void
 }) {
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="space-y-4" data-testid="settlements-run-grain">
+      <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-3">
         <div>
-          <h2 className="text-white font-semibold">{show.venue_name}</h2>
-          <p className="text-slate-500 text-xs mt-0.5">
-            {show.venue_city} · {formatDateAU(show.show_date)}
-            {show.capacity ? ` · Cap ${show.capacity.toLocaleString()}` : ''}
-            {show.ticket_price != null ? ` · $${Number(show.ticket_price).toFixed(2)} nett` : ''}
+          <h2 className="text-white font-semibold">Shows on this run</h2>
+          <p className="text-[11px] text-slate-500 mt-1">
+            One settlement covers every show. Ticket counts stay per venue; hire / staff / marketing / AV roll into the run.
           </p>
         </div>
-        <form
-          className="flex flex-wrap items-end gap-2"
-          data-testid={`sheet-tickets-form-${show.id}`}
-          onSubmit={e => {
-            e.preventDefault()
-            onSaveTickets()
-          }}
-        >
-          <label className="text-[10px] uppercase tracking-wide text-slate-500">
-            {TICKETS_SOLD_LABEL}
-            <input
-              type="number"
-              min={0}
-              step={1}
-              value={draftTickets}
-              onChange={e => onTickets(e.target.value)}
-              data-testid={`sheet-tickets-input-${show.id}`}
-              className="mt-1 block w-28 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm"
-            />
-          </label>
-          <button type="submit" disabled={busy} data-testid={`sheet-tickets-save-${show.id}`} className="bg-amber-400 text-slate-900 text-xs font-semibold px-3 py-1.5 rounded disabled:opacity-50">
-            {busy ? 'Saving…' : 'Save count'}
-          </button>
-        </form>
+        <ul className="space-y-3">
+          {shows.map(show => (
+            <li key={show.id} id={`venue-${show.id}`} className="flex flex-wrap items-end justify-between gap-3 scroll-mt-4 target:ring-1 target:ring-amber-600 rounded-lg">
+              <div>
+                <div className="text-slate-200 text-sm">{show.venue_name}</div>
+                <p className="text-slate-500 text-xs mt-0.5">
+                  {show.venue_city} · {formatDateAU(show.show_date)}
+                  {show.capacity ? ` · Cap ${show.capacity.toLocaleString()}` : ''}
+                  {show.ticket_price != null ? ` · $${Number(show.ticket_price).toFixed(2)} nett` : ''}
+                </p>
+              </div>
+              <form
+                className="flex flex-wrap items-end gap-2"
+                data-testid={`sheet-tickets-form-${show.id}`}
+                onSubmit={e => {
+                  e.preventDefault()
+                  onSaveTickets(show.id)
+                }}
+              >
+                <label className="text-[10px] uppercase tracking-wide text-slate-500">
+                  {TICKETS_SOLD_LABEL}
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={draftTickets[show.id] ?? ''}
+                    onChange={e => onTickets(show.id, e.target.value)}
+                    data-testid={`sheet-tickets-input-${show.id}`}
+                    className="mt-1 block w-28 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm"
+                  />
+                </label>
+                <button type="submit" disabled={busy} data-testid={`sheet-tickets-save-${show.id}`} className="bg-amber-400 text-slate-900 text-xs font-semibold px-3 py-1.5 rounded disabled:opacity-50">
+                  {busy ? 'Saving…' : 'Save count'}
+                </button>
+              </form>
+            </li>
+          ))}
+        </ul>
+        <p className="text-[11px] text-slate-600">{TICKETS_SOLD_HELP}</p>
       </div>
-      <p className="text-[11px] text-slate-600">{TICKETS_SOLD_HELP}</p>
 
       <SectionCard id={1} rows={model.section1} expanded={expanded} onToggle={onToggle} busy={busy} childHandlers={childHandlers} />
       <SectionCard id={2} rows={model.section2} expanded={expanded} onToggle={onToggle} busy={busy} childHandlers={childHandlers} />

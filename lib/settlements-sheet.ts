@@ -1,9 +1,9 @@
 /**
  * Settlements 3-column Expected vs Actual sheet — the Settlements front door.
  *
- * REPLACE (not additive): `/settlements/{run}` and show-scoped
- * `/settlements/{run}/{show}` are this sheet. Wave-1 Agent Settlement lives
- * at `/agent`. Legacy `/sheet` redirects here.
+ * REPLACE (not additive): `/settlements/{run}` is the one run settlement.
+ * `/settlements/{run}/{show}` redirects to that sheet (`#venue-…`).
+ * Wave-1 Agent Settlement lives at `/agent`. Legacy `/sheet` redirects here.
  *
  * Col1 labels · Col2 live Advancing expected · Col3 actuals.
  * Col2 binds to advancing_cost_fields + Advancing shows chrome when an
@@ -116,10 +116,15 @@ export type SheetShowInput = {
 
 export type TicketsSoldSource = 'entered' | 'known' | 'missing'
 
-/** Canonical 3-col Expected vs Actual sheet (Settlements front door). */
+/**
+ * Canonical Settlements front door — always one settlement per **run**.
+ * `showId` is a venue bookmark (`#venue-…`) on that run sheet, never a
+ * second settlement URL. Staging used `/settlements/{run}/{showId}` as
+ * another card (and another §3 Advancing Costs).
+ */
 export function settlementSheetHref(runCode: string, showId?: string | null): string {
   const base = `/settlements/${runCode.toLowerCase()}`
-  return showId ? `${base}/${showId}` : base
+  return showId ? `${base}#venue-${showId}` : base
 }
 
 /** Wave-1 Agent Settlement workspace — secondary route, not the front door. */
@@ -189,11 +194,12 @@ export function socialAdsForTickets(tickets: number | null | undefined): number 
 }
 
 export function liveCostAmount(field: CostingSnapshotField): number {
-  if (field.field_key === 'venue_staff' && field.line_items.length > 0) {
-    return lineItemsSum(field.line_items)
-  }
-  if (field.entries.length > 0) return entriesSum(field.entries)
-  return snapshotFieldTotal(field)
+  const raw = field.field_key === 'venue_staff' && field.line_items.length > 0
+    ? lineItemsSum(field.line_items)
+    : field.entries.length > 0
+      ? entriesSum(field.entries)
+      : snapshotFieldTotal(field)
+  return roundMoney(Math.abs(Number(raw) || 0))
 }
 
 /** True when every Advancing payable on the field is PAID (same roll-up as Run Advancing). */
