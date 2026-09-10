@@ -15,9 +15,13 @@ import {
   type SeatPreference,
   type ShirtSize,
 } from '@/lib/profile-self'
+import { maskSensitiveLast4 } from '@/lib/profile-access'
 
 const inputClass =
   'w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 [color-scheme:dark]'
+
+const lockedInputClass =
+  `${inputClass} read-only:text-slate-300 disabled:text-slate-300 disabled:opacity-80 cursor-default`
 
 const labelClass = 'block text-slate-300 text-sm font-medium mb-1.5'
 
@@ -134,6 +138,7 @@ export default function ProfilePage() {
   const [form, setForm] = useState<ProfileFormState>(EMPTY_FORM)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [editing, setEditing] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [toast, setToast] = useState<string | null>(null)
 
@@ -181,9 +186,13 @@ export default function ProfilePage() {
     }
     if (body) setForm(formFromProfile(body as ProfilePublic))
     await refreshProfile()
+    setEditing(false)
     setToast('Profile saved.')
     window.setTimeout(() => setToast(null), 3500)
   }
+
+  const locked = !editing
+  const fieldClass = locked ? lockedInputClass : inputClass
 
   async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault()
@@ -237,32 +246,44 @@ export default function ProfilePage() {
         </div>
       )}
 
-      <div className="mb-6">
-        <h1 className="text-white text-2xl font-bold">Profile</h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Your band and crew details. Visible to you, and to Portal owners/admins for tour ops.
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-white text-2xl font-bold">Profile</h1>
+          <p className="text-slate-400 text-sm mt-1">
+            Your band and crew details. Visible to you, and to Portal owners/admins for tour ops.
+          </p>
+        </div>
+        {locked && (
+          <button
+            type="button"
+            data-testid="profile-edit"
+            onClick={() => setEditing(true)}
+            className="flex-shrink-0 bg-slate-700 hover:bg-slate-600 text-white font-semibold px-4 py-2.5 rounded-lg transition-colors"
+          >
+            Edit
+          </button>
+        )}
       </div>
 
-      <form onSubmit={handleSave} className="space-y-5">
+      <form onSubmit={handleSave} className="space-y-5" data-testid={locked ? 'profile-locked' : 'profile-editing'}>
         <Section title="Contact">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="First name">
-              <input className={inputClass} value={form.first_name} onChange={e => set('first_name', e.target.value)} autoComplete="given-name" />
+              <input className={fieldClass} value={form.first_name} onChange={e => set('first_name', e.target.value)} autoComplete="given-name" readOnly={locked} />
             </Field>
             <Field label="Second / last name">
-              <input className={inputClass} value={form.last_name} onChange={e => set('last_name', e.target.value)} autoComplete="family-name" />
+              <input className={fieldClass} value={form.last_name} onChange={e => set('last_name', e.target.value)} autoComplete="family-name" readOnly={locked} />
             </Field>
           </div>
           <Field label="Nickname">
-            <input className={inputClass} value={form.nickname} onChange={e => set('nickname', e.target.value)} />
+            <input className={fieldClass} value={form.nickname} onChange={e => set('nickname', e.target.value)} readOnly={locked} />
           </Field>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Mobile">
-              <input className={inputClass} value={form.mobile} onChange={e => set('mobile', e.target.value)} type="tel" autoComplete="tel" />
+              <input className={fieldClass} value={form.mobile} onChange={e => set('mobile', e.target.value)} type="tel" autoComplete="tel" readOnly={locked} />
             </Field>
             <Field label="Email address" hint="Contact email on file. This does not change the email you use to sign in.">
-              <input className={inputClass} value={form.email} onChange={e => set('email', e.target.value)} type="email" autoComplete="email" required />
+              <input className={fieldClass} value={form.email} onChange={e => set('email', e.target.value)} type="email" autoComplete="email" required readOnly={locked} />
             </Field>
           </div>
         </Section>
@@ -270,10 +291,24 @@ export default function ProfilePage() {
         <Section title="Frequent flyer">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Qantas FF#">
-              <input className={inputClass} value={form.qantas_ff} onChange={e => set('qantas_ff', e.target.value)} autoComplete="off" />
+              <input
+                className={fieldClass}
+                data-testid="profile-qantas-ff"
+                value={locked ? maskSensitiveLast4(form.qantas_ff) : form.qantas_ff}
+                onChange={e => set('qantas_ff', e.target.value)}
+                autoComplete="off"
+                readOnly={locked}
+              />
             </Field>
             <Field label="Virgin FF#">
-              <input className={inputClass} value={form.virgin_ff} onChange={e => set('virgin_ff', e.target.value)} autoComplete="off" />
+              <input
+                className={fieldClass}
+                data-testid="profile-virgin-ff"
+                value={locked ? maskSensitiveLast4(form.virgin_ff) : form.virgin_ff}
+                onChange={e => set('virgin_ff', e.target.value)}
+                autoComplete="off"
+                readOnly={locked}
+              />
             </Field>
           </div>
         </Section>
@@ -281,17 +316,19 @@ export default function ProfilePage() {
         <Section title="Travel preferences">
           <Field label="Dietary requirements">
             <textarea
-              className={inputClass}
+              className={fieldClass}
               rows={2}
               value={form.dietary_requirements}
               onChange={e => set('dietary_requirements', e.target.value)}
+              readOnly={locked}
             />
           </Field>
           <Field label="Seat preference (planes)" hint="Leave blank if you have no preference.">
             <select
-              className={inputClass}
+              className={fieldClass}
               value={form.seat_preference}
               onChange={e => set('seat_preference', e.target.value as SeatPreference | '')}
+              disabled={locked}
             >
               <option value="">No preference</option>
               {SEAT_PREFERENCES.map(value => (
@@ -304,10 +341,10 @@ export default function ProfilePage() {
         <Section title="Emergency & extras">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Emergency contact name">
-              <input className={inputClass} value={form.emergency_contact_name} onChange={e => set('emergency_contact_name', e.target.value)} />
+              <input className={fieldClass} value={form.emergency_contact_name} onChange={e => set('emergency_contact_name', e.target.value)} readOnly={locked} />
             </Field>
             <Field label="Emergency contact mobile">
-              <input className={inputClass} value={form.emergency_contact_mobile} onChange={e => set('emergency_contact_mobile', e.target.value)} type="tel" />
+              <input className={fieldClass} value={form.emergency_contact_mobile} onChange={e => set('emergency_contact_mobile', e.target.value)} type="tel" readOnly={locked} />
             </Field>
           </div>
           <div>
@@ -318,7 +355,7 @@ export default function ProfilePage() {
                 <div key={index} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
                   <Field label="Programme name">
                     <input
-                      className={inputClass}
+                      className={fieldClass}
                       value={row.programme_name}
                       onChange={e => {
                         const next = [...form.hotel_memberships]
@@ -327,11 +364,12 @@ export default function ProfilePage() {
                       }}
                       placeholder="e.g. Accor Plus"
                       autoComplete="off"
+                      readOnly={locked}
                     />
                   </Field>
                   <Field label="Membership number">
                     <input
-                      className={inputClass}
+                      className={fieldClass}
                       value={row.membership_number}
                       onChange={e => {
                         const next = [...form.hotel_memberships]
@@ -339,9 +377,10 @@ export default function ProfilePage() {
                         set('hotel_memberships', next)
                       }}
                       autoComplete="off"
+                      readOnly={locked}
                     />
                   </Field>
-                  {form.hotel_memberships.length > 1 && (
+                  {!locked && form.hotel_memberships.length > 1 && (
                     <button
                       type="button"
                       onClick={() => set('hotel_memberships', form.hotel_memberships.filter((_, i) => i !== index))}
@@ -353,7 +392,7 @@ export default function ProfilePage() {
                 </div>
               ))}
             </div>
-            {form.hotel_memberships.length < MAX_HOTEL_MEMBERSHIPS && (
+            {!locked && form.hotel_memberships.length < MAX_HOTEL_MEMBERSHIPS && (
               <button
                 type="button"
                 onClick={() => set('hotel_memberships', [...form.hotel_memberships, emptyHotelMembership()])}
@@ -365,17 +404,19 @@ export default function ProfilePage() {
           </div>
           <Field label="Allergies / medical notes">
             <textarea
-              className={inputClass}
+              className={fieldClass}
               rows={2}
               value={form.allergies_medical}
               onChange={e => set('allergies_medical', e.target.value)}
+              readOnly={locked}
             />
           </Field>
           <Field label="Shirt size">
             <select
-              className={inputClass}
+              className={fieldClass}
               value={form.shirt_size}
               onChange={e => set('shirt_size', e.target.value as ShirtSize | '')}
+              disabled={locked}
             >
               <option value="">Select…</option>
               {SHIRT_SIZES.map(size => (
@@ -390,37 +431,47 @@ export default function ProfilePage() {
             Sensitive travel ID. Used for flights and border forms. Not written to Audit Trail.
           </p>
           <Field label="Passport number">
-            <input className={inputClass} value={form.passport_number} onChange={e => set('passport_number', e.target.value)} autoComplete="off" />
+            <input
+              className={fieldClass}
+              data-testid="profile-passport-number"
+              value={locked ? maskSensitiveLast4(form.passport_number) : form.passport_number}
+              onChange={e => set('passport_number', e.target.value)}
+              autoComplete="off"
+              readOnly={locked}
+            />
           </Field>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Country / nationality of passport">
-              <input className={inputClass} value={form.nationality} onChange={e => set('nationality', e.target.value)} />
+              <input className={fieldClass} value={form.nationality} onChange={e => set('nationality', e.target.value)} readOnly={locked} />
             </Field>
             <Field label="Place of issue" hint="Optional">
-              <input className={inputClass} value={form.place_of_issue} onChange={e => set('place_of_issue', e.target.value)} />
+              <input className={fieldClass} value={form.place_of_issue} onChange={e => set('place_of_issue', e.target.value)} readOnly={locked} />
             </Field>
           </div>
           <Field label="Full name as on passport" hint="Leave blank if it matches your profile name.">
-            <input className={inputClass} value={form.passport_name} onChange={e => set('passport_name', e.target.value)} />
+            <input className={fieldClass} value={form.passport_name} onChange={e => set('passport_name', e.target.value)} readOnly={locked} />
           </Field>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Date of birth" hint="Needed for flights / NZ.">
-              <input className={inputClass} type="date" value={form.date_of_birth} onChange={e => set('date_of_birth', e.target.value)} />
+              <input className={fieldClass} type="date" value={form.date_of_birth} onChange={e => set('date_of_birth', e.target.value)} readOnly={locked} />
             </Field>
             <Field label="Expiry date" hint="Required if any passport field is filled. Stored for a later expiry warning — no alert in this release.">
-              <input className={inputClass} type="date" value={form.expiry_date} onChange={e => set('expiry_date', e.target.value)} />
+              <input className={fieldClass} type="date" value={form.expiry_date} onChange={e => set('expiry_date', e.target.value)} readOnly={locked} />
             </Field>
           </div>
         </Section>
 
         {saveError && <p className="text-red-400 text-sm">{saveError}</p>}
-        <button
-          type="submit"
-          disabled={saving}
-          className="bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-slate-900 font-semibold px-4 py-2.5 rounded-lg transition-colors"
-        >
-          {saving ? 'Saving…' : 'Save profile'}
-        </button>
+        {!locked && (
+          <button
+            type="submit"
+            data-testid="profile-save"
+            disabled={saving}
+            className="bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-slate-900 font-semibold px-4 py-2.5 rounded-lg transition-colors"
+          >
+            {saving ? 'Saving…' : 'Save profile'}
+          </button>
+        )}
       </form>
 
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mt-8">

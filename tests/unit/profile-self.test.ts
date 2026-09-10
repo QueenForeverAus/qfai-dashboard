@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 import {
   actorCanReadProfilePii,
   actorCanSelfServeWrite,
+  maskSensitiveLast4,
   redactSensitiveValue,
 } from '../../lib/profile-access.ts'
 import {
@@ -164,6 +165,14 @@ describe('profile PII access (signed-out + cross-user deny)', () => {
     assert.equal(redactSensitiveValue('qantas_ff', 'QF999'), '[redacted]')
     assert.equal(redactSensitiveValue('virgin_ff', 'VA111'), '[redacted]')
     assert.equal(redactSensitiveValue('nickname', 'Gaz'), 'Gaz')
+  })
+
+  it('masks FF# and passport as **** + last4 when Profile is locked', () => {
+    assert.equal(maskSensitiveLast4('PA123456'), '****3456')
+    assert.equal(maskSensitiveLast4('QF123456'), '****3456')
+    assert.equal(maskSensitiveLast4('VA99'), '****VA99')
+    assert.equal(maskSensitiveLast4(''), '')
+    assert.equal(maskSensitiveLast4(null), '')
   })
 })
 

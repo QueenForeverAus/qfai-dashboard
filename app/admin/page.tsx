@@ -3,6 +3,7 @@
 import { formatBookingStatus, formatHarbourStatus } from '@/lib/format-booking-status'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ImportPreview } from '@/app/api/admin/import-schedule/route'
+import { useProfile } from '@/lib/profile-context'
 
 type Profile = {
   id: string
@@ -10,6 +11,8 @@ type Profile = {
   email: string
   role: string
   last_sign_in_at?: string | null
+  deactivated_at?: string | null
+  banned?: boolean
 }
 
 type PendingUser = {
@@ -248,10 +251,12 @@ function ImportScheduleSection() {
 }
 
 export default function AdminPage() {
+  const { profile: me } = useProfile()
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [pending, setPending] = useState<PendingUser[]>([])
   const [loadingProfiles, setLoadingProfiles] = useState(true)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deactivateStatus, setDeactivateStatus] = useState<Record<string, string>>({})
   const [resendingId, setResendingId] = useState<string | null>(null)
   const [resendStatus, setResendStatus] = useState<Record<string, string>>({})
   const [resetStatus, setResetStatus] = useState<Record<string, string>>({})
@@ -327,6 +332,45 @@ export default function AdminPage() {
     setDeletingId(null)
   }
 
+  async function deactivateUser(profile: Profile) {
+    if (me?.id && profile.id === me.id) return
+    const label = profile.full_name || profile.email
+    const ok = window.confirm(
+      `Deactivate ${label}? They will not be able to sign in. Their audit trail stays. This can be reversed.`,
+    )
+    if (!ok) return
+    setDeactivateStatus(prev => ({ ...prev, [profile.id]: 'working' }))
+    const res = await fetch('/api/admin/users', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: profile.id }),
+    })
+    if (res.ok) {
+      setDeactivateStatus(prev => ({ ...prev, [profile.id]: 'done' }))
+      await loadAll()
+      setTimeout(() => setDeactivateStatus(prev => ({ ...prev, [profile.id]: '' })), 4000)
+    } else {
+      const body = await res.json().catch(() => null)
+      setDeactivateStatus(prev => ({ ...prev, [profile.id]: body?.error ?? 'error' }))
+    }
+  }
+
+  async function reactivateUser(profile: Profile) {
+    setDeactivateStatus(prev => ({ ...prev, [profile.id]: 'working' }))
+    const res = await fetch('/api/admin/users', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: profile.id, action: 'reactivate' }),
+    })
+    if (res.ok) {
+      setDeactivateStatus(prev => ({ ...prev, [profile.id]: 'restored' }))
+      await loadAll()
+      setTimeout(() => setDeactivateStatus(prev => ({ ...prev, [profile.id]: '' })), 4000)
+    } else {
+      setDeactivateStatus(prev => ({ ...prev, [profile.id]: 'error' }))
+    }
+  }
+
   async function sendResetLink(email: string) {
     setResetStatus(prev => ({ ...prev, [email]: 'sending' }))
     const res = await fetch('/api/admin/reset-password', {
@@ -379,6 +423,9 @@ export default function AdminPage() {
             <div className="md:hidden divide-y divide-slate-700/50">
               {profiles.map(profile => {
                 const status = resetStatus[profile.email]
+                const isSelf = me?.id === profile.id
+                const deactivated = Boolean(profile.deactivated_at)
+                const dStatus = deactivateStatus[profile.id]
                 return (
                   <div key={profile.id} className="px-4 py-3 space-y-1.5">
                     <div className="flex items-start justify-between gap-2">
@@ -386,19 +433,49 @@ export default function AdminPage() {
                         <div className="text-white text-sm font-medium truncate">{profile.full_name}</div>
                         <div className="text-slate-400 text-xs truncate">{profile.email}</div>
                       </div>
-                      <span className={`flex-shrink-0 px-2 py-0.5 rounded border text-xs font-medium uppercase ${roleStyles[profile.role] ?? roleStyles.external}`}>
-                        {profile.role}
-                      </span>
+                      <div className="flex flex-shrink-0 items-center gap-1.5">
+                        <span className={`px-2 py-0.5 rounded border text-xs font-medium uppercase ${roleStyles[profile.role] ?? roleStyles.external}`}>
+                          {profile.role}
+                        </span>
+                        {deactivated && (
+                          <span className="px-2 py-0.5 rounded border text-xs font-medium border-red-800 text-red-400 bg-red-900/20">
+                            deactivated
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-slate-500 text-xs">Last active: {fmtLastSeen(profile.last_sign_in_at)}</span>
-                      <button
-                        onClick={() => sendResetLink(profile.email)}
-                        disabled={status === 'sending'}
-                        className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-50"
-                      >
-                        {status === 'sending' ? 'Sending…' : status === 'sent' ? '✓ Sent' : status === 'error' ? '✗ Failed' : 'Send reset link'}
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => sendResetLink(profile.email)}
+                          disabled={status === 'sending' || deactivated}
+                          className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-50"
+                        >
+                          {status === 'sending' ? 'Sending…' : status === 'sent' ? '✓ Sent' : status === 'error' ? '✗ Failed' : 'Send reset link'}
+                        </button>
+                        {!isSelf && (
+                          deactivated ? (
+                            <button
+                              data-testid={`reactivate-user-${profile.id}`}
+                              onClick={() => reactivateUser(profile)}
+                              disabled={dStatus === 'working'}
+                              className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-50"
+                            >
+                              {dStatus === 'working' ? 'Restoring…' : dStatus === 'restored' ? '✓ Restored' : 'Reactivate'}
+                            </button>
+                          ) : (
+                            <button
+                              data-testid={`deactivate-user-${profile.id}`}
+                              onClick={() => deactivateUser(profile)}
+                              disabled={dStatus === 'working'}
+                              className="text-xs text-slate-500 hover:text-red-400 transition-colors disabled:opacity-50"
+                            >
+                              {dStatus === 'working' ? 'Removing…' : dStatus === 'done' ? '✓ Deactivated' : 'Deactivate'}
+                            </button>
+                          )
+                        )}
+                      </div>
                     </div>
                   </div>
                 )
@@ -460,26 +537,59 @@ export default function AdminPage() {
                   {profiles.map((profile, i) => {
                     const status = resetStatus[profile.email]
                     const isLast = i === profiles.length - 1 && pending.length === 0
+                    const isSelf = me?.id === profile.id
+                    const deactivated = Boolean(profile.deactivated_at)
+                    const dStatus = deactivateStatus[profile.id]
                     return (
                       <tr key={profile.id} className={`border-b border-slate-700/50 ${isLast ? 'border-0' : ''}`}>
                         <td className="px-4 py-3 text-white text-sm">{profile.full_name}</td>
                         <td className="px-4 py-3 text-slate-400 text-sm">{profile.email}</td>
                         <td className="px-4 py-3">
-                          <span className={`px-2 py-0.5 rounded border text-xs font-medium uppercase ${roleStyles[profile.role] ?? roleStyles.external}`}>
-                            {profile.role}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded border text-xs font-medium uppercase ${roleStyles[profile.role] ?? roleStyles.external}`}>
+                              {profile.role}
+                            </span>
+                            {deactivated && (
+                              <span className="px-2 py-0.5 rounded border text-xs font-medium border-red-800 text-red-400 bg-red-900/20">
+                                deactivated
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-slate-400 text-xs">{fmtLastSeen(profile.last_sign_in_at)}</span>
                         </td>
                         <td className="px-4 py-3">
-                          <button
-                            onClick={() => sendResetLink(profile.email)}
-                            disabled={status === 'sending'}
-                            className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-50"
-                          >
-                            {status === 'sending' ? 'Sending…' : status === 'sent' ? '✓ Sent' : status === 'error' ? '✗ Failed' : 'Send reset link'}
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => sendResetLink(profile.email)}
+                              disabled={status === 'sending' || deactivated}
+                              className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-50"
+                            >
+                              {status === 'sending' ? 'Sending…' : status === 'sent' ? '✓ Sent' : status === 'error' ? '✗ Failed' : 'Send reset link'}
+                            </button>
+                            {!isSelf && (
+                              deactivated ? (
+                                <button
+                                  data-testid={`reactivate-user-${profile.id}`}
+                                  onClick={() => reactivateUser(profile)}
+                                  disabled={dStatus === 'working'}
+                                  className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-50"
+                                >
+                                  {dStatus === 'working' ? 'Restoring…' : dStatus === 'restored' ? '✓ Restored' : 'Reactivate'}
+                                </button>
+                              ) : (
+                                <button
+                                  data-testid={`deactivate-user-${profile.id}`}
+                                  onClick={() => deactivateUser(profile)}
+                                  disabled={dStatus === 'working'}
+                                  className="text-xs text-slate-500 hover:text-red-400 transition-colors disabled:opacity-50"
+                                >
+                                  {dStatus === 'working' ? 'Removing…' : dStatus === 'done' ? '✓ Deactivated' : 'Deactivate'}
+                                </button>
+                              )
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )
