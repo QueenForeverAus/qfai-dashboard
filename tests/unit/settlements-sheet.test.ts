@@ -24,7 +24,7 @@ import {
   wave1SettlementHref,
 } from '../../lib/settlements-sheet.ts'
 import type { CostingSnapshotField } from '../../lib/settlements.ts'
-import { computeHarbourCommission } from '../../lib/pnl-run-costing.ts'
+import { computeHarbourCommission, roundMoney } from '../../lib/pnl-run-costing.ts'
 
 const pastShow = {
   id: 'show-tcomp',
@@ -115,6 +115,25 @@ test('venue staff uses live advancing amount when there are no bands', () => {
   assert.equal(venueStaffExpected({ field: staff, show: pastShow, tickets: 400 }), 1200)
 })
 
+test('sheet P&L quarantines stored remittance GST before ex-GST reserve', () => {
+  const { summary, lines } = buildShowSheetLines({
+    show: pastShow,
+    fields: [],
+    tickets: 400,
+    ticketsSource: 'entered',
+    gstLines: [{ showId: pastShow.id, description: 'GST collected', amount: 550 }],
+  })
+  assert.ok(summary)
+  assert.equal(summary.gstKnown, true)
+  assert.equal(summary.gstQuarantine, 550)
+  assert.equal(summary.reserve, roundMoney(Math.max(0, summary.exGstProfit) * 0.2))
+  assert.equal(summary.preDistMargin, roundMoney(summary.exGstProfit - summary.reserve))
+  assert.notEqual(summary.reserve, roundMoney(Math.max(0, summary.netProfit) * 0.2))
+  const gstRow = lines.find(l => l.key === 'gst_quarantine')
+  assert.equal(gstRow?.expected, 550)
+  assert.match(gstRow?.label ?? '', /quarantined/)
+})
+
 test('sheet lines include Col1 labels, Col2 expected, and no slider keys', () => {
   const hire = field({
     field_key: 'venue_hire',
@@ -135,7 +154,12 @@ test('sheet lines include Col1 labels, Col2 expected, and no slider keys', () =>
   assert.ok(keys.includes('harbour_commission'))
   assert.ok(keys.includes('show:venue_hire'))
   assert.ok(keys.includes('pre_dist_margin'))
+  assert.ok(keys.includes('gst_quarantine'))
+  assert.match(lines.find(l => l.key === 'gst_quarantine')?.label ?? '', /not QF money/)
+  assert.match(lines.find(l => l.key === 'reserve')?.label ?? '', /ex-GST/)
   assert.equal(lines.find(l => l.key === 'show:venue_hire')?.expected, 1451)
+  assert.equal(summary?.gstKnown, false)
+  assert.equal(summary?.gstQuarantine, 0)
   assert.ok(summary)
   assert.equal(sheetUsesRevenueSliders(), false)
   assert.equal(SHEET_FORBIDS_REVENUE_SLIDERS, true)

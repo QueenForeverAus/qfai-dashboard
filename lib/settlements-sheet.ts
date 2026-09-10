@@ -28,8 +28,11 @@ import {
 } from './cost-fields.ts'
 import {
   HARBOUR_COMMISSION_RATE,
+  GST_QUARANTINE_KEY,
+  RESERVE_EX_GST_LABEL,
   computePnlSummary,
   computeVenueWaterfall,
+  gstQuarantineLineLabel,
   knownInsideForShow,
   remittanceHasCcSplit,
   resolveInsideCosts,
@@ -244,6 +247,7 @@ export function buildShowSheetLines(opts: {
   ticketsSource: TicketsSoldSource
   factors?: InsideFactorValues | null
   remittanceLines?: KnownInsideLine[] | null
+  gstLines?: KnownInsideLine[] | null
   includeRunCosts?: boolean
 }): { lines: SheetLine[]; summary: PnlSummary | null; waterfall: PnlVenueWaterfall | null } {
   const lines: SheetLine[] = []
@@ -357,7 +361,12 @@ export function buildShowSheetLines(opts: {
 
   const totalCosts = roundMoney(showCosts + runCosts)
   const summary = waterfall
-    ? computePnlSummary({ netRevenue: waterfall.netRevenue, totalCosts })
+    ? computePnlSummary({
+        netRevenue: waterfall.netRevenue,
+        totalCosts,
+        remittanceLines: opts.gstLines ?? opts.remittanceLines,
+        showId: opts.show.id,
+      })
     : null
 
   lines.push({
@@ -375,8 +384,16 @@ export function buildShowSheetLines(opts: {
     kind: 'money',
   })
   lines.push({
+    key: GST_QUARANTINE_KEY,
+    label: gstQuarantineLineLabel(summary?.gstKnown ?? false),
+    group: 'pnl',
+    expected: summary?.gstQuarantine ?? null,
+    note: summary?.gstSourceLabel,
+    kind: 'money',
+  })
+  lines.push({
     key: 'reserve',
-    label: '− 20% Reserve',
+    label: RESERVE_EX_GST_LABEL,
     group: 'pnl',
     expected: summary?.reserve ?? null,
     kind: 'money',
@@ -398,6 +415,7 @@ export function buildRunSheet(opts: {
   knownTicketsByShow?: Record<string, number | null | undefined>
   factors?: InsideFactorValues | null
   remittanceLines?: KnownInsideLine[] | null
+  gstLines?: KnownInsideLine[] | null
   today?: string
 }): {
   blocked: boolean
@@ -429,6 +447,7 @@ export function buildRunSheet(opts: {
       ticketsSource: resolved.source,
       factors: opts.factors,
       remittanceLines: opts.remittanceLines,
+      gstLines: opts.gstLines,
       includeRunCosts: false,
     })
     return { show, tickets: resolved.tickets, ticketsSource: resolved.source, lines: built.lines, summary: built.summary }
@@ -460,7 +479,11 @@ export function buildRunSheet(opts: {
   const runCosts = runLines.reduce((s, l) => s + (l.expected ?? 0), 0)
   const anyTickets = sections.some(sec => sec.tickets != null)
   const summary = !blocked && anyTickets
-    ? computePnlSummary({ netRevenue, totalCosts: roundMoney(venueCosts + runCosts) })
+    ? computePnlSummary({
+        netRevenue,
+        totalCosts: roundMoney(venueCosts + runCosts),
+        remittanceLines: opts.gstLines ?? opts.remittanceLines,
+      })
     : null
 
   return { blocked, occurred, upcoming, sections, runLines, summary }

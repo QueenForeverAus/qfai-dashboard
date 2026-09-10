@@ -43,6 +43,7 @@ export function SettlementSheetView({
       focusedShowId={focusedShowId}
       insideFactors={data.insideFactors}
       remittanceKnownLines={data.remittanceKnownLines}
+      gstKnownLines={data.gstKnownLines}
       actuals={data.actuals}
       challenges={data.challenges}
       bandCosts={data.bandCosts}

@@ -12,7 +12,13 @@ import {
   type VarianceFlag,
   type VarianceSeverity,
 } from './remittance-variance.ts'
-import { computePnlSummary, roundMoney } from './pnl-run-costing.ts'
+import {
+  GST_QUARANTINE_KEY,
+  computePnlSummary,
+  gstQuarantineLineLabel,
+  type KnownGstLine,
+  roundMoney,
+} from './pnl-run-costing.ts'
 import { QUOTE_INVOICE_NOTE_LABEL } from './quote-invoice-stub.ts'
 import {
   type SheetLine,
@@ -322,26 +328,39 @@ function sumGroupActual(lines: DecoratedSheetLine[], group: SheetLineGroup): num
   )
 }
 
-function fillActualPnl(lines: DecoratedSheetLine[]): DecoratedSheetLine[] {
+function fillActualPnl(
+  lines: DecoratedSheetLine[],
+  opts?: { remittanceLines?: KnownGstLine[] | null; showId?: string | null },
+): DecoratedSheetLine[] {
   const netRevenue = lines.find(l => l.key === 'net_revenue')?.actual ?? null
   const totalCosts = roundMoney(sumGroupActual(lines, 'venue_costs') + sumGroupActual(lines, 'run_costs'))
   const anyCost = lines.some(l => (l.group === 'venue_costs' || l.group === 'run_costs') && l.actual != null)
-  const summary = netRevenue != null && anyCost
-    ? computePnlSummary({ netRevenue, totalCosts })
-    : netRevenue != null
-      ? computePnlSummary({ netRevenue, totalCosts })
-      : null
+  const summary = netRevenue != null
+    ? computePnlSummary({
+        netRevenue,
+        totalCosts,
+        remittanceLines: opts?.remittanceLines,
+        showId: opts?.showId,
+      })
+    : null
 
   return lines.map(line => {
     if (line.group !== 'pnl') return line
     const actual =
       line.key === 'total_costs' ? (summary ? summary.totalCosts : anyCost ? totalCosts : null)
         : line.key === 'net_profit' ? (summary?.netProfit ?? null)
-          : line.key === 'reserve' ? (summary?.reserve ?? null)
-            : line.key === 'pre_dist_margin' ? (summary?.preDistMargin ?? null)
-              : null
+          : line.key === GST_QUARANTINE_KEY ? (summary?.gstQuarantine ?? null)
+            : line.key === 'reserve' ? (summary?.reserve ?? null)
+              : line.key === 'pre_dist_margin' ? (summary?.preDistMargin ?? null)
+                : null
+    const label = line.key === GST_QUARANTINE_KEY
+      ? gstQuarantineLineLabel(summary?.gstKnown ?? false)
+      : line.label
+    const note = line.key === GST_QUARANTINE_KEY ? summary?.gstSourceLabel : line.note
     return {
       ...line,
+      label,
+      note,
       actual,
       actualKind: 'derived' as const,
       actualStatus: actual == null ? null : 'confirmed',
@@ -360,6 +379,7 @@ export function applyCol3Actuals(opts: {
   lines: SheetLine[]
   actuals: SettlementActualLine[]
   showId: string | null
+  remittanceLines?: KnownGstLine[] | null
 }): DecoratedSheetLine[] {
   const index = indexActuals(opts.actuals)
   const claimed = new Set<string>()
@@ -393,22 +413,33 @@ export function applyCol3Actuals(opts: {
       matchChildren: grouped.children,
     }
   })
-  return fillActualPnl(decorated)
+  return fillActualPnl(decorated, { remittanceLines: opts.remittanceLines, showId: opts.showId })
 }
 
 export function applyCol3ToRunSheet(opts: {
   sections: Array<{ show: { id: string }; lines: SheetLine[] }>
   runLines: SheetLine[]
   actuals: SettlementActualLine[]
+  remittanceLines?: KnownGstLine[] | null
 }): {
   sections: Array<{ lines: DecoratedSheetLine[] }>
   runLines: DecoratedSheetLine[]
   actualSummary: ReturnType<typeof computePnlSummary> | null
 } {
   const sections = opts.sections.map(sec => ({
-    lines: applyCol3Actuals({ lines: sec.lines, actuals: opts.actuals, showId: sec.show.id }),
+    lines: applyCol3Actuals({
+      lines: sec.lines,
+      actuals: opts.actuals,
+      showId: sec.show.id,
+      remittanceLines: opts.remittanceLines,
+    }),
   }))
-  const runLines = applyCol3Actuals({ lines: opts.runLines, actuals: opts.actuals, showId: null })
+  const runLines = applyCol3Actuals({
+    lines: opts.runLines,
+    actuals: opts.actuals,
+    showId: null,
+    remittanceLines: opts.remittanceLines,
+  })
   const netRevenue = sections.reduce((n, sec) => {
     const row = sec.lines.find(l => l.key === 'net_revenue')
     return n + (row?.actual ?? 0)
@@ -417,7 +448,11 @@ export function applyCol3ToRunSheet(opts: {
   const runCosts = sumGroupActual(runLines, 'run_costs')
   const anyTickets = sections.some(sec => sec.lines.some(l => l.key === 'tickets_sold' && l.actual != null))
   const actualSummary = anyTickets
-    ? computePnlSummary({ netRevenue, totalCosts: roundMoney(venueCosts + runCosts) })
+    ? computePnlSummary({
+        netRevenue,
+        totalCosts: roundMoney(venueCosts + runCosts),
+        remittanceLines: opts.remittanceLines,
+      })
     : null
   return { sections, runLines, actualSummary }
 }

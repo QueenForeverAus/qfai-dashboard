@@ -60,7 +60,14 @@ import {
   type DecoratedSheetLine,
   type SettlementActualLine,
 } from '@/lib/settlements-sheet-actuals'
-import type { InsideFactorValues, KnownInsideLine, PnlSummary } from '@/lib/pnl-run-costing'
+import {
+  GST_QUARANTINE_KEY,
+  RESERVE_EX_GST_LABEL,
+  gstQuarantineLineLabel,
+  type InsideFactorValues,
+  type KnownInsideLine,
+  type PnlSummary,
+} from '@/lib/pnl-run-costing'
 import SettlementsTabBar from './SettlementsTabBar'
 
 function fmtMoneyOrDash(value: number | null | undefined, kind: DecoratedSheetLine['kind']): string {
@@ -119,8 +126,15 @@ function PnlRows({ summary, accent }: { summary: PnlSummary; accent: 'expected' 
           {formatSettlementsMoney(summary.netProfit)}
         </span>
       </div>
-      <div className="flex justify-between text-slate-400">
-        <span>− 20% Reserve</span>
+      <div className="flex justify-between text-slate-400" data-testid="pnl-gst-quarantine">
+        <span>
+          {gstQuarantineLineLabel(summary.gstKnown)}
+          <span className="block text-[10px] text-slate-600 font-normal">{summary.gstSourceLabel}</span>
+        </span>
+        <span className="tabular-nums">{formatSettlementsMoney(summary.gstQuarantine)}</span>
+      </div>
+      <div className="flex justify-between text-slate-400" data-testid="pnl-reserve-ex-gst">
+        <span>{RESERVE_EX_GST_LABEL}</span>
         <span className="tabular-nums">{formatSettlementsMoney(summary.reserve)}</span>
       </div>
       <div className="flex justify-between font-bold border-t border-slate-700 pt-2">
@@ -423,7 +437,7 @@ function LineTable({
                 {line.label}
                 {line.note ? <span className="block text-[10px] text-slate-600 font-normal">{line.note}</span> : null}
               </td>
-              <td className={`py-2 px-3 text-right tabular-nums ${line.key === 'pre_dist_margin' || line.key === 'net_profit' ? 'text-amber-300 font-semibold' : 'text-white'}`}>
+              <td className={`py-2 px-3 text-right tabular-nums ${line.key === 'pre_dist_margin' || line.key === 'net_profit' || line.key === GST_QUARANTINE_KEY ? 'text-amber-300 font-semibold' : 'text-white'}`}>
                 {fmtMoneyOrDash(line.expected, line.kind)}
               </td>
               <td className="py-2 pl-3 align-top">
@@ -455,6 +469,7 @@ export default function SettlementSheetClient({
   focusedShowId,
   insideFactors,
   remittanceKnownLines,
+  gstKnownLines,
   actuals,
   challenges,
   bandCosts = [],
@@ -466,6 +481,7 @@ export default function SettlementSheetClient({
   focusedShowId: string | null
   insideFactors: InsideFactorValues
   remittanceKnownLines: KnownInsideLine[]
+  gstKnownLines?: KnownInsideLine[]
   actuals: SettlementActualLine[]
   challenges: RemittanceChallenge[]
   bandCosts?: BandCostLine[]
@@ -485,22 +501,25 @@ export default function SettlementSheetClient({
   const [draftPreview, setDraftPreview] = useState<RemittanceChallenge | null>(null)
 
   const focusedShow = shows.find(s => s.id === focusedShowId) ?? null
+  const gstLines = gstKnownLines ?? remittanceKnownLines
   const runModel = useMemo(
     () => buildRunSheet({
       shows,
       fields: liveFields,
       factors: insideFactors,
       remittanceLines: remittanceKnownLines,
+      gstLines,
     }),
-    [shows, liveFields, insideFactors, remittanceKnownLines],
+    [shows, liveFields, insideFactors, remittanceKnownLines, gstLines],
   )
   const col3Run = useMemo(
     () => applyCol3ToRunSheet({
       sections: runModel.sections,
       runLines: runModel.runLines,
       actuals,
+      remittanceLines: gstLines,
     }),
-    [runModel, actuals],
+    [runModel, actuals, gstLines],
   )
   const distributeGate = useMemo(
     () => distributeGateFromSources({
@@ -759,16 +778,19 @@ export default function SettlementSheetClient({
                   ticketsSource: resolved.source,
                   factors: insideFactors,
                   remittanceLines: remittanceKnownLines,
+                  gstLines,
                   includeRunCosts: true,
                 })
               : runModel.sections.find(sec => sec.show.id === show.id)!
             const rawLines = focusedShow ? built.lines : built.lines.filter(l => l.group !== 'run_costs' || l.key === 'run:social_ads_var')
-            const lines = applyCol3Actuals({ lines: rawLines, actuals, showId: show.id })
+            const lines = applyCol3Actuals({ lines: rawLines, actuals, showId: show.id, remittanceLines: gstLines })
             const showExpected = pnlFromSheetSides({
               netRevenueExpected: lines.find(l => l.key === 'net_revenue')?.expected ?? null,
               netRevenueActual: lines.find(l => l.key === 'net_revenue')?.actual ?? null,
               totalCostsExpected: lines.find(l => l.key === 'total_costs')?.expected ?? null,
               totalCostsActual: lines.find(l => l.key === 'total_costs')?.actual ?? null,
+              remittanceLines: gstLines,
+              showId: show.id,
             })
             return (
               <section key={show.id} className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-3">
