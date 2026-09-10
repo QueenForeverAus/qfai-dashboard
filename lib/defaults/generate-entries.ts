@@ -1,5 +1,6 @@
 import { formatDateShortAU } from '@/lib/dates'
-import type { RunDefault } from './run-defaults'
+import { LIGHTING_HIRE_LINE_LABEL } from '../cost-fields.ts'
+import { LIGHTING_HIRE_PER_RUN, type RunDefault } from './run-defaults'
 
 export type SeedEntry = {
   id: string
@@ -179,10 +180,10 @@ export function generateEntries(
     }
 
     case 'lighting_hire': {
-      const rate = factors?.lighting_hire_per_run ?? 330
+      const rate = factors?.lighting_hire_per_run ?? LIGHTING_HIRE_PER_RUN
       return [{
         id: uid(),
-        description: 'Lighting equipment hire — full run',
+        description: LIGHTING_HIRE_LINE_LABEL,
         notes: withFactorsSource('Michael Richardson standard per-run rate'),
         amount: rate,
         gst_included: true,

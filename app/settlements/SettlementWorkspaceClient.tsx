@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatDateAU, formatDateShortAU, formatDateTimeAU } from '@/lib/dates'
+import { displayCostFieldLabel } from '@/lib/cost-fields'
 import { NOTES_INPUT_LABEL, NOTES_SOURCE_OF_DATA_LABEL } from '@/lib/cost-entry-source'
 import {
   AGENT_SETTLEMENT_EMPTY_NOTE,
@@ -359,7 +360,7 @@ export default function SettlementWorkspaceClient({
                   {group.fields.map(field => (
                     <article key={field.id} className="rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-slate-200 text-sm">{field.label}</span>
+                        <span className="text-slate-200 text-sm">{displayCostFieldLabel(field.field_key, field.label)}</span>
                         <div className="flex items-center gap-1.5">
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${STATE_STYLES[field.state] ?? STATE_STYLES.pending}`}>
                             {STATE_LABEL[field.state] ?? field.state}

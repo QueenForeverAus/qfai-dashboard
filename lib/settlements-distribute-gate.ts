@@ -17,6 +17,7 @@ import {
   ENTRY_EXEMPT_FIELD_KEYS,
   allEntriesConfirmed,
   allEntriesPaid,
+  displayCostFieldLabel,
   sectionPayableLines,
   type PayableLine,
 } from './cost-fields.ts'
@@ -93,7 +94,7 @@ export function collectRunCostingBandLines(fields: CostingSnapshotField[]): Dist
     for (const row of payables) {
       out.push({
         id: `${field.id}:${row.id}`,
-        label: `${field.label}: ${payableLabel(row)}`,
+        label: `${displayCostFieldLabel(def.key, field.label)}: ${payableLabel(row)}`,
         source: 'run_costing',
         fieldKey: def.key,
         confirmTick: row.confirmed === true,

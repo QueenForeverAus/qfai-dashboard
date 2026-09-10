@@ -17,7 +17,7 @@ import {
   snapshotFieldTotal,
   type CostingSnapshotField,
 } from './settlements.ts'
-import type { StaffLineItem } from './cost-fields.ts'
+import { displayCostFieldLabel, type StaffLineItem } from './cost-fields.ts'
 
 export const REMITTANCE_TAB_LABEL = 'Remittance'
 export const REMITTANCE_CASH_NOTE =
@@ -130,12 +130,12 @@ export function proposedFromSnapshot(fields: CostingSnapshotField[]): ProposedLi
           show_id: field.show_id,
           source: 'snapshot',
           field_key: field.field_key,
-          label: item.role || field.label,
+          label: item.role || displayCostFieldLabel(field.field_key, field.label),
           amount,
           hours,
           rate,
           headcount,
-          kind: classifyProposedKind({ fieldKey: field.field_key, label: item.role || field.label, hours }),
+          kind: classifyProposedKind({ fieldKey: field.field_key, label: item.role || displayCostFieldLabel(field.field_key, field.label), hours }),
         })
       }
       continue
@@ -147,12 +147,12 @@ export function proposedFromSnapshot(fields: CostingSnapshotField[]): ProposedLi
           show_id: field.show_id,
           source: 'snapshot',
           field_key: field.field_key,
-          label: entry.description || field.label,
+          label: entry.description || displayCostFieldLabel(field.field_key, field.label),
           amount: Number(entry.amount) || 0,
           hours: null,
           rate: null,
           headcount: null,
-          kind: classifyProposedKind({ fieldKey: field.field_key, label: entry.description || field.label }),
+          kind: classifyProposedKind({ fieldKey: field.field_key, label: entry.description || displayCostFieldLabel(field.field_key, field.label) }),
         })
       }
       continue
@@ -164,12 +164,12 @@ export function proposedFromSnapshot(fields: CostingSnapshotField[]): ProposedLi
       show_id: field.show_id,
       source: 'snapshot',
       field_key: field.field_key,
-      label: field.label,
+      label: displayCostFieldLabel(field.field_key, field.label),
       amount: total,
       hours: null,
       rate: null,
       headcount: null,
-      kind: classifyProposedKind({ fieldKey: field.field_key, label: field.label }),
+      kind: classifyProposedKind({ fieldKey: field.field_key, label: displayCostFieldLabel(field.field_key, field.label) }),
     })
   }
   return out

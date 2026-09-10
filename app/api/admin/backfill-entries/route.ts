@@ -2,7 +2,12 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { RUN_DEFAULTS } from '@/lib/defaults/run-defaults'
 import { generateEntries } from '@/lib/defaults/generate-entries'
-import { ensureMinimumEntry, entriesSum, ENTRY_EXEMPT_FIELD_KEYS } from '@/lib/cost-fields'
+import {
+  defaultCostEntryDescription,
+  ensureMinimumEntry,
+  entriesSum,
+  ENTRY_EXEMPT_FIELD_KEYS,
+} from '@/lib/cost-fields'
 
 export async function POST(req: NextRequest) {
   const { runId, runCode } = await req.json()
@@ -26,7 +31,11 @@ export async function POST(req: NextRequest) {
   let updated = 0
   for (const field of emptyFields) {
     const generated = generateEntries(field.field_key, field.state, defaults, shows)
-    const entries = ensureMinimumEntry(generated, field.label, field.value)
+    const entries = ensureMinimumEntry(
+      generated,
+      defaultCostEntryDescription(field.field_key, field.label),
+      field.value,
+    )
     await supabase.from('cost_fields').update({ entries, value: entriesSum(entries) }).eq('id', field.id)
     updated++
   }

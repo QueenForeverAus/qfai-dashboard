@@ -2,7 +2,12 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { RUN_DEFAULTS } from '@/lib/defaults/run-defaults'
 import { generateEntries } from '@/lib/defaults/generate-entries'
-import { ensureMinimumEntry, entriesSum, ENTRY_EXEMPT_FIELD_KEYS } from '@/lib/cost-fields'
+import {
+  defaultCostEntryDescription,
+  ensureMinimumEntry,
+  entriesSum,
+  ENTRY_EXEMPT_FIELD_KEYS,
+} from '@/lib/cost-fields'
 
 // Force-regenerates entries for specific field_keys across all runs (or a single run).
 // Used to push defaults changes into existing seeded data without a full reseed.
@@ -47,7 +52,11 @@ export async function POST(req: NextRequest) {
       const generated = generateEntries(field.field_key, field.state, defaults, shows)
       const entries = ENTRY_EXEMPT_FIELD_KEYS.has(field.field_key)
         ? generated
-        : ensureMinimumEntry(generated, field.label, field.value)
+        : ensureMinimumEntry(
+          generated,
+          defaultCostEntryDescription(field.field_key, field.label),
+          field.value,
+        )
       const patch: Record<string, unknown> = { entries }
       if (!ENTRY_EXEMPT_FIELD_KEYS.has(field.field_key)) {
         patch.value = entriesSum(entries)

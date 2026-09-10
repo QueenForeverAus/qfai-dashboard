@@ -1,7 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { RUN_DEFAULTS, LIGHTING_HIRE_PER_RUN, FOOD_PER_SHOW, CREW_FEE_PER_SHOW } from './run-defaults'
 import { generateEntries } from './generate-entries'
-import { ensureMinimumEntry, ENTRY_EXEMPT_FIELD_KEYS } from '@/lib/cost-fields'
+import {
+  displayCostFieldLabel,
+  ensureMinimumEntry,
+  ENTRY_EXEMPT_FIELD_KEYS,
+} from '@/lib/cost-fields'
 import { syncRunDatesFromShows } from '@/lib/run-dates'
 
 type Show = { id: string; show_order: number; capacity: number | null; ticket_price: number | null; venue_name: string; venue_city: string; show_date: string | null }
@@ -95,7 +99,7 @@ export async function seedRunDefaults(
   rows.push(withEntries({
     run_id: runId, show_id: null,
     category: 'Production', field_key: 'lighting_hire',
-    label: 'Lighting Equipment Hire',
+    label: displayCostFieldLabel('lighting_hire'),
     value: LIGHTING_HIRE_PER_RUN, state: 'estimated',
     source: `$${LIGHTING_HIRE_PER_RUN} standard per run — almost always required. Confirm with Michael Richardson: if extra lights needed on top, or if usual lights unavailable, or OS travel (can't bring gear), rate will differ.`,
   }, 'lighting_hire', defaults, shows))
@@ -221,9 +225,9 @@ export async function seedRunDefaults(
       rows.push(withDefaultEntry({
         run_id: runId, show_id: show.id,
         category: 'Venue Costs', field_key: 'production_costs',
-        label: 'Production / AV',
+        label: displayCostFieldLabel('production_costs'),
         value: null, state: 'pending',
-        source: 'Additional production/AV costs not included in venue staff on-costs. Confirm with Michael Richardson.',
+        source: 'Additional Venue Production/AV costs not included in venue staff on-costs. Confirm with Michael Richardson.',
       }))
     }
   } else {
@@ -234,7 +238,7 @@ export async function seedRunDefaults(
         withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_hire', label: 'Venue Hire', value: null, state: 'guess', source: null }),
         withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_staff', label: 'Venue Staff / On-costs', value: null, state: 'guess', source: null, line_items: [] }),
         withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_marketing', label: 'Venue Marketing', value: 0, state: 'guess', source: null }),
-        withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'production_costs', label: 'Production / AV', value: null, state: 'pending', source: null }),
+        withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'production_costs', label: displayCostFieldLabel('production_costs'), value: null, state: 'pending', source: null }),
       )
     }
     rows.push(

@@ -203,6 +203,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
       ensureMinimumEntry,
       entriesSum,
       ENTRY_EXEMPT_FIELD_KEYS,
+      defaultCostEntryDescription,
       findMissingDefinedCostFields,
       buildCreateCostFieldBody,
     } = await import('@/lib/cost-fields')
@@ -229,7 +230,11 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
           let entries = Array.isArray(f.entries) ? f.entries : []
           if (empty) {
             const generated = generateEntries(f.field_key, f.state, defaults, typedShows)
-            entries = ensureMinimumEntry(generated, f.label, f.value)
+            entries = ensureMinimumEntry(
+              generated,
+              defaultCostEntryDescription(f.field_key, f.label),
+              f.value,
+            )
           }
           const hasLineItems = f.field_key === 'venue_staff' && Array.isArray(f.line_items) && f.line_items.length > 0
           const patch: { entries: unknown; value?: number } = { entries }
@@ -255,7 +260,11 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
             defaults,
             typedShows,
           )
-          const entries = ensureMinimumEntry(generated, spec.fieldDef.label, null)
+          const entries = ensureMinimumEntry(
+            generated,
+            defaultCostEntryDescription(spec.fieldDef.key, spec.fieldDef.label),
+            null,
+          )
           body.entries = entries
           body.value = entriesSum(entries)
         }

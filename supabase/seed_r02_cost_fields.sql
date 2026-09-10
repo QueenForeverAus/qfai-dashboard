@@ -120,7 +120,7 @@ ON CONFLICT DO NOTHING;
 
 INSERT INTO cost_fields (run_id, show_id, category, field_key, label, value, state, source)
 SELECT r.id, NULL,
-  'Crew & Operations', 'lighting_hire', 'Lighting Equipment Hire', 330, 'known',
+  'Crew & Operations', 'lighting_hire', 'Production Bought In', 330, 'known',
   'Fixed per weekend run.'
 FROM runs r WHERE r.code = 'R02'
 ON CONFLICT DO NOTHING;
