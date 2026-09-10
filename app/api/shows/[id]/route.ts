@@ -6,7 +6,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auditFieldDiffs, setAuditActor, writeAuditLog } from '@/lib/audit-log'
 import { isRunCostSheetFrozen } from '@/lib/booked-cost-freeze'
 import { isPnlChromeShowField, pnlChromeMutationBlockedReason } from '@/lib/run-advancing'
-import { loadPortalSettings } from '@/lib/portal-settings'
 
 export async function PATCH(
   req: NextRequest,
@@ -56,10 +55,7 @@ export async function PATCH(
       .select('status')
       .eq('id', existing.run_id)
       .maybeSingle()
-    const settings = await loadPortalSettings(supabase)
-    const blocked = pnlChromeMutationBlockedReason(isRunCostSheetFrozen(run, {
-      lockEnabled: settings.booked_costing_lock,
-    }))
+    const blocked = pnlChromeMutationBlockedReason(isRunCostSheetFrozen(run))
     if (blocked) {
       return NextResponse.json({ error: blocked, frozen: true, booking_status: 'BOOKED' }, { status: 409 })
     }

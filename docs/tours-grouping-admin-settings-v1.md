@@ -103,31 +103,16 @@ Top tabs: **ALL SHOWS** | each complete Tour name (Settings order).
 - Tours CRUD: name, date from, date to, sort order. Incomplete rows allowed.
 - Overlapping complete ranges: amber warning listing the pair(s). Save is still allowed.
 
-### Not in this release
+### Parked (do not build in this release)
 
-- Settlements tour tabs
-- Calendar publish
+- BOOKED Costing lock Settings toggle (existing freeze stays hardcoded ON)
+- Lighting hire $330 Settings field
+- Advancing SLA weeks
 - Owner split 40/30/30
 - Harbour commission %
+- Settlements tour tabs
+- Calendar publish
 - Prod apply
-
----
-
-## Extras (Admin Settings — must ship with Tours)
-
-Stored in `public.portal_settings` (key / jsonb value). Admin/Owner write. Authenticated read. Seed is idempotent (`ON CONFLICT DO NOTHING`).
-
-| Key | Default | Use |
-|---|---|---|
-| `booked_costing_lock` | `true` | When ON, BOOKED (`confirmed`) freezes Run Costing lines via existing booked-cost-freeze. Sell-through stays editable. Advancing workspace still copies at BOOKED. When OFF, costing stays editable after Accept. |
-| `lighting_hire_default` | `330` | Dollars per run when seeding/defaulting Production Bought In / `lighting_hire`. Do not invent other cost figures. |
-| `advancing_sla_aim_weeks` | `12` | Aim-send window (weeks before first show). Shown on Advancing list + checklist. |
-| `advancing_sla_ping_weeks` | `10` | Ping window. |
-| `advancing_sla_tech_chase_weeks` | `4` | Tech-chase window. |
-
-APIs: `GET /api/portal-settings` (authenticated), `PATCH /api/portal-settings` (admin/owner).
-
-Fallbacks in app code match these defaults only when the table/row is missing. Tour **year bounds** are never hardcoded — only Settings/`tours` dates.
 
 ---
 
@@ -139,8 +124,6 @@ Fallbacks in app code match these defaults only when the table/row is missing. T
 | `POST` | `/api/tours` | Admin / Owner |
 | `PATCH` | `/api/tours/[id]` | Admin / Owner |
 | `DELETE` | `/api/tours/[id]` | Admin / Owner |
-| `GET` | `/api/portal-settings` | Authenticated |
-| `PATCH` | `/api/portal-settings` | Admin / Owner |
 
 Same session + `profiles.role` check as other admin routes (`lib/admin-access.ts` / `isAdminOrOwner`).
 
@@ -159,9 +142,6 @@ Use existing `profiles.role` + `lib/role-access.ts`.
 ## Staging apply
 
 Project: `nlenbzhwnyigsihcphoz` (`qfai-staging`).  
-Migrations:
+Migration: `supabase/migrations/20260910_tours.sql`.
 
-- `supabase/migrations/20260910_tours.sql`
-- `supabase/migrations/20260910_portal_settings.sql`
-
-If MCP/CLI apply is unavailable, Builder can run those files in the staging SQL editor. Do not apply on prod.
+If MCP/CLI apply is unavailable, Builder can run that file in the staging SQL editor. Do not apply on prod.

@@ -15,7 +15,6 @@ import {
   shouldCaptureBookedCostSnapshot,
   type BookedCostSnapshot,
 } from './booked-cost-freeze.ts'
-import { loadPortalSettings } from './portal-settings.ts'
 import type { createAdminClient } from '@/lib/supabase/server-admin'
 
 type AdminClient = ReturnType<typeof createAdminClient>
@@ -53,10 +52,7 @@ export async function rejectIfBookedCostFrozen(
   if (!runId) return NextResponse.json({ error: 'run_id is required' }, { status: 400 })
   const run = await loadRunBookingFreeze(admin, runId)
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
-  const settings = await loadPortalSettings(admin)
-  const reason = costLineMutationBlockedReason(isRunCostSheetFrozen(run, {
-    lockEnabled: settings.booked_costing_lock,
-  }))
+  const reason = costLineMutationBlockedReason(isRunCostSheetFrozen(run))
   if (reason) {
     return NextResponse.json({ error: reason, frozen: true, booking_status: 'BOOKED' }, { status: 409 })
   }
@@ -74,12 +70,10 @@ export async function captureBookedCostSnapshotIfNeeded(opts: {
 }): Promise<{ captured: boolean; snapshot: BookedCostSnapshot | null }> {
   const existing = await loadRunBookingFreeze(opts.admin, opts.runId)
   const hasSnapshot = hasBookedCostSnapshot(existing?.booked_cost_snapshot)
-  const settings = await loadPortalSettings(opts.admin)
   if (!shouldCaptureBookedCostSnapshot({
     nextStatus: opts.nextStatus,
     prevStatus: opts.prevStatus ?? existing?.status ?? null,
     hasSnapshot,
-    lockEnabled: settings.booked_costing_lock,
   })) {
     return { captured: false, snapshot: parseBookedCostSnapshot(existing?.booked_cost_snapshot) }
   }

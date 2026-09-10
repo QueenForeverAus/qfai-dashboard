@@ -2,7 +2,6 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { RUN_DEFAULTS } from '@/lib/defaults/run-defaults'
 import { generateEntries, type FactorOverrides } from '@/lib/defaults/generate-entries'
-import { PORTAL_SETTINGS_DEFAULTS } from '@/lib/portal-settings'
 
 // Factor keys → affected cost_field field_keys (estimated state only)
 const FACTOR_FIELD_MAP: Record<string, string[]> = {
@@ -33,7 +32,7 @@ function computeNewValue(
     case 'food_basics':
       return numShows * (factors.food_basics_per_show ?? 225)
     case 'lighting_hire':
-      return factors.lighting_hire_per_run ?? PORTAL_SETTINGS_DEFAULTS.lighting_hire_default
+      return factors.lighting_hire_per_run ?? 330
     case 'backline_hire':
       return factors.backline_hire_per_run ?? 3800
     case 'crew_travel_day': {

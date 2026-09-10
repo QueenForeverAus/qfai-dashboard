@@ -21,8 +21,6 @@ import {
   SETS_DEFAULT,
   displayOrDefault,
 } from '@/lib/worksheet-fields'
-import { AdvancingSlaBanner, slaFromPortal } from '@/components/AdvancingSlaBanner'
-import type { AdvancingSlaWeeks } from '@/lib/portal-settings'
 
 type ItemStatus = 'pending' | 'done' | 'n_a'
 
@@ -472,7 +470,6 @@ export default function AdvancementTab({
   const [advanceFields, setAdvanceFields] = useState<Record<string, AdvanceShowFields>>({})
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | AssignedTo>('all')
-  const [sla, setSla] = useState<AdvancingSlaWeeks>(() => slaFromPortal())
 
   const isOwnerOrAdmin = ['owner', 'admin'].includes(effectiveRole)
   const isProductionManager = effectiveRole === 'production'
@@ -485,9 +482,8 @@ export default function AdvancementTab({
     Promise.all([
       fetch(`/api/runs/${runId}/advancement`).then(r => r.json()),
       fetch(`/api/runs/${runId}/show-pack`).then(r => r.json()),
-      fetch('/api/portal-settings').then(r => r.ok ? r.json() : null),
     ])
-      .then(([advData, packData, settings]) => {
+      .then(([advData, packData]) => {
         setItems(Array.isArray(advData) ? advData : [])
         if (Array.isArray(packData?.shows)) {
           const map: Record<string, AdvanceShowFields> = {}
@@ -496,7 +492,6 @@ export default function AdvancementTab({
           }
           setAdvanceFields(map)
         }
-        if (settings) setSla(slaFromPortal(settings))
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -556,10 +551,6 @@ export default function AdvancementTab({
       <div className="mb-4 px-3 py-2 rounded border border-slate-700/80 bg-slate-800/50 text-slate-300 text-xs">
         This run is <span className="text-amber-400 font-semibold">{regionLabel}</span> — checklist filtered
       </div>
-      <AdvancingSlaBanner
-        sla={sla}
-        showDate={sortedShows.find(s => s.show_date)?.show_date ?? null}
-      />
 
       <div className="flex items-center gap-4 mb-4">
         <div className="flex-1">

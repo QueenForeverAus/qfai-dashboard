@@ -16,7 +16,6 @@ import { ADVANCEMENT_CHECKLIST } from '@/lib/advancement-checklist'
 import { insideFactorsFromRows, type KnownInsideLine } from '@/lib/pnl-run-costing'
 import { isBookedBookingStatus, isRunCostSheetFrozen } from '@/lib/booked-cost-freeze'
 import { captureBookedCostSnapshotIfNeeded } from '@/lib/booked-cost-freeze-persist'
-import { loadPortalSettings } from '@/lib/portal-settings'
 import {
   copyRunIntoAdvancingIfNeeded,
   loadActiveAdvancingWorkspace,
@@ -148,19 +147,16 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
   const typedShows = (shows ?? []) as Show[]
   const rawFields = (costFields ?? []) as CostFieldRow[]
 
-  const portalSettings = await loadPortalSettings(supabase)
-  const costSheetFrozen = isRunCostSheetFrozen(run, { lockEnabled: portalSettings.booked_costing_lock })
+  const costSheetFrozen = isRunCostSheetFrozen(run)
 
-  if (isBookedBookingStatus(run.status)) {
-    if (portalSettings.booked_costing_lock) {
-      await captureBookedCostSnapshotIfNeeded({
-        admin: supabase,
-        runId: run.id,
-        runCode: run.code,
-        nextStatus: run.status,
-        prevStatus: run.status,
-      })
-    }
+  if (costSheetFrozen) {
+    await captureBookedCostSnapshotIfNeeded({
+      admin: supabase,
+      runId: run.id,
+      runCode: run.code,
+      nextStatus: run.status,
+      prevStatus: run.status,
+    })
     await copyRunIntoAdvancingIfNeeded({
       admin: supabase,
       runId: run.id,

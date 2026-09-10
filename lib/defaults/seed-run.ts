@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { RUN_DEFAULTS, LIGHTING_HIRE_PER_RUN, FOOD_PER_SHOW, CREW_FEE_PER_SHOW } from './run-defaults'
-import { generateEntries, type FactorOverrides } from './generate-entries'
-import { loadPortalSettings } from '@/lib/portal-settings'
+import { generateEntries } from './generate-entries'
 import {
   displayCostFieldLabel,
   ensureMinimumEntry,
@@ -19,9 +18,8 @@ function withEntries(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   defaults: any,
   shows: Show[],
-  factors?: FactorOverrides,
 ) {
-  const generated = generateEntries(fieldKey, String(row.state ?? ''), defaults as RunDefault | null, shows, factors)
+  const generated = generateEntries(fieldKey, String(row.state ?? ''), defaults as RunDefault | null, shows)
   if (ENTRY_EXEMPT_FIELD_KEYS.has(fieldKey)) {
     return { ...row, entries: generated }
   }
@@ -60,8 +58,6 @@ export async function seedRunDefaults(
   const defaults = RUN_DEFAULTS[runCode]
   const numShows = shows.length
   const rows: object[] = []
-  const lightingHire = (await loadPortalSettings(supabase)).lighting_hire_default || LIGHTING_HIRE_PER_RUN
-  const lightingFactors: FactorOverrides = { lighting_hire_per_run: lightingHire }
 
   // Update shows with capacity + ticket price from defaults
   if (defaults) {
@@ -104,9 +100,9 @@ export async function seedRunDefaults(
     run_id: runId, show_id: null,
     category: 'Production', field_key: 'lighting_hire',
     label: displayCostFieldLabel('lighting_hire'),
-    value: lightingHire, state: 'estimated',
-    source: `$${lightingHire} standard per run — almost always required. Confirm with Michael Richardson: if extra lights needed on top, or if usual lights unavailable, or OS travel (can't bring gear), rate will differ.`,
-  }, 'lighting_hire', defaults, shows, lightingFactors))
+    value: LIGHTING_HIRE_PER_RUN, state: 'estimated',
+    source: `$${LIGHTING_HIRE_PER_RUN} standard per run — almost always required. Confirm with Michael Richardson: if extra lights needed on top, or if usual lights unavailable, or OS travel (can't bring gear), rate will differ.`,
+  }, 'lighting_hire', defaults, shows))
   rows.push({
     run_id: runId, show_id: null,
     category: 'Marketing', field_key: 'social_ads_var',
