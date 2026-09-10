@@ -158,8 +158,8 @@ export const VENUE_PRODUCTION_AV_LABEL = 'Venue Production/AV'
 export const PRODUCTION_BOUGHT_IN_LABEL = 'Production Bought In'
 
 /**
- * Sole lighting_hire child line. HARD: $330 per run, known/confirmed;
- * never zero without Gareth OK. Not the parent section label.
+ * Sole lighting_hire child line. Default $330 per run from Admin Settings
+ * (`lighting_hire_default`); known/confirmed. Not the parent section label.
  */
 export const LIGHTING_HIRE_LINE_LABEL = 'Lighting Equipment Hire'
 
@@ -207,7 +207,7 @@ export function displayCostFieldLabel(fieldKey: string, storedLabel?: string | n
   return fieldKey.replace(/_/g, ' ')
 }
 
-/** Child-entry description when seeding a placeholder. lighting_hire keeps the $330 line name. */
+/** Child-entry description when seeding a placeholder. lighting_hire keeps the hire line name. */
 export function defaultCostEntryDescription(fieldKey: string, fieldLabel?: string | null): string {
   if (fieldKey === 'lighting_hire') return LIGHTING_HIRE_LINE_LABEL
   const trimmed = fieldLabel?.trim()

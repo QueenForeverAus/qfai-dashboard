@@ -44,8 +44,15 @@ export function isBookedBookingStatus(status: string | null | undefined): boolea
   return String(status ?? '').trim().toLowerCase() === BOOKED_BOOKING_STATUS
 }
 
-/** Run Costings cost-line mutations are blocked while the run is BOOKED. */
-export function isRunCostSheetFrozen(run: { status?: string | null } | null | undefined): boolean {
+/**
+ * Run Costings cost-line mutations are blocked while the run is BOOKED
+ * and Admin Settings BOOKED costing lock is ON (default).
+ */
+export function isRunCostSheetFrozen(
+  run: { status?: string | null } | null | undefined,
+  opts?: { lockEnabled?: boolean },
+): boolean {
+  if (opts?.lockEnabled === false) return false
   return isBookedBookingStatus(run?.status)
 }
 
@@ -53,7 +60,9 @@ export function shouldCaptureBookedCostSnapshot(opts: {
   nextStatus: string | null | undefined
   prevStatus?: string | null
   hasSnapshot?: boolean
+  lockEnabled?: boolean
 }): boolean {
+  if (opts.lockEnabled === false) return false
   if (!isBookedBookingStatus(opts.nextStatus)) return false
   const hasSnapshot = opts.hasSnapshot === true
   if (hasSnapshot && isBookedBookingStatus(opts.prevStatus)) return false
