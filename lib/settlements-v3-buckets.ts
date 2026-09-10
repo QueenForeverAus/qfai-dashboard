@@ -67,6 +67,7 @@ export type V3VenueBucket = (typeof V3_BUCKETS)[number]
 
 export type V3LineKind =
   | V3VenueBucket
+  | 'ticket_count'
   | 'due_to_hirer'
   | 'harbour'
   | 'deductible'
@@ -110,8 +111,18 @@ const DUE_TO_HIRER_RE =
 const DEPOSIT_RE =
   /\b(hire\s*deposit|venue\s*deposit|deposit\s*(?:paid|held|credit|already)|bond\b|holding\s*deposit)\b/i
 
-const TICKETS_RE =
-  /\b(gross\s*(ticket|box)|ticket\s*sales|box\s*office|tickets?\s*sold|nbo|nett?\s*box\s*office|gross\s*tickets)\b/i
+/** Attendance / tickets-sold qty — a count, never money. */
+const TICKET_COUNT_RE =
+  /\b(tickets?[\s_]*sold|attendance|paid[\s_]*attendance|ticket[\s_]*count|tickets?[\s_]*(qty|quantity)|(?:no\.?|number)[\s_]*of[\s_]*tickets|pax|heads)\b/i
+
+/** Gross $ / box office — money ticket sales. */
+const TICKET_GROSS_RE =
+  /\b(gross[\s_]*(ticket|box)|ticket[\s_]*sales|box[\s_]*office|nbo|nett?[\s_]*box[\s_]*office|gross[\s_]*tickets|box[\s_]*office[\s_]*gross)\b/i
+
+const TICKET_MONEY_HINT_RE =
+  /\b(sales|gross|box[\s_]*office|revenue|nbo|nett?[\s_]*box)\b/i
+
+const TICKETS_RE = TICKET_GROSS_RE
 
 const HARBOUR_RE =
   /\b(harbour\s*(agency|commission|fee)|agency\s*(commission|fee)|10\s*%\s*(commission|agency))\b/i
@@ -122,7 +133,6 @@ const DEDUCTIBLE_RE =
 const CREDIT_RE = /\b(credit|already\s*paid|less\s*:|refunded|prepaid)\b/i
 
 const FIELD_KEY_BUCKET: Record<string, V3VenueBucket> = {
-  tickets_sold: 'tickets',
   gross_ticket_sales: 'tickets',
   gross_box_office: 'tickets',
   inside_pre_commission: 'inside',
@@ -144,6 +154,18 @@ export function looksLikeHireDeposit(description: string | null | undefined): bo
   const text = String(description ?? '')
   if (!DEPOSIT_RE.test(text)) return false
   if (/\b(not\s+a\s+deposit|confirmed,\s*not\s+a\s+deposit)\b/i.test(text)) return false
+  return true
+}
+
+export function looksLikeTicketGross(description: string | null | undefined): boolean {
+  return TICKET_GROSS_RE.test(String(description ?? ''))
+}
+
+/** Tickets sold / attendance qty. Money language wins (do not treat “gross tickets sold $” as a count). */
+export function looksLikeTicketCount(description: string | null | undefined): boolean {
+  const text = String(description ?? '')
+  if (!TICKET_COUNT_RE.test(text)) return false
+  if (looksLikeTicketGross(text) || TICKET_MONEY_HINT_RE.test(text)) return false
   return true
 }
 
@@ -185,12 +207,16 @@ export function classifySettlementLine(
     return { ...line, kind: 'deposit', bucket: 'deposit' }
   }
 
+  if (key === 'tickets_sold' || looksLikeTicketCount(text)) {
+    return { ...line, kind: 'ticket_count', bucket: null }
+  }
+
   const mapped = FIELD_KEY_BUCKET[key]
   if (mapped) {
     return { ...line, kind: mapped, bucket: mapped }
   }
 
-  if (looksLikeTicketBlock(text)) {
+  if (looksLikeTicketGross(text) || looksLikeTicketBlock(text)) {
     return { ...line, kind: 'tickets', bucket: 'tickets' }
   }
 
