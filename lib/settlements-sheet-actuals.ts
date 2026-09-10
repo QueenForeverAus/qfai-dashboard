@@ -203,6 +203,17 @@ export function varianceOf(expected: number | null | undefined, actual: number |
   return roundMoney(Number(actual) - Number(expected))
 }
 
+/** True when Col3 has a real venue/statement figure — not a costing echo. */
+export function isSettledVenueActual(line: Pick<DecoratedSheetLine, 'actual' | 'actualId' | 'actualSource' | 'group'>): boolean {
+  if (line.actual == null) return false
+  if (line.group === 'run_costs') return true
+  if (line.actualId) return true
+  return line.actualSource === 'email_scrape'
+    || line.actualSource === 'harbour_fixture'
+    || line.actualSource === 'manual'
+    || line.actualSource === 'tickets_sold'
+}
+
 export function costVarianceOf(expected: number | null | undefined, actual: number | null | undefined): number | null {
   if (expected == null || actual == null) return null
   return roundMoney((unsignedCost(actual) ?? 0) - (unsignedCost(expected) ?? 0))
@@ -316,28 +327,9 @@ function decorateLine(
       matchChildren: [],
     }
   }
-  // Venue costs with no stored actual: fall back to Expected (unsigned).
-  // Treating missing as $0 invents Δ = −expected and a canceling +expected on totals.
-  if (line.group === 'venue_costs') {
-    const expected = unsignedCost(line.expected)
-    const actual = expected
-    return {
-      ...line,
-      actual,
-      actualKind: 'venue_settlement',
-      actualStatus: null,
-      actualSource: actual == null ? null : 'computed',
-      actualPaid: false,
-      actualId: null,
-      challengeId: null,
-      quoteNote: null,
-      variance: costVarianceOf(expected, actual),
-      varianceSeverity: null,
-      match: 'one',
-      matchConfidence: 1,
-      matchChildren: [],
-    }
-  }
+  // Venue costs with no stored actual stay empty (Actual —). Do not copy
+  // Expected into Actual — that looks like duplicate Expected when ▶expanded
+  // (BNZ VT package vs staff). Formula totals fall back to Expected in v3.
   // Venue settlement: tickets + computed revenue use the Col2 actual-ticket math
   // until a Harbour/manual override is stored.
   if (line.group === 'tickets' || line.group === 'revenue') {

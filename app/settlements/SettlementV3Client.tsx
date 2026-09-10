@@ -796,6 +796,16 @@ export default function SettlementV3Client({
                   <span className="block text-xs opacity-80 mt-0.5">{flag.detail}</span>
                 </div>
               ))}
+              {flags.filter(f => f.code === 'vt-package-staff-overlap').map(flag => (
+                <div
+                  key={flag.code}
+                  data-testid={`v3-flag-${flag.code}`}
+                  className="rounded-lg border border-slate-600 bg-slate-900/50 px-3 py-2 text-sm text-slate-300"
+                >
+                  <span className="font-semibold">{flag.title}</span>
+                  <span className="block text-xs opacity-80 mt-0.5">{flag.detail}</span>
+                </div>
+              ))}
             </div>
             <div className="space-y-2" data-testid="settlements-v3-chat">
               <h3 className="text-slate-200 text-sm font-semibold">Assessment chat</h3>

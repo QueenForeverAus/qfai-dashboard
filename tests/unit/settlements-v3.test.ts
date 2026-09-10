@@ -473,6 +473,16 @@ test('buildV3RunModel rolls 26R-shaped multi-show cost_fields into one settlemen
       field_key: 'flights', label: 'Flights', value: 2000, state: 'estimated',
       source: null, entries: [], line_items: [],
     },
+    {
+      id: 'r-staff', run_id: '26r01', show_id: richmond.id, category: 'Venue Costs',
+      field_key: 'venue_staff', label: 'Venue Staff / On-costs', value: 1197.44, state: 'known',
+      source: 'BNZ VT labour', entries: [], line_items: [],
+    },
+    {
+      id: 'r-prod', run_id: '26r01', show_id: richmond.id, category: 'Venue Costs',
+      field_key: 'production_costs', label: 'Production / AV', value: 6725, state: 'known',
+      source: 'BNZ VT package', entries: [], line_items: [],
+    },
   ]
   const gosfordLines = applyCol3Actuals({
     lines: buildShowSheetLines({
@@ -520,9 +530,10 @@ test('buildV3RunModel rolls 26R-shaped multi-show cost_fields into one settlemen
   const hire = model.section1.find(r => r.key === 'hire')
   assert.ok(hire)
   assert.equal(hire.expected, 7400)
-  assert.equal(hire.actual, 7400)
-  assert.equal(hire.delta, 0)
+  assert.equal(hire.actual, null)
+  assert.equal(hire.delta, null)
   assert.equal(hire.children.length, 2)
+  assert.ok(hire.children.every(c => c.expected != null && c.actual == null))
   assert.equal(model.section3.filter(r => r.key === 'band_costs').length, 1)
   assert.equal(model.section1.filter(r => r.key === 'due_to_hirer').length, 1)
   assert.deepEqual(findCancelingDeltaTwins([
@@ -532,6 +543,16 @@ test('buildV3RunModel rolls 26R-shaped multi-show cost_fields into one settlemen
     ...model.section4,
   ]), [])
   assert.equal(settlementDelta(model.dueToHirerExpected, model.dueToHirerActual), 0)
+  const flags = buildV3RedFlags(model)
+  assert.equal(flags.some(f => f.code === 'hire-variance' || f.code === 'wild-variance'), false)
+  const overlap = flags.find(f => f.code === 'vt-package-staff-overlap')
+  assert.ok(overlap)
+  assert.equal(overlap.severity, 'info')
+  assert.match(overlap.detail, /not a −X\/\+X variance/)
+  const staff = model.section1.find(r => r.key === 'staff')
+  const production = model.section1.find(r => r.key === 'production')
+  assert.equal(staff?.actual, null)
+  assert.equal(production?.actual, null)
 })
 
 test('signed venue actual does not invent a −X/+X hire pair', () => {

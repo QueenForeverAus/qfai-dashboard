@@ -37,6 +37,7 @@ import {
 } from './pnl-run-costing.ts'
 import type { CostingSnapshotField } from './settlements.ts'
 import type { DecoratedSheetLine, SettlementActualLine } from './settlements-sheet-actuals.ts'
+import { isSettledVenueActual } from './settlements-sheet-actuals.ts'
 import type { RemittanceLine } from './remittance.ts'
 import {
   bucketLabel,
@@ -313,12 +314,17 @@ export function mergeShowSheetLines(sheets: V3ShowSheet[]): DecoratedSheetLine[]
       const value = isCount ? p.line.expected : unsignedSettlementCost(p.line.expected)
       return n + (value ?? 0)
     }, 0))
-    const actual = money(parts.reduce((n, p) => {
-      const raw = isCount
-        ? (p.line.actual ?? p.line.expected)
-        : (unsignedSettlementCost(p.line.actual) ?? unsignedSettlementCost(p.line.expected))
-      return n + (raw ?? 0)
-    }, 0))
+    const anyReal = parts.some(p => isCount
+      ? p.line.actual != null
+      : isSettledVenueActual(p.line) || Boolean(p.line.matchChildren?.some(c => !c.expectedOnly)))
+    const actual = anyReal
+      ? money(parts.reduce((n, p) => {
+        const raw = isCount
+          ? p.line.actual
+          : (isSettledVenueActual(p.line) ? unsignedSettlementCost(p.line.actual) : null)
+        return n + (raw ?? 0)
+      }, 0))
+      : null
     const children = parts.flatMap(({ show, line }) => {
       const venue = show.venue_city ? `${show.venue_name} · ${show.venue_city}` : show.venue_name
       if (line.matchChildren?.length) {
@@ -326,13 +332,20 @@ export function mergeShowSheetLines(sheets: V3ShowSheet[]): DecoratedSheetLine[]
           ...child,
           label: `${venue}: ${child.label}`,
           amount: unsignedSettlementCost(child.amount) ?? 0,
+          expected: child.expected ?? null,
+          expectedOnly: Boolean(child.expectedOnly),
         }))
       }
+      const real = isCount ? line.actual != null : isSettledVenueActual(line)
       return [{
         id: `${show.id}:${line.key}`,
-        lineKey: line.key,
+        lineKey: `${line.key}:${show.id}`,
         label: venue,
-        amount: (isCount ? (line.actual ?? line.expected) : (unsignedSettlementCost(line.actual) ?? unsignedSettlementCost(line.expected))) ?? 0,
+        amount: (real
+          ? (isCount ? line.actual : unsignedSettlementCost(line.actual))
+          : 0) ?? 0,
+        expected: isCount ? line.expected : unsignedSettlementCost(line.expected),
+        expectedOnly: !real,
         status: line.actualStatus === 'challenged' ? 'challenged' as const : 'confirmed' as const,
         paid: Boolean(line.actualPaid),
         challengeId: line.challengeId,
@@ -541,21 +554,28 @@ function childrenForBucket(
   const row = lines.find(l => l.key === key)
   if (!row) return []
   if (row.matchChildren?.length) {
-    return collapseMirrorPairs(row.matchChildren.map(child => ({
-      key: child.lineKey,
-      label: child.label,
-      expected: null,
-      actual: unsignedSettlementCost(child.amount),
-      note: child.status === 'challenged' ? 'Challenged' : undefined,
-      sheetLine: row,
-      showId: showId ?? null,
-    })))
+    return collapseMirrorPairs(row.matchChildren.map(child => {
+      const showFromKey = child.lineKey.includes(':')
+        ? child.lineKey.slice(child.lineKey.lastIndexOf(':') + 1)
+        : showId ?? null
+      const expectedOnly = Boolean(child.expectedOnly)
+      return {
+        key: child.lineKey,
+        label: child.label,
+        expected: unsignedSettlementCost(child.expected) ?? (expectedOnly ? unsignedSettlementCost(child.amount) : null),
+        actual: expectedOnly ? null : unsignedSettlementCost(child.amount),
+        note: child.status === 'challenged' ? 'Challenged' : undefined,
+        sheetLine: row,
+        showId: showFromKey,
+      }
+    }))
   }
+  const real = isSettledVenueActual(row)
   return collapseMirrorPairs([{
     key: row.key,
     label: row.label,
     expected: unsignedSettlementCost(row.expected),
-    actual: unsignedSettlementCost(row.actual) ?? unsignedSettlementCost(row.expected),
+    actual: real ? unsignedSettlementCost(row.actual) : null,
     note: row.note,
     sheetLine: row,
     showId: showId ?? null,
@@ -690,27 +710,35 @@ export function buildV3ShowModel(opts: {
   const expectedBand = unsignedSettlementCost(groupAmount(runLines, 'run_costs', 'expected')) ?? 0
 
   const actualTicketsStored = unsignedSettlementCost(lineAmount(lines, 'gross_ticket_sales', 'actual'))
-  const actualTickets = buckets.tickets > 0
-    ? buckets.tickets
-    : (actualTicketsStored ?? expectedTickets)
+  const ticketsDisplay = buckets.tickets > 0 ? buckets.tickets : actualTicketsStored
+  const actualTickets = ticketsDisplay ?? expectedTickets
   const statementInside = resolveStatementInside({
     lines: classified,
     estimatedInside: unsignedSettlementCost(lineAmount(lines, 'inside_pre_commission', 'actual'))
       ?? expectedInsides,
   })
-  const actualHire = classified.some(l => l.kind === 'hire')
+  const hireLine = lines.find(l => l.key === 'show:venue_hire')
+  const staffLine = lines.find(l => l.key === 'show:venue_staff')
+  const marketingLine = lines.find(l => l.key === 'show:venue_marketing')
+  const productionLine = lines.find(l => l.key === 'show:production_costs')
+  const hireDisplay = classified.some(l => l.kind === 'hire')
     ? (unsignedSettlementCost(buckets.hire) ?? 0)
-    : costOrFallback(lineAmount(lines, 'show:venue_hire', 'actual'), expectedHire)
-  const actualStaff = classified.some(l => l.kind === 'staff')
+    : (hireLine && isSettledVenueActual(hireLine) ? unsignedSettlementCost(hireLine.actual) : null)
+  const staffDisplay = classified.some(l => l.kind === 'staff')
     ? (unsignedSettlementCost(buckets.staff) ?? 0)
-    : costOrFallback(lineAmount(lines, 'show:venue_staff', 'actual'), expectedStaff)
-  const actualMarketing = classified.some(l => l.kind === 'marketing')
+    : (staffLine && isSettledVenueActual(staffLine) ? unsignedSettlementCost(staffLine.actual) : null)
+  const marketingDisplay = classified.some(l => l.kind === 'marketing')
     ? (unsignedSettlementCost(buckets.marketing) ?? 0)
-    : costOrFallback(lineAmount(lines, 'show:venue_marketing', 'actual'), expectedMarketing)
-  const actualProduction = classified.some(l => l.kind === 'production')
+    : (marketingLine && isSettledVenueActual(marketingLine) ? unsignedSettlementCost(marketingLine.actual) : null)
+  const productionDisplay = classified.some(l => l.kind === 'production')
     ? (unsignedSettlementCost(buckets.production) ?? 0)
-    : costOrFallback(lineAmount(lines, 'show:production_costs', 'actual'), expectedProduction)
+    : (productionLine && isSettledVenueActual(productionLine) ? unsignedSettlementCost(productionLine.actual) : null)
+  const actualHire = costOrFallback(hireDisplay, expectedHire)
+  const actualStaff = costOrFallback(staffDisplay, expectedStaff)
+  const actualMarketing = costOrFallback(marketingDisplay, expectedMarketing)
+  const actualProduction = costOrFallback(productionDisplay, expectedProduction)
   const actualOther = unsignedSettlementCost(buckets.other) ?? 0
+  const hasDepositStatement = classified.some(l => l.kind === 'deposit')
   const actualDeposit = unsignedSettlementCost(buckets.deposit) ?? 0
   const actualBand = costOrFallback(groupAmount(runLines, 'run_costs', 'actual'), expectedBand)
 
@@ -756,7 +784,7 @@ export function buildV3ShowModel(opts: {
   })
 
   const actualHasVenue = classified.length > 0
-    || lines.some(l => l.group === 'venue_costs' && l.actual != null)
+    || lines.some(l => l.group === 'venue_costs' && isSettledVenueActual(l))
   const actual = sideMath({
     tickets: actualHasVenue ? (actualTickets ?? expectedTickets) : expectedTickets,
     insides: statementInside.amount,
@@ -767,10 +795,10 @@ export function buildV3ShowModel(opts: {
     marketing: actualMarketing,
     production: actualProduction,
     other: actualOther,
-    deposit: actualDeposit,
-    appliedDeposit: netting.appliedDeposit,
-    depositNetted: netting.alreadyNetted,
-    depositResidual: netting.residual,
+    deposit: hasDepositStatement ? actualDeposit : expectedDeposit.amount,
+    appliedDeposit: hasDepositStatement ? netting.appliedDeposit : expectedDeposit.amount,
+    depositNetted: hasDepositStatement ? netting.alreadyNetted : false,
+    depositResidual: hasDepositStatement ? netting.residual : expectedDeposit.note,
     deductibles: deduct.amount,
     bandCosts: actualBand,
     gstQuarantine: gst.amount ?? 0,
@@ -829,7 +857,7 @@ export function buildV3ShowModel(opts: {
       label: '− Venue Hire',
       sign: '−',
       expected: expected.hire,
-      actual: actual.hire,
+      actual: hireDisplay,
       kind: 'money',
       children: childrenForBucket(lines, 'show:venue_hire', grain === 'run' ? null : opts.showId),
       testId: 'sheet-actual-show:venue_hire',
@@ -840,7 +868,7 @@ export function buildV3ShowModel(opts: {
       label: '− Venue Staff',
       sign: '−',
       expected: expected.staff,
-      actual: actual.staff,
+      actual: staffDisplay,
       kind: 'money',
       children: childrenForBucket(lines, 'show:venue_staff', grain === 'run' ? null : opts.showId),
     }),
@@ -850,7 +878,7 @@ export function buildV3ShowModel(opts: {
       label: '− Venue Marketing',
       sign: '−',
       expected: expected.marketing,
-      actual: actual.marketing,
+      actual: marketingDisplay,
       kind: 'money',
       children: childrenForBucket(lines, 'show:venue_marketing', grain === 'run' ? null : opts.showId),
       testId: 'sheet-rollup-show:venue_marketing',
@@ -861,7 +889,7 @@ export function buildV3ShowModel(opts: {
       label: `− ${VENUE_PRODUCTION_AV_LABEL}`,
       sign: '−',
       expected: expected.production,
-      actual: actual.production,
+      actual: productionDisplay,
       kind: 'money',
       children: childrenForBucket(lines, 'show:production_costs', grain === 'run' ? null : opts.showId),
     }),
@@ -871,7 +899,7 @@ export function buildV3ShowModel(opts: {
       label: '− Other venue charges',
       sign: '−',
       expected: expected.other,
-      actual: actual.other,
+      actual: actualOther > 0 ? actualOther : null,
       kind: 'money',
       note: actual.other ? 'LPA / EIS / APRA and unclassified venue lines — not insides' : undefined,
       children: collapseMirrorPairs(classified.filter(l => l.kind === 'other').map(l => ({
@@ -891,9 +919,11 @@ export function buildV3ShowModel(opts: {
           : '+ Hire deposit',
       sign: '+',
       expected: unsignedSettlementCost(expected.deposit),
-      actual: unsignedSettlementCost(actual.depositApplied),
+      actual: hasDepositStatement ? unsignedSettlementCost(actual.depositApplied) : null,
       kind: 'money',
-      note: actual.depositResidual ?? expected.depositResidual ?? undefined,
+      note: hasDepositStatement
+        ? (actual.depositResidual ?? expected.depositResidual ?? undefined)
+        : (expected.depositResidual ?? 'Deposit applied once from Advancing until a venue PDF nets or credits it.'),
       children: collapseMirrorPairs(classified.filter(l => l.kind === 'deposit').map(l => ({
         key: l.id ?? 'deposit',
         label: l.description,
