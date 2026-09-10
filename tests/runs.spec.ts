@@ -29,6 +29,7 @@ test('shows Tour Desk heading and tabs', async ({ page }) => {
   await expect(page.getByRole('button', { name: /PROPOSED/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /CONFIRMED/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /DECLINED/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /cancelled \/ rescheduled/i })).toHaveCount(0)
 })
 
 test('proposed run shows Accept and Decline buttons', async ({ page }) => {

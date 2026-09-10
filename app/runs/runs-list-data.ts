@@ -1,5 +1,6 @@
 import { todayAU } from '@/lib/dates'
 import { computeCompletionPct } from '@/lib/completion'
+import { partitionRunsActiveVsCancelled, runListEndDate } from '@/lib/run-list-cancelled'
 import type { Run } from './RunsPageClient'
 
 export type RunsListShowStats = {
@@ -24,7 +25,11 @@ export function buildRunsListPageModel(
   costFields: Array<{ run_id: string; state: string }> | null | undefined,
 ): RunsListPageModel {
   const today = todayAU()
-  const upcomingRuns = allRuns.filter(r => !r.end_date || r.end_date >= today)
+  const { activeRuns } = partitionRunsActiveVsCancelled(allRuns)
+  const upcomingRuns = activeRuns.filter(r => {
+    const end = runListEndDate(r)
+    return !end || end >= today
+  })
   const confirmedCount = upcomingRuns.filter(r => r.status === 'confirmed').length
   const proposedCount = upcomingRuns.filter(r => r.status === 'proposed').length
   const placeholderCount = upcomingRuns.filter(r => r.status === 'placeholder').length
@@ -36,7 +41,7 @@ export function buildRunsListPageModel(
     confirmed: showCount(upcomingRuns.filter(r => r.status === 'confirmed')),
     proposed: showCount(upcomingRuns.filter(r => r.status === 'proposed')),
     placeholder: showCount(upcomingRuns.filter(r => r.status === 'placeholder')),
-    total: showCount(allRuns),
+    total: showCount(activeRuns),
   }
 
   const fieldsByRun = new Map<string, { state: string }[]>()
