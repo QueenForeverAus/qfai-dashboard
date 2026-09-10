@@ -103,6 +103,7 @@ test('inside vs outside placement: booking/CC/ticketing YES; hire/APRA/BO setup 
   assert.equal(classifyInsidePlacement('Venue hire'), 'outside')
   assert.equal(classifyInsidePlacement('Venue staff / ushers'), 'outside')
   assert.equal(classifyInsidePlacement('Production / AV'), 'outside')
+  assert.equal(classifyInsidePlacement('Venue Production/AV'), 'outside')
   assert.equal(classifyInsidePlacement('Marketing levy'), 'outside')
   assert.equal(classifyInsidePlacement('APRA / OneMusic'), 'outside')
   assert.equal(classifyInsidePlacement('LPA / EIS'), 'outside')

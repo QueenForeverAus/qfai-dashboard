@@ -13,6 +13,10 @@ import {
   isSettlementsSeedTargetAllowed,
   sampleFixtureInventory,
 } from '../../lib/settlements-sample-fixtures.ts'
+import {
+  PRODUCTION_BOUGHT_IN_LABEL,
+  VENUE_PRODUCTION_AV_LABEL,
+} from '../../lib/cost-fields.ts'
 
 test('eight SAMPLE fixtures cover accuracy + lifecycle mixes without real QF venues', () => {
   assert.deepEqual([...SETTLEMENTS_SAMPLE_CODES], SETTLEMENTS_SAMPLE_FIXTURES.map(f => f.code))
@@ -39,6 +43,14 @@ test('eight SAMPLE fixtures cover accuracy + lifecycle mixes without real QF ven
     assert.ok(fixture.show.capacity > 0)
     assert.ok(fixture.show.tickets_sold >= 0)
     assert.ok(fixture.advancing.length >= 6)
+    assert.equal(
+      fixture.advancing.find(l => l.field_key === 'production_costs')?.label,
+      VENUE_PRODUCTION_AV_LABEL,
+    )
+    assert.equal(
+      fixture.advancing.find(l => l.field_key === 'lighting_hire')?.label,
+      PRODUCTION_BOUGHT_IN_LABEL,
+    )
     assert.doesNotMatch(fixture.show.venue_name, realVenueHints)
     assert.doesNotMatch(fixture.show.venue_city, realVenueHints)
     if (fixture.lifecycle === 'not_settled') {

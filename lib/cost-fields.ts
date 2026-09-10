@@ -145,13 +145,31 @@ export const PRODUCTION_EDITABLE_FIELD_KEYS = new Set([
 ])
 // venue_marketing intentionally omitted — production must not see Venue Marketing (Lead 2026-09-05)
 
+/**
+ * Venue-cost Production/AV — user-facing section label.
+ * field_key stays `production_costs`. Stored DB labels may lag; use displayCostFieldLabel.
+ */
+export const VENUE_PRODUCTION_AV_LABEL = 'Venue Production/AV'
+
+/**
+ * Run-level Production parent (lighting_hire section).
+ * field_key stays `lighting_hire`. One Portal row per run.
+ */
+export const PRODUCTION_BOUGHT_IN_LABEL = 'Production Bought In'
+
+/**
+ * Sole lighting_hire child line. HARD: $330 per run, known/confirmed;
+ * never zero without Gareth OK. Not the parent section label.
+ */
+export const LIGHTING_HIRE_LINE_LABEL = 'Lighting Equipment Hire'
+
 /** Canonical per-show cost lines shown in Run Costing. */
 export const DEFINED_SHOW_COST_FIELDS: CostFieldDef[] = [
   { key: 'gross_box_office', label: 'Gross Box Office', category: 'Revenue', defaultState: 'pending', scope: 'show' },
   { key: 'venue_hire', label: 'Venue Hire', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
   { key: 'venue_staff', label: 'Venue Staff / On-costs', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
   { key: 'venue_marketing', label: 'Venue Marketing', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
-  { key: 'production_costs', label: 'Production / AV', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
+  { key: 'production_costs', label: VENUE_PRODUCTION_AV_LABEL, category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
 ]
 
 /** Canonical run-level cost lines shown in Run Costing (always listed in UI). */
@@ -163,12 +181,38 @@ export const DEFINED_RUN_COST_FIELDS: CostFieldDef[] = [
   { key: 'crew_fees_total', label: 'Crew Fees (all shows)', category: 'Crew & Operations', defaultState: 'guess', scope: 'run' },
   { key: 'food_basics', label: 'Food & Basics', category: 'Production', defaultState: 'estimated', scope: 'run' },
   { key: 'per_diems', label: 'Per Diems', category: 'Crew & Operations', defaultState: 'guess', scope: 'run' },
-  { key: 'lighting_hire', label: 'Lighting Equipment Hire', category: 'Production', defaultState: 'estimated', scope: 'run' },
+  { key: 'lighting_hire', label: PRODUCTION_BOUGHT_IN_LABEL, category: 'Production', defaultState: 'estimated', scope: 'run' },
   { key: 'backline_hire', label: 'Backline Hire (local)', category: 'Production', defaultState: 'estimated', scope: 'run' },
   { key: 'crew_travel_day', label: 'Crew Travel-Day Fee', category: 'Crew & Operations', defaultState: 'guess', scope: 'run' },
   { key: 'fb_ads', label: 'Facebook / Social Ads', category: 'Marketing', defaultState: 'guess', scope: 'run' },
   { key: 'social_ads_var', label: 'Social Media Marketing Co. — $1/ticket', category: 'Marketing', defaultState: 'auto_calc', scope: 'run' },
 ]
+
+const DEFINED_COST_FIELDS: CostFieldDef[] = [...DEFINED_SHOW_COST_FIELDS, ...DEFINED_RUN_COST_FIELDS]
+
+export function definedCostField(fieldKey: string): CostFieldDef | undefined {
+  return DEFINED_COST_FIELDS.find(f => f.key === fieldKey)
+}
+
+/**
+ * User-facing section label for a known field_key.
+ * Defined label wins so Costing / Advancing / Settlements stay in sync when
+ * stored `cost_fields.label` still has the previous copy.
+ */
+export function displayCostFieldLabel(fieldKey: string, storedLabel?: string | null): string {
+  const defined = definedCostField(fieldKey)?.label
+  if (defined) return defined
+  const stored = storedLabel?.trim()
+  if (stored) return stored
+  return fieldKey.replace(/_/g, ' ')
+}
+
+/** Child-entry description when seeding a placeholder. lighting_hire keeps the $330 line name. */
+export function defaultCostEntryDescription(fieldKey: string, fieldLabel?: string | null): string {
+  if (fieldKey === 'lighting_hire') return LIGHTING_HIRE_LINE_LABEL
+  const trimmed = fieldLabel?.trim()
+  return trimmed || 'Estimate'
+}
 
 export function canEditCostFields(role: string | undefined): boolean {
   return role === 'owner' || role === 'admin' || role === 'production'
@@ -719,7 +763,7 @@ export function isUnconfirmedEntriesSeed(
 
 /** Default non-confirmed state for a defined field — never `known`. */
 export function fallbackNonConfirmedState(fieldKey: string): Exclude<CostFieldState, 'known'> {
-  const def = [...DEFINED_RUN_COST_FIELDS, ...DEFINED_SHOW_COST_FIELDS].find(f => f.key === fieldKey)
+  const def = definedCostField(fieldKey)
   const raw = def?.defaultState
   if (raw && raw !== CONFIRMED_FIELD_STATE && raw !== 'auto_calc') return raw
   return 'estimated'
@@ -909,7 +953,7 @@ export function buildCreateCostFieldBody(
   const { fieldDef, showId } = spec
   const entries = ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
     ? []
-    : ensureMinimumEntry([], fieldDef.label, 0)
+    : ensureMinimumEntry([], defaultCostEntryDescription(fieldDef.key, fieldDef.label), 0)
 
   const body: Record<string, unknown> = {
     run_id: runId,

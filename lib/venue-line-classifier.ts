@@ -1,12 +1,12 @@
 /**
- * Classify venue cost line descriptions into staff / marketing / production(AV).
+ * Classify venue cost line descriptions into staff / marketing / Venue Production/AV.
  * Used when splitting Harbour quotes and planned roles across show cost fields.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { writeAuditLog, auditStringify } from '@/lib/audit-log'
 import {
   AUDIT_FIELD_LINE_MOVED,
-  DEFINED_SHOW_COST_FIELDS,
+  displayCostFieldLabel,
   entriesSum,
   type CostEntry,
 } from '@/lib/cost-fields'
@@ -124,8 +124,9 @@ function asEntries(raw: unknown): CostEntry[] {
 
 /**
  * Move mis-filed entries between venue_staff / venue_marketing / production_costs
- * for one show. Also strips gear roles from venue_staff.line_items when those
- * belong in production_costs. Leaves unknown entries in place and flags them.
+ * (Venue Production/AV) for one show. Also strips gear roles from
+ * venue_staff.line_items when those belong in production_costs. Leaves unknown
+ * entries in place and flags them.
  */
 export async function reclassifyShowVenueLines(
   opts: ReclassifyShowVenueLinesOpts,
@@ -171,8 +172,7 @@ export async function reclassifyShowVenueLines(
   const sectionTitle = (key: string, fallback: string) => {
     const row = byKey.get(key)
     const live = typeof row?.label === 'string' ? row.label.trim() : ''
-    if (live) return live
-    return DEFINED_SHOW_COST_FIELDS.find(f => f.key === key)?.label ?? fallback
+    return displayCostFieldLabel(key, live || fallback)
   }
 
   const moves: Array<{ line: string; fromKey: typeof keys[number]; toKey: typeof keys[number] }> = []

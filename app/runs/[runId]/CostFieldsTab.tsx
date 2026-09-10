@@ -44,6 +44,7 @@ import {
   ENTRY_EXEMPT_FIELD_KEYS,
   DEFINED_RUN_COST_FIELDS,
   DEFINED_SHOW_COST_FIELDS,
+  defaultCostEntryDescription,
   findMissingDefinedCostFields,
   buildCreateCostFieldBody,
   hasBulkPaidSnapshot,
@@ -862,7 +863,7 @@ function FieldRow({
           state: draftSelect,
           entries: [{
             id: crypto.randomUUID(),
-            description: fieldDef.label || 'Estimate',
+            description: defaultCostEntryDescription(fieldDef.key, fieldDef.label),
             notes: '',
             amount: 0,
             gst_included: !NO_GST_DEFAULTS.has(fieldDef.key),
@@ -1816,7 +1817,11 @@ export default function CostFieldsTab({
       const patched: CostFieldRow[] = []
       for (const row of emptyRows) {
         try {
-          const entries = ensureMinimumEntry(row.entries, row.label, row.value)
+          const entries = ensureMinimumEntry(
+            row.entries,
+            defaultCostEntryDescription(row.field_key, row.label),
+            row.value,
+          )
           const data = await patchCostField(row.id, { entries })
           patched.push(data)
         } catch (err) {
