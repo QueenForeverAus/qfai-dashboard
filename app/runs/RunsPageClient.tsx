@@ -18,6 +18,16 @@ import {
   partitionRunsActiveVsCancelled,
   runListEndDate,
 } from '@/lib/run-list-cancelled'
+import {
+  ALL_SHOWS_LABEL,
+  ALL_SHOWS_TAB,
+  groupRunsByTour,
+  matchingToursForRun,
+  visibleTours,
+  type TourRow,
+} from '@/lib/tours'
+import { AdvancingSlaBanner } from '@/components/AdvancingSlaBanner'
+import type { AdvancingSlaWeeks } from '@/lib/portal-settings'
 
 const STATUS_STYLES: Record<string, string> = {
   confirmed:   'bg-green-900/40 text-green-400 border-green-800',
@@ -317,6 +327,57 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
   )
 }
 
+function GroupedRunTables({
+  runs,
+  tours,
+  group,
+  completionByRun,
+  completed = false,
+  declined = false,
+  cancelled = false,
+  onStatusChange,
+}: {
+  runs: Run[]
+  tours: TourRow[]
+  group: boolean
+  completionByRun: Record<string, number>
+  completed?: boolean
+  declined?: boolean
+  cancelled?: boolean
+  onStatusChange: (runId: string, newStatus: string) => void
+}) {
+  const groups = group && visibleTours(tours).length > 0
+    ? groupRunsByTour(runs, tours)
+    : [{ tour: null, heading: null, runs }]
+
+  return (
+    <div className="space-y-8">
+      {groups.map(g => (
+        <div key={g.tour?.id ?? g.heading ?? 'flat'}>
+          {g.heading && (
+            <div className="mb-4 flex items-center gap-3">
+              <h2 className={`text-lg font-semibold ${g.tour ? 'text-white' : 'text-slate-400'}`}>
+                {g.heading}
+              </h2>
+              <span className="text-slate-500 text-sm">
+                {g.runs.length} run{g.runs.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+          )}
+          <RunTable
+            runs={g.runs}
+            completionByRun={completionByRun}
+            completed={completed}
+            declined={declined}
+            cancelled={cancelled}
+            onStatusChange={onStatusChange}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function RunsPageClient({
   allRuns: initialRuns,
   today,
@@ -324,6 +385,8 @@ export default function RunsPageClient({
   showStats,
   desk,
   activeAdvancingRunIds = [],
+  tours = [],
+  advancingSla,
 }: {
   allRuns: Run[]
   today: string
@@ -334,8 +397,11 @@ export default function RunsPageClient({
   showStats: { confirmed: number; proposed: number; placeholder: number; total: number }
   desk?: Desk
   activeAdvancingRunIds?: string[]
+  tours?: TourRow[]
+  advancingSla?: AdvancingSlaWeeks
 }) {
   const [activeTab, setActiveTab] = useState<Tab>('all')
+  const [tourTab, setTourTab] = useState<string>(ALL_SHOWS_TAB)
   const [runs, setRuns] = useState<Run[]>(initialRuns)
   const [activeWorkspaceIds, setActiveWorkspaceIds] = useState(() => new Set(activeAdvancingRunIds))
   const router = useRouter()
@@ -365,9 +431,18 @@ export default function RunsPageClient({
     router.refresh()
   }
 
-  const { activeRuns: listedActiveRuns, cancelledRuns } = partitionRunsActiveVsCancelled(listedRuns)
-  const declinedRuns      = listedActiveRuns.filter(r => r.status === 'declined')
-  const activeRuns        = listedActiveRuns.filter(r => r.status !== 'declined')
+  const completeTours = visibleTours(tours)
+  const groupByTour = tourTab === ALL_SHOWS_TAB && completeTours.length > 0
+
+  function inSelectedTour<T extends Run>(run: T): boolean {
+    if (tourTab === ALL_SHOWS_TAB) return true
+    return matchingToursForRun(run, tours).some(t => t.id === tourTab)
+  }
+
+  const { activeRuns: listedActiveRuns, cancelledRuns: allCancelledRuns } = partitionRunsActiveVsCancelled(listedRuns)
+  const cancelledRuns = allCancelledRuns.filter(inSelectedTour)
+  const declinedRuns      = listedActiveRuns.filter(r => r.status === 'declined').filter(inSelectedTour)
+  const activeRuns        = listedActiveRuns.filter(r => r.status !== 'declined').filter(inSelectedTour)
   const completedRuns     = activeRuns.filter(r => {
     const end = runListEndDate(r)
     return !!end && end < today
@@ -397,6 +472,27 @@ export default function RunsPageClient({
     declined:     declinedRuns.length,
   }
 
+  const tourTabCounts = new Map<string, number>()
+  tourTabCounts.set(ALL_SHOWS_TAB, partitionRunsActiveVsCancelled(listedRuns).activeRuns.filter(r => {
+    if (r.status === 'declined') return false
+    const end = runListEndDate(r)
+    return !end || end >= today
+  }).length)
+  for (const tour of completeTours) {
+    tourTabCounts.set(tour.id, partitionRunsActiveVsCancelled(listedRuns).activeRuns.filter(r => {
+      if (r.status === 'declined') return false
+      const end = runListEndDate(r)
+      if (end && end < today) return false
+      return matchingToursForRun(r, tours).some(t => t.id === tour.id)
+    }).length)
+  }
+
+  const firstShowDate = upcomingRuns
+    .flatMap(r => r.shows ?? [])
+    .map(s => s.show_date)
+    .filter((d): d is string => Boolean(d))
+    .sort()[0] ?? null
+
   return (
     <div className="p-4 sm:p-6" data-testid={advancingDesk ? 'advancing-shows-list' : 'run-costings-list'}>
       {/* Header */}
@@ -406,6 +502,9 @@ export default function RunsPageClient({
           <p className="text-slate-500 text-sm mb-2">
             BOOKED runs only. Proposed and held stay on Run Costings.
           </p>
+        )}
+        {advancingDesk && advancingSla && (
+          <AdvancingSlaBanner sla={advancingSla} showDate={firstShowDate} />
         )}
         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6">
           <div>
@@ -427,7 +526,41 @@ export default function RunsPageClient({
         </div>
       </div>
 
-      {/* Tab bar */}
+      {completeTours.length > 0 && (
+        <div className="mb-3 -mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto" data-testid="tour-tabs">
+          <div className="flex gap-1 bg-slate-800/60 rounded-lg p-1 border border-slate-700 w-max min-w-full sm:min-w-0 sm:w-fit">
+            <button
+              type="button"
+              onClick={() => setTourTab(ALL_SHOWS_TAB)}
+              className={`flex-none px-3 sm:px-4 py-1.5 rounded-md text-xs font-semibold tracking-wide transition-colors whitespace-nowrap ${
+                tourTab === ALL_SHOWS_TAB ? 'bg-amber-400 text-slate-900' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              {ALL_SHOWS_LABEL}
+              <span className={`ml-1 text-xs ${tourTab === ALL_SHOWS_TAB ? 'text-slate-700' : 'text-slate-600'}`}>
+                {tourTabCounts.get(ALL_SHOWS_TAB) ?? 0}
+              </span>
+            </button>
+            {completeTours.map(tour => (
+              <button
+                type="button"
+                key={tour.id}
+                onClick={() => setTourTab(tour.id)}
+                className={`flex-none px-3 sm:px-4 py-1.5 rounded-md text-xs font-semibold tracking-wide transition-colors whitespace-nowrap ${
+                  tourTab === tour.id ? 'bg-amber-400 text-slate-900' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {tour.name}
+                <span className={`ml-1 text-xs ${tourTab === tour.id ? 'text-slate-700' : 'text-slate-600'}`}>
+                  {tourTabCounts.get(tour.id) ?? 0}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Status tab bar */}
       <div className="mb-5 -mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto">
         <div className="flex gap-1 bg-slate-800/60 rounded-lg p-1 border border-slate-700 w-max min-w-full sm:min-w-0 sm:w-fit">
           {tabs.map(tab => (
@@ -454,37 +587,37 @@ export default function RunsPageClient({
       {/* Tab content */}
       {activeTab === 'all' && (
         <>
-          <RunTable runs={upcomingRuns} completionByRun={completionByRun} onStatusChange={handleStatusChange} />
+          <GroupedRunTables runs={upcomingRuns} tours={tours} group={groupByTour} completionByRun={completionByRun} onStatusChange={handleStatusChange} />
           {completedRuns.length > 0 && (
             <div className="mt-8">
               <div className="mb-4 flex items-center gap-3">
                 <h2 className="text-white text-lg font-semibold">Completed Shows</h2>
                 <span className="text-slate-500 text-sm">{completedRuns.length} run{completedRuns.length !== 1 ? 's' : ''} — settlement data needed</span>
               </div>
-              <RunTable runs={completedRuns} completionByRun={completionByRun} completed onStatusChange={handleStatusChange} />
+              <GroupedRunTables runs={completedRuns} tours={tours} group={groupByTour} completionByRun={completionByRun} completed onStatusChange={handleStatusChange} />
             </div>
           )}
         </>
       )}
 
       {activeTab === 'proposed' && (
-        <RunTable runs={proposedRuns} completionByRun={completionByRun} onStatusChange={handleStatusChange} />
+        <GroupedRunTables runs={proposedRuns} tours={tours} group={groupByTour} completionByRun={completionByRun} onStatusChange={handleStatusChange} />
       )}
 
       {activeTab === 'confirmed' && (
-        <RunTable runs={confirmedRuns} completionByRun={completionByRun} onStatusChange={handleStatusChange} />
+        <GroupedRunTables runs={confirmedRuns} tours={tours} group={groupByTour} completionByRun={completionByRun} onStatusChange={handleStatusChange} />
       )}
 
       {activeTab === 'placeholders' && (
-        <RunTable runs={placeholderRuns} completionByRun={completionByRun} onStatusChange={handleStatusChange} />
+        <GroupedRunTables runs={placeholderRuns} tours={tours} group={groupByTour} completionByRun={completionByRun} onStatusChange={handleStatusChange} />
       )}
 
       {activeTab === 'completed' && (
-        <RunTable runs={completedRuns} completionByRun={completionByRun} completed onStatusChange={handleStatusChange} />
+        <GroupedRunTables runs={completedRuns} tours={tours} group={groupByTour} completionByRun={completionByRun} completed onStatusChange={handleStatusChange} />
       )}
 
       {activeTab === 'declined' && (
-        <RunTable runs={declinedRuns} completionByRun={completionByRun} declined onStatusChange={handleStatusChange} />
+        <GroupedRunTables runs={declinedRuns} tours={tours} group={groupByTour} completionByRun={completionByRun} declined onStatusChange={handleStatusChange} />
       )}
 
       {cancelledRuns.length > 0 && (

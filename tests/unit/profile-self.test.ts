@@ -174,4 +174,11 @@ describe('profile page access', () => {
       assert.equal(canAccessPage(role, '/profile'), true, role)
     }
   })
+
+  it('keeps Admin Settings off crew and production', () => {
+    assert.equal(canAccessPage('crew', '/admin-settings'), false)
+    assert.equal(canAccessPage('production', '/admin-settings'), false)
+    assert.equal(canAccessPage('admin', '/admin-settings'), true)
+    assert.equal(canAccessPage('owner', '/admin-settings'), true)
+  })
 })

@@ -12,6 +12,7 @@ import {
   TOUR_DESK_NAV_HEADING,
   isTourDeskChildActive,
 } from '@/lib/tour-desk-nav'
+import { ADMIN_SETTINGS_HREF, ADMIN_SETTINGS_NAV_LABEL } from '@/lib/tours'
 
 type NavLeaf = { href: string; label: string; icon: string }
 type NavGroup = { label: string; icon: string; children: ReadonlyArray<{ href: string; label: string }> }
@@ -26,8 +27,9 @@ const navItems: NavItem[] = [
   },
   { href: '/factors',    label: 'Factors',          icon: '⚙' },
   { href: '/feedback',   label: 'Feedback',         icon: '💬' },
-  { href: '/admin',      label: 'Admin',            icon: '🛠' },
-  { href: '/settings',   label: 'Profile',          icon: '👤' },
+  { href: '/admin',              label: 'Admin',                   icon: '🛠' },
+  { href: ADMIN_SETTINGS_HREF,   label: ADMIN_SETTINGS_NAV_LABEL,  icon: '📅' },
+  { href: '/settings',           label: 'Profile',                 icon: '👤' },
 ]
 
 function isGroup(item: NavItem): item is NavGroup {
@@ -54,7 +56,7 @@ function HamburgerIcon({ open }: { open: boolean }) {
 }
 
 function leafActive(pathname: string, href: string) {
-  return pathname === href || (href !== '/' && pathname.startsWith(href))
+  return pathname === href || (href !== '/' && pathname.startsWith(`${href}/`))
 }
 
 function childClass(active: boolean, mobile: boolean) {
