@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { computeHarbourCommission, computeOwnerSplits, roundMoney } from '../../lib/pnl-run-costing.ts'
 import {
@@ -28,6 +29,19 @@ import {
   BNZ_INSIDES_OMITTED_LINES,
   BNZ_NETTED_DEPOSIT_LINES,
 } from '../../lib/settlements-v3-bnz.ts'
+
+test('LOCKED design doc is in-repo and names the four sections + Finance GREEN', () => {
+  const doc = readFileSync(new URL('../../docs/settlements-due-to-hirer-v3.md', import.meta.url), 'utf8')
+  assert.match(doc, /Status: LOCKED 2026-09-10/)
+  assert.match(doc, /§1 Settlement \(Due to Hirer\)/)
+  assert.match(doc, /§2 Remittance \(Due to QF\)/)
+  assert.match(doc, /§3 Pre-Distribution Margin/)
+  assert.match(doc, /§4 Owner Distribution/)
+  assert.match(doc, /NO Harbour 10%/)
+  assert.match(doc, /never auto-send/)
+  assert.match(doc, /Expected \| Actual \| Δ/)
+  assert.match(doc, /not Lead/)
+})
 
 test('§1 Due to Hirer has no Harbour 10% and follows +tickets − insides − venue buckets + deposit', () => {
   assert.equal(V3_NO_HARBOUR_IN_S1, true)

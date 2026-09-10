@@ -1,5 +1,6 @@
 /**
  * Settlements v3 — four locked sections (Gareth / Lead SoT).
+ * Canonical design: docs/settlements-due-to-hirer-v3.md (LOCKED 2026-09-10).
  *
  * §1 Settlement (Due to Hirer) — venue proposes to pay Hirer. NO Harbour 10%.
  *    +tickets − insides − hire − staff − marketing − Venue Production/AV − other

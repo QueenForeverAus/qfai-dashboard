@@ -461,7 +461,9 @@ export default function SettlementV3Client({
   )
 
   const focusedBlocked = focusedShow ? !showHasOccurred(focusedShow.show_date) : runModel.blocked
-  const displayShows = focusedShow ? [focusedShow] : runModel.occurred
+  const displayShows: SettlementShow[] = focusedShow
+    ? [focusedShow]
+    : shows.filter(s => runModel.occurred.some(o => o.id === s.id))
 
   const models = useMemo(() => {
     return displayShows.map(show => {
