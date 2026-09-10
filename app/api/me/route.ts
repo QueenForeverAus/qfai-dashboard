@@ -29,6 +29,10 @@ export async function GET() {
 
   if (!profile) return NextResponse.json(null)
 
+  if (profile.deactivated_at) {
+    return NextResponse.json({ error: 'Account disabled', deactivated: true }, { status: 403 })
+  }
+
   if (!actorCanReadProfilePii({ id: user.id, role: profile.role }, user.id)) {
     return NextResponse.json(null, { status: 403 })
   }
@@ -50,11 +54,14 @@ export async function PATCH(req: NextRequest) {
   const admin = createAdminClient()
   const { data: existing } = await admin
     .from('profiles')
-    .select('id, full_name, email, role')
+    .select('id, full_name, email, role, deactivated_at')
     .eq('id', user.id)
     .single()
 
   if (!existing) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+  if (existing.deactivated_at) {
+    return NextResponse.json({ error: 'Account disabled', deactivated: true }, { status: 403 })
+  }
 
   const targetId = user.id
   if (!actorCanSelfServeWrite({ id: user.id, role: existing.role }, targetId)) {

@@ -1,27 +1,51 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
-export default function UpdatePasswordPage() {
+function UpdatePasswordForm() {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  const [sessionReady, setSessionReady] = useState(false)
+  const [sessionWaited, setSessionWaited] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const isInviteSetup = searchParams.get('setup') === '1'
+  const linkError = searchParams.get('error')
 
-  // Supabase puts the session into the URL fragment after the reset link is clicked.
-  // The browser client picks this up automatically on mount.
   useEffect(() => {
     const supabase = createClient()
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        // Session is ready, user can now set a new password
+    let settled = false
+
+    async function markReady() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session && !settled) {
+        settled = true
+        setSessionReady(true)
+      }
+    }
+
+    void markReady()
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session && (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED')) {
+        settled = true
+        setSessionReady(true)
       }
     })
-    return () => subscription.unsubscribe()
+
+    const timeout = window.setTimeout(() => {
+      if (!settled) setSessionWaited(true)
+    }, 8000)
+
+    return () => {
+      subscription.unsubscribe()
+      window.clearTimeout(timeout)
+    }
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -39,6 +63,13 @@ export default function UpdatePasswordPage() {
 
     setLoading(true)
     const supabase = createClient()
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      setError('This link did not create a signed-in session. Ask an admin to resend the invite.')
+      setLoading(false)
+      return
+    }
+
     const { error: updateError } = await supabase.auth.updateUser({ password })
 
     if (updateError) {
@@ -51,13 +82,20 @@ export default function UpdatePasswordPage() {
     setTimeout(() => router.push('/'), 2000)
   }
 
+  const title = isInviteSetup ? 'Set your password' : 'Set new password'
+  const subtitle = isInviteSetup
+    ? 'Enter a password twice to finish setting up your account.'
+    : 'Queen Forever Tours'
+
+  const missingSession = (sessionWaited && !sessionReady) || linkError === 'missing_token'
+
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <span className="text-amber-400 text-4xl">♛</span>
-          <h1 className="text-white text-xl font-bold mt-2">Set new password</h1>
-          <p className="text-slate-400 text-sm mt-1">Queen Forever Tours</p>
+          <h1 className="text-white text-xl font-bold mt-2">{title}</h1>
+          <p className="text-slate-400 text-sm mt-1">{subtitle}</p>
         </div>
 
         <div className="bg-slate-800 rounded-xl border border-slate-700 p-6">
@@ -65,19 +103,34 @@ export default function UpdatePasswordPage() {
             <div className="text-center py-2">
               <div className="text-green-400 text-2xl mb-2">✓</div>
               <p className="text-white font-medium">Password updated</p>
-              <p className="text-slate-400 text-sm mt-1">Redirecting you in…</p>
+              <p className="text-slate-400 text-sm mt-1">You are signed in. Redirecting…</p>
             </div>
+          ) : missingSession ? (
+            <div className="space-y-3">
+              <p className="text-red-400 text-sm">
+                This invite or reset link is invalid or expired. Ask an admin to send a new invite.
+              </p>
+              <p className="text-slate-500 text-xs">
+                First-time setup uses this page — not Forgot password.
+              </p>
+              <a href="/login" className="block text-center text-amber-400 text-sm hover:text-amber-300">
+                Back to sign in
+              </a>
+            </div>
+          ) : !sessionReady ? (
+            <p className="text-slate-400 text-sm text-center py-2">Preparing your account…</p>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4" data-testid="set-password-form">
               <div>
                 <label className="block text-slate-300 text-sm font-medium mb-1.5">New password</label>
                 <input
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={e => setPassword(e.target.value)}
                   required
                   minLength={8}
                   placeholder="Minimum 8 characters"
+                  autoComplete="new-password"
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
                 />
               </div>
@@ -86,9 +139,10 @@ export default function UpdatePasswordPage() {
                 <input
                   type="password"
                   value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
+                  onChange={e => setConfirm(e.target.value)}
                   required
                   placeholder="Repeat password"
+                  autoComplete="new-password"
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
                 />
               </div>
@@ -105,5 +159,17 @@ export default function UpdatePasswordPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function UpdatePasswordPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-400 text-sm">
+        Loading…
+      </div>
+    }>
+      <UpdatePasswordForm />
+    </Suspense>
   )
 }

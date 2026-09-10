@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC_PATHS = ['/login', '/update-password']
+const PUBLIC_PATHS = ['/login', '/update-password', '/auth']
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -30,6 +30,17 @@ export async function middleware(request: NextRequest) {
   const isApi = pathname.startsWith('/api')
 
   const { data: { user } } = await supabase.auth.getUser()
+
+  const deactivated = Boolean(
+    user?.app_metadata && (user.app_metadata as { deactivated?: boolean }).deactivated,
+  )
+  if (user && deactivated && !pathname.startsWith('/login')) {
+    await supabase.auth.signOut()
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    url.search = ''
+    return NextResponse.redirect(url)
+  }
 
   // Not logged in → login page
   if (!user && !isPublic && !isApi) {

@@ -22,12 +22,26 @@ export default function LoginPage() {
     const supabase = createClient()
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
-      setError(error.message)
+      const banned = /banned|disabled|forbidden/i.test(error.message)
+      setError(banned ? 'This account has been deactivated. Ask an admin if you need access.' : error.message)
       setLoading(false)
-    } else {
-      router.push('/')
-      router.refresh()
+      return
     }
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('deactivated_at')
+      .eq('id', (await supabase.auth.getUser()).data.user?.id ?? '')
+      .maybeSingle()
+    if (profile?.deactivated_at) {
+      await supabase.auth.signOut()
+      setError('This account has been deactivated. Ask an admin if you need access.')
+      setLoading(false)
+      return
+    }
+
+    router.push('/')
+    router.refresh()
   }
 
   async function handleResetRequest(e: React.FormEvent) {

@@ -8,9 +8,9 @@ import { ProfileProvider } from '@/lib/profile-context'
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const isLogin = pathname === '/login'
+  const isBareAuth = pathname === '/login' || pathname.startsWith('/update-password')
 
-  if (isLogin) return <>{children}</>
+  if (isBareAuth) return <>{children}</>
 
   return (
     <ProfileProvider>

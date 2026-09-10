@@ -46,3 +46,10 @@ export function redactSensitiveValue(field: string, value: string | null | undef
   if (isSensitiveProfileField(field)) return '[redacted]'
   return value
 }
+
+/** Locked Profile display: `****` + last 4. Empty stays empty. */
+export function maskSensitiveLast4(value: string | null | undefined): string {
+  const trimmed = (value ?? '').trim()
+  if (!trimmed) return ''
+  return `****${trimmed.slice(-4)}`
+}

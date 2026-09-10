@@ -1,11 +1,19 @@
 import { createAdminClient } from '@/lib/supabase/server-admin'
 import { NextRequest, NextResponse } from 'next/server'
+import { requirePortalUserAdmin } from '@/lib/require-user-admin'
+import {
+  buildInviteVerifyUrl,
+  inviteHrefForHtml,
+  portalBaseUrl,
+  tokenFromGenerateLink,
+} from '@/lib/invite-url'
+import { isNeverConfirmedInvite, shouldHardDeleteInvite } from '@/lib/user-admin'
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY!
-const PORTAL_URL = 'https://tours.queenforever.com.au'
 
 async function sendInviteEmail(to: string, name: string, inviteUrl: string) {
   const firstName = name.split(' ')[0]
+  const href = inviteHrefForHtml(inviteUrl)
   const html = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -26,13 +34,17 @@ async function sendInviteEmail(to: string, name: string, inviteUrl: string) {
               You've been invited to <strong style="color:#e2e8f0;">Queen Forever Tours</strong> — the band's private portal for tour schedules, financials, and logistics.
             </p>
             <p style="margin:0 0 24px;font-size:15px;color:#94a3b8;line-height:1.6;">
-              We handle the spreadsheets so you can focus on the stage.
+              We handle the spreadsheets so you can focus on the stage. Accept the invite and set your password — don't use Forgot password for first-time setup.
             </p>
             <table cellpadding="0" cellspacing="0"><tr><td>
-              <a href="${inviteUrl}" style="display:inline-block;background:#fbbf24;color:#0f172a;font-weight:700;font-size:15px;text-decoration:none;padding:14px 28px;border-radius:8px;">
+              <a href="${href}" style="display:inline-block;background:#fbbf24;color:#0f172a;font-weight:700;font-size:15px;text-decoration:none;padding:14px 28px;border-radius:8px;">
                 Accept invitation →
               </a>
             </td></tr></table>
+            <p style="margin:24px 0 0;font-size:12px;color:#475569;line-height:1.6;word-break:break-all;">
+              If the button doesn't work, copy this link:<br>
+              <span style="color:#94a3b8;">${inviteUrl.replace(/&/g, '&amp;')}</span>
+            </p>
             <p style="margin:24px 0 0;font-size:12px;color:#475569;">
               This link expires in 24 hours. If you didn't expect this, ignore it — no account will be created.
             </p>
@@ -70,38 +82,61 @@ async function sendInviteEmail(to: string, name: string, inviteUrl: string) {
 }
 
 export async function POST(req: NextRequest) {
+  const gate = await requirePortalUserAdmin()
+  if (!gate.ok) return gate.res
+
   const { email, full_name, role } = await req.json()
   if (!email || !full_name || !role) {
     return NextResponse.json({ error: 'email, full_name and role are required' }, { status: 400 })
   }
 
   const supabase = createAdminClient()
+  const portalUrl = portalBaseUrl()
 
-  // If the user is already pending (invited but not confirmed), delete them first so we can re-invite
+  // Re-invite: hard-delete only a never-confirmed pending user with no audit rows.
   const { data: existing } = await supabase.auth.admin.listUsers()
   const pendingUser = existing?.users.find(u => u.email === email && u.invited_at && !u.confirmed_at)
-  if (pendingUser) {
-    await supabase.auth.admin.deleteUser(pendingUser.id)
+  if (pendingUser && isNeverConfirmedInvite(pendingUser)) {
+    const { count } = await supabase
+      .from('audit_log')
+      .select('id', { count: 'exact', head: true })
+      .eq('changed_by', pendingUser.id)
+    if (shouldHardDeleteInvite(pendingUser, count ?? 0)) {
+      await supabase.auth.admin.deleteUser(pendingUser.id)
+    } else {
+      return NextResponse.json(
+        { error: 'This email belongs to a user with audit history. Deactivate them instead of re-inviting.' },
+        { status: 409 },
+      )
+    }
   }
 
-  // Generate invite link (does not send email)
   const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
     type: 'invite',
     email,
     options: {
-      redirectTo: `${PORTAL_URL}/update-password`,
+      redirectTo: `${portalUrl}/update-password`,
       data: { full_name, role },
     },
   })
 
   if (linkError) return NextResponse.json({ error: linkError.message }, { status: 500 })
 
-  // Extract the raw token from Supabase's action_link and route it through our domain
-  const supabaseLink = new URL(linkData.properties.action_link)
-  const token = supabaseLink.searchParams.get('token')
-  const ourInviteUrl = `${PORTAL_URL}/auth/verify?token=${token}&type=invite&next=/update-password`
+  const token = tokenFromGenerateLink({
+    hashed_token: linkData.properties.hashed_token,
+    action_link: linkData.properties.action_link,
+  })
+  if (!token) {
+    return NextResponse.json({ error: 'Invite link was missing a token' }, { status: 500 })
+  }
 
-  // Send branded email via Resend API (links stay on our domain — avoids spam filters)
+  const ourInviteUrl = buildInviteVerifyUrl({
+    portalUrl,
+    token,
+    type: 'invite',
+    next: '/update-password',
+  })
+
   try {
     await sendInviteEmail(email, full_name, ourInviteUrl)
   } catch (err: unknown) {
@@ -109,7 +144,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 })
   }
 
-  // Pre-create the profile so they appear in admin immediately
   await supabase.from('profiles').upsert({
     id: linkData.user.id,
     full_name,
