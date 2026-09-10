@@ -77,6 +77,8 @@ export type SettlementWorkspaceData = {
   actuals: SettlementActualLine[]
   insideFactors: InsideFactorValues
   remittanceKnownLines: KnownInsideLine[]
+  /** Remittance + agent-statement lines used to resolve stored GST (never a rate). */
+  gstKnownLines: KnownInsideLine[]
 }
 
 export async function loadSettlementWorkspace(runCode: string): Promise<SettlementWorkspaceData | null> {
@@ -235,5 +237,17 @@ export async function loadSettlementWorkspace(runCode: string): Promise<Settleme
       description: line.description,
       amount: Number(line.amount) || 0,
     })),
+    gstKnownLines: [
+      ...((remittanceLines ?? []) as RemittanceLine[]).map(line => ({
+        showId: line.show_id,
+        description: line.description,
+        amount: Number(line.amount) || 0,
+      })),
+      ...((agentLines ?? []) as AgentSettlementLine[]).map(line => ({
+        showId: line.show_id,
+        description: line.description,
+        amount: Number(line.amount) || 0,
+      })),
+    ],
   }
 }

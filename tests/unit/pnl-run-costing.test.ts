@@ -7,13 +7,18 @@ import {
   canSeeOwnerPnl,
   classifyInsidePlacement,
   computeHarbourCommission,
+  computeOwnerSplits,
   computePnlSummary,
   computeVenueWaterfall,
+  gstQuarantineLineLabel,
   insideFactorsFromRows,
   knownInsideForShow,
+  lineLooksLikeKnownGst,
   pnlSlidersUnlocked,
   remittanceHasCcSplit,
   resolveInsideCosts,
+  resolveKnownGst,
+  roundMoney,
 } from '../../lib/pnl-run-costing.ts'
 
 test('Harbour commission is exactly 10% of commissionable, never of gross', () => {
@@ -38,13 +43,107 @@ test('net_revenue = commissionable − harbour; harbour is not editable input', 
 test('P&L summary: 20% reserve of positive net only', () => {
   const win = computePnlSummary({ netRevenue: 10_000, totalCosts: 4000 })
   assert.equal(win.netProfit, 6000)
+  assert.equal(win.gstQuarantine, 0)
+  assert.equal(win.gstKnown, false)
+  assert.equal(win.exGstProfit, 6000)
   assert.equal(win.reserve, 1200)
   assert.equal(win.preDistMargin, 4800)
+  assert.equal(win.ownerSplits.gareth, 1920)
+  assert.equal(win.ownerSplits.brad, 1440)
+  assert.equal(win.ownerSplits.scott, 1440)
 
   const loss = computePnlSummary({ netRevenue: 1000, totalCosts: 4000 })
   assert.equal(loss.netProfit, -3000)
+  assert.equal(loss.gstQuarantine, 0)
   assert.equal(loss.reserve, 0)
   assert.equal(loss.preDistMargin, -3000)
+  assert.equal(loss.ownerSplits.gareth, 0)
+})
+
+test('quarantine → reserve → preDist: known GST is held before 20% ex-GST reserve', () => {
+  const summary = computePnlSummary({
+    netRevenue: 10_000,
+    totalCosts: 4000,
+    knownGst: 550,
+  })
+  assert.equal(summary.netProfit, 6000)
+  assert.equal(summary.gstQuarantine, 550)
+  assert.equal(summary.gstKnown, true)
+  assert.equal(summary.exGstProfit, 5450)
+  assert.equal(summary.reserve, 1090)
+  assert.equal(summary.preDistMargin, 4360)
+  assert.equal(summary.ownerSplits.gareth, 1744)
+  assert.equal(summary.ownerSplits.brad, 1308)
+  assert.equal(summary.ownerSplits.scott, 1308)
+  assert.equal(summary.ownerSplits.gareth + summary.ownerSplits.brad + summary.ownerSplits.scott, 4360)
+  // Must not invent AU 10% / 1/11 of GST-inclusive profit
+  assert.notEqual(summary.gstQuarantine, roundMoney(6000 / 11))
+  assert.notEqual(summary.reserve, 1200)
+})
+
+test('missing GST quarantines 0 with honest residual — never invents NZ 15% or AU 10%', () => {
+  const missing = computePnlSummary({ netRevenue: 10_000, totalCosts: 4000 })
+  assert.equal(missing.gstKnown, false)
+  assert.equal(missing.gstQuarantine, 0)
+  assert.equal(missing.exGstProfit, 6000)
+  assert.match(missing.gstSourceLabel, /No NZ 15% or AU 10% invented/)
+  assert.match(gstQuarantineLineLabel(false), /missing/)
+  assert.notEqual(missing.gstQuarantine, roundMoney(6000 / 11))
+  assert.notEqual(missing.gstQuarantine, roundMoney(6000 * 0.15 / 1.15))
+  assert.equal(missing.reserve, 1200)
+})
+
+test('known-zero GST is known, not missing', () => {
+  const zero = computePnlSummary({ netRevenue: 10_000, totalCosts: 4000, knownGst: 0 })
+  assert.equal(zero.gstKnown, true)
+  assert.equal(zero.gstQuarantine, 0)
+  assert.equal(zero.reserve, 1200)
+  assert.match(zero.gstSourceLabel, /known/)
+})
+
+test('stored remittance GST line is used; inc-GST cost notes are ignored', () => {
+  const fromLines = resolveKnownGst({
+    lines: [
+      { showId: 's1', description: 'GST collected', amount: 412.5 },
+      { showId: 's1', description: 'Venue hire $8.25 inc GST per ticket', amount: 6039 },
+      { showId: 's2', description: 'GST payable', amount: 99 },
+    ],
+    showId: 's1',
+  })
+  assert.equal(fromLines.source, 'known')
+  assert.equal(fromLines.amount, 412.5)
+
+  const summary = computePnlSummary({
+    netRevenue: 8000,
+    totalCosts: 2000,
+    remittanceLines: [
+      { showId: 's1', description: 'GST', amount: 400 },
+    ],
+    showId: 's1',
+  })
+  assert.equal(summary.gstQuarantine, 400)
+  assert.equal(summary.exGstProfit, 5600)
+  assert.equal(summary.reserve, 1120)
+  assert.equal(summary.preDistMargin, 4480)
+})
+
+test('lineLooksLikeKnownGst rejects incidental inc/ex GST wording', () => {
+  assert.equal(lineLooksLikeKnownGst('GST'), true)
+  assert.equal(lineLooksLikeKnownGst('GST collected'), true)
+  assert.equal(lineLooksLikeKnownGst('GST payable'), true)
+  assert.equal(lineLooksLikeKnownGst('GST quarantine'), true)
+  assert.equal(lineLooksLikeKnownGst('$8.25 inc GST per paying ticket'), false)
+  assert.equal(lineLooksLikeKnownGst('ex GST figure'), false)
+  assert.equal(lineLooksLikeKnownGst('including GST'), false)
+  assert.equal(lineLooksLikeKnownGst('Venue hire'), false)
+})
+
+test('owner splits use Pre-Distribution Margin and keep the penny on Scott', () => {
+  const splits = computeOwnerSplits(100.01)
+  assert.equal(splits.gareth, 40)
+  assert.equal(splits.brad, 30)
+  assert.equal(splits.scott, 30.01)
+  assert.equal(splits.gareth + splits.brad + splits.scott, 100.01)
 })
 
 test('unlock gate: FIGURES NEEDED on cost lines blocks sliders', () => {

@@ -9,7 +9,9 @@ import {
 } from '@/lib/capacity-bands'
 import {
   HARBOUR_COMMISSION_RATE,
+  RESERVE_EX_GST_LABEL,
   computeVenueWaterfall,
+  gstQuarantineLineLabel,
   knownInsideForShow,
   remittanceHasCcSplit,
   resolveInsideCosts,
@@ -250,15 +252,22 @@ export function PnlSummaryBlock({
             <span className="text-white">Net Profit / (Loss)</span>
             <span className={summary.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}>{fmt(summary.netProfit)}</span>
           </div>
-          <div className="flex justify-between text-slate-400">
-            <span>− 20% Reserve</span>
+          <div className="flex justify-between text-slate-400" data-testid="pnl-gst-quarantine">
+            <span>
+              {gstQuarantineLineLabel(summary.gstKnown)}
+              <span className="block text-slate-600 text-xs font-normal">{summary.gstSourceLabel}</span>
+            </span>
+            <span className="text-red-400/70">{fmt(summary.gstQuarantine)}</span>
+          </div>
+          <div className="flex justify-between text-slate-400" data-testid="pnl-reserve-ex-gst">
+            <span>{RESERVE_EX_GST_LABEL}</span>
             <span className="text-red-400/70">{fmt(summary.reserve)}</span>
           </div>
           <div className="flex justify-between font-bold border-t border-slate-600 pt-2">
             <span className="text-amber-400">Pre-Distribution Margin</span>
             <span className={summary.preDistMargin >= 0 ? 'text-amber-400' : 'text-red-400'}>{fmt(summary.preDistMargin)}</span>
           </div>
-          <p className="text-slate-600 text-xs pt-1">GST quarantine not included — calculated by Scott at settlement. Harbour is 10% of commissionable (gross − inside), never editable.</p>
+          <p className="text-slate-600 text-xs pt-1">GST is not QF money — quarantined before the 20% ex-GST reserve. Harbour is 10% of commissionable (gross − inside), never editable.</p>
         </div>
       ) : (
         <div className="bg-slate-800/40 rounded-xl border border-slate-700/50 p-5 text-center">

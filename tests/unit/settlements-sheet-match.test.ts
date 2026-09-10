@@ -186,4 +186,26 @@ test('dual P&L footers use computePnlSummary on Col2 expected vs Col3 actual', (
   assert.equal(footer.actual?.netProfit, 16_550)
   assert.equal(footer.actual?.reserve, 3_310)
   assert.equal(footer.actual?.preDistMargin, 13_240)
+  assert.equal(footer.expected?.gstKnown, false)
+  assert.equal(footer.expected?.gstQuarantine, 0)
+})
+
+test('dual P&L applies known GST before reserve on both sides', () => {
+  const footer = pnlFromSheetSides({
+    netRevenueExpected: 27_000,
+    netRevenueActual: 26_800,
+    totalCostsExpected: 10_000,
+    totalCostsActual: 10_250,
+    knownGstExpected: 800,
+    knownGstActual: 750,
+  })
+  assert.equal(footer.expected?.netProfit, 17_000)
+  assert.equal(footer.expected?.gstQuarantine, 800)
+  assert.equal(footer.expected?.exGstProfit, 16_200)
+  assert.equal(footer.expected?.reserve, 3_240)
+  assert.equal(footer.expected?.preDistMargin, 12_960)
+  assert.equal(footer.actual?.gstQuarantine, 750)
+  assert.equal(footer.actual?.exGstProfit, 15_800)
+  assert.equal(footer.actual?.reserve, 3_160)
+  assert.equal(footer.actual?.preDistMargin, 12_640)
 })

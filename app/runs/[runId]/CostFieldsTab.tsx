@@ -1964,7 +1964,11 @@ export default function CostFieldsTab({
     }),
   )
   const ownerNetRevenue = ownerVenuePnls.reduce((s, v) => s + v.waterfall.netRevenue, 0)
-  const ownerPnlSummary = computePnlSummary({ netRevenue: ownerNetRevenue, totalCosts })
+  const ownerPnlSummary = computePnlSummary({
+    netRevenue: ownerNetRevenue,
+    totalCosts,
+    remittanceLines,
+  })
   const hasGuessFields = !isDataComplete ? false : (() => {
     for (const f of RUN_FIELDS) {
       if (COMPLETENESS_EXCLUDED.has(f.key)) continue

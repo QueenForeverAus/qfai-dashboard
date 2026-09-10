@@ -18,7 +18,7 @@ import {
   type ComparisonRow,
   type VarianceFlag,
 } from './remittance-variance.ts'
-import { computePnlSummary, roundMoney, type PnlSummary } from './pnl-run-costing.ts'
+import { computePnlSummary, roundMoney, type KnownGstLine, type PnlSummary } from './pnl-run-costing.ts'
 import type { SheetLine } from './settlements-sheet.ts'
 
 /** Minimal Col3 row — avoids a cycle with settlements-sheet-actuals. */
@@ -312,12 +312,28 @@ export function pnlFromSheetSides(opts: {
   netRevenueActual: number | null
   totalCostsExpected: number | null
   totalCostsActual: number | null
+  remittanceLines?: KnownGstLine[] | null
+  showId?: string | null
+  knownGstExpected?: number | null
+  knownGstActual?: number | null
 }): DualPnlFooter {
   const expected = opts.netRevenueExpected != null && opts.totalCostsExpected != null
-    ? computePnlSummary({ netRevenue: opts.netRevenueExpected, totalCosts: opts.totalCostsExpected })
+    ? computePnlSummary({
+        netRevenue: opts.netRevenueExpected,
+        totalCosts: opts.totalCostsExpected,
+        knownGst: opts.knownGstExpected,
+        remittanceLines: opts.remittanceLines,
+        showId: opts.showId,
+      })
     : null
   const actual = opts.netRevenueActual != null && opts.totalCostsActual != null
-    ? computePnlSummary({ netRevenue: opts.netRevenueActual, totalCosts: opts.totalCostsActual })
+    ? computePnlSummary({
+        netRevenue: opts.netRevenueActual,
+        totalCosts: opts.totalCostsActual,
+        knownGst: opts.knownGstActual,
+        remittanceLines: opts.remittanceLines,
+        showId: opts.showId,
+      })
     : null
   return buildDualPnlFooters({ expected, actual })
 }

@@ -6,6 +6,11 @@
  *   harbour_commission = 0.10 × commissionable   // never editable
  *   net_revenue = commissionable − harbour_commission
  *
+ * Margin sheet (ex-GST):
+ *   remittance/net → GST quarantine (not QF money) → 20% reserve on ex-GST
+ *   → Pre-Distribution Margin → owner split 40/30/30 (Gareth/Brad/Scott)
+ *   Never invent GST rates (no NZ 15% / AU 10% / 1/11). Stored GST only.
+ *
  * Inside (pre-commission) YES: booking fees, CC/merchant/processing,
  * named inside/ticketing/BO ticketing fees, comp ticketing fees.
  * Outside (NOT deducted before 10%): hire/staff/production/marketing/catering/merch,
@@ -59,12 +64,28 @@ export type PnlVenueWaterfall = {
   netRevenue: number
 }
 
+export type GstQuarantineSource = 'known' | 'missing'
+
+export type OwnerSplits = {
+  gareth: number
+  brad: number
+  scott: number
+}
+
 export type PnlSummary = {
   netRevenue: number
   totalCosts: number
   netProfit: number
+  /** Stored GST held aside. 0 when the source is missing — residual may still include GST. */
+  gstQuarantine: number
+  gstKnown: boolean
+  gstSource: GstQuarantineSource
+  gstSourceLabel: string
+  /** netProfit − quarantined GST. Honest residual when GST is missing (not invented). */
+  exGstProfit: number
   reserve: number
   preDistMargin: number
+  ownerSplits: OwnerSplits
 }
 
 export type InsideFactorValues = {
@@ -83,6 +104,30 @@ export type KnownInsideLine = {
   description: string
   amount: number
 }
+
+export type KnownGstLine = {
+  showId?: string | null
+  description: string
+  amount: number
+}
+
+/** 20% owner reserve — applied after GST quarantine, on the ex-GST residual. */
+export const PNL_RESERVE_RATE = 0.20 as const
+
+/** Owner split of Pre-Distribution Margin (Gareth / Brad / Scott). */
+export const OWNER_SPLIT = {
+  gareth: 0.40,
+  brad: 0.30,
+  scott: 0.30,
+} as const
+
+export const GST_QUARANTINE_LABEL = 'GST quarantine (not QF money — quarantined)'
+export const GST_QUARANTINE_MISSING_LABEL = 'GST quarantine (missing — not QF money; residual may still include GST)'
+export const GST_QUARANTINE_KNOWN_NOTE = 'known — remittance / settlement (not QF money)'
+export const GST_QUARANTINE_MISSING_NOTE =
+  'GST amount not on remittance/settlement — residual may still include GST. No NZ 15% or AU 10% invented.'
+export const RESERVE_EX_GST_LABEL = '− 20% Reserve (ex-GST)'
+export const GST_QUARANTINE_KEY = 'gst_quarantine'
 
 export type CostLineForUnlock = {
   fieldKey: string
@@ -139,16 +184,100 @@ export function computeVenueWaterfall(opts: {
   }
 }
 
+/**
+ * Classify a remittance / agent-statement line as a stored GST amount.
+ * Matches GST / GST collected / GST payable — never "inc GST" cost notes.
+ * Does not invent a rate.
+ */
+export function lineLooksLikeKnownGst(description: string | null | undefined): boolean {
+  const text = String(description ?? '').trim()
+  if (!text) return false
+  if (!/\bgst\b/i.test(text)) return false
+  if (/\b(?:inc(?:luded|l)?|including|ex(?:cl(?:uded)?)?|excluding)\b/i.test(text)) return false
+  return true
+}
+
+export function resolveKnownGst(opts: {
+  knownGst?: number | null
+  lines?: KnownGstLine[] | null
+  showId?: string | null
+}): { amount: number | null; source: GstQuarantineSource; sourceLabel: string } {
+  if (opts.knownGst != null && Number.isFinite(Number(opts.knownGst))) {
+    return {
+      amount: roundMoney(Number(opts.knownGst)),
+      source: 'known',
+      sourceLabel: GST_QUARANTINE_KNOWN_NOTE,
+    }
+  }
+  const lines = (opts.lines ?? []).filter(line => {
+    if (!lineLooksLikeKnownGst(line.description)) return false
+    if (opts.showId && (line.showId ?? null) !== opts.showId) return false
+    return true
+  })
+  if (!lines.length) {
+    return { amount: null, source: 'missing', sourceLabel: GST_QUARANTINE_MISSING_NOTE }
+  }
+  return {
+    amount: roundMoney(lines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0)),
+    source: 'known',
+    sourceLabel: GST_QUARANTINE_KNOWN_NOTE,
+  }
+}
+
+export function gstQuarantineLineLabel(gstKnown: boolean): string {
+  return gstKnown ? GST_QUARANTINE_LABEL : GST_QUARANTINE_MISSING_LABEL
+}
+
+export function computeOwnerSplits(preDistMargin: number): OwnerSplits {
+  const preDist = roundMoney(preDistMargin)
+  if (preDist <= 0) return { gareth: 0, brad: 0, scott: 0 }
+  const gareth = roundMoney(preDist * OWNER_SPLIT.gareth)
+  const brad = roundMoney(preDist * OWNER_SPLIT.brad)
+  const scott = roundMoney(preDist - gareth - brad)
+  return { gareth, brad, scott }
+}
+
+/**
+ * Locked Settlements / owner P&L order (Gareth):
+ *   remittance/net → GST quarantine → 20% reserve (ex-GST) → Pre-Distribution Margin
+ *   → owner split 40/30/30 (Gareth/Brad/Scott)
+ *
+ * GST is not QF money. Use stored/known GST only — never invent NZ 15% or AU 10%.
+ * Missing GST quarantines 0 and leaves an honest residual that may still include GST.
+ */
 export function computePnlSummary(opts: {
   netRevenue: number
   totalCosts: number
+  /** Explicit stored GST amount. 0 is known-zero; omit/null means resolve from lines or missing. */
+  knownGst?: number | null
+  remittanceLines?: KnownGstLine[] | null
+  showId?: string | null
 }): PnlSummary {
   const netRevenue = roundMoney(opts.netRevenue)
   const totalCosts = roundMoney(opts.totalCosts)
   const netProfit = roundMoney(netRevenue - totalCosts)
-  const reserve = roundMoney(Math.max(0, netProfit) * 0.2)
-  const preDistMargin = roundMoney(netProfit - reserve)
-  return { netRevenue, totalCosts, netProfit, reserve, preDistMargin }
+  const gst = resolveKnownGst({
+    knownGst: opts.knownGst,
+    lines: opts.remittanceLines,
+    showId: opts.showId,
+  })
+  const gstQuarantine = gst.amount ?? 0
+  const exGstProfit = roundMoney(netProfit - gstQuarantine)
+  const reserve = roundMoney(Math.max(0, exGstProfit) * PNL_RESERVE_RATE)
+  const preDistMargin = roundMoney(exGstProfit - reserve)
+  return {
+    netRevenue,
+    totalCosts,
+    netProfit,
+    gstQuarantine,
+    gstKnown: gst.source === 'known',
+    gstSource: gst.source,
+    gstSourceLabel: gst.sourceLabel,
+    exGstProfit,
+    reserve,
+    preDistMargin,
+    ownerSplits: computeOwnerSplits(preDistMargin),
+  }
 }
 
 /**
