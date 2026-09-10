@@ -13,6 +13,11 @@ import {
   runDetailHref,
 } from '@/lib/tour-desk-nav'
 import { isBookedBookingStatus } from '@/lib/booked-cost-freeze'
+import {
+  CANCELLED_OR_RESCHEDULED_HEADING,
+  partitionRunsActiveVsCancelled,
+  runListEndDate,
+} from '@/lib/run-list-cancelled'
 
 const STATUS_STYLES: Record<string, string> = {
   confirmed:   'bg-green-900/40 text-green-400 border-green-800',
@@ -47,7 +52,12 @@ export type Run = {
   start_date: string | null
   end_date: string | null
   completion_pct: number
-  shows: { id: string; show_date?: string | null }[]
+  shows: {
+    id: string
+    show_date?: string | null
+    venue_name?: string | null
+    harbour_status?: string | null
+  }[]
 }
 
 
@@ -145,11 +155,12 @@ function StatusChangeButtons({ runId, currentStatus, onStatusChange }: {
   return null
 }
 
-function RunTable({ runs, completionByRun, completed = false, declined = false, onStatusChange }: {
+function RunTable({ runs, completionByRun, completed = false, declined = false, cancelled = false, onStatusChange }: {
   runs: Run[]
   completionByRun: Record<string, number>
   completed?: boolean
   declined?: boolean
+  cancelled?: boolean
   onStatusChange: (runId: string, newStatus: string) => void
 }) {
   const pathname = usePathname()
@@ -168,7 +179,9 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
     )
   }
 
-  const borderClass = completed ? 'border-slate-600 opacity-80' : declined ? 'border-red-900/40' : 'border-slate-700'
+  const borderClass = cancelled
+    ? 'border-slate-700/60 opacity-70'
+    : completed ? 'border-slate-600 opacity-80' : declined ? 'border-red-900/40' : 'border-slate-700'
 
   return (
     <div className={`bg-slate-800 rounded-xl border overflow-hidden ${borderClass}`}>
@@ -185,24 +198,27 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
             : `${formatDateAU(dStart)} – ${formatDateAU(dEnd)}`
 
           const bookedOnYearSheet = !advancingEntry && isBookedBookingStatus(run.status)
-          const nameEl = isPlaceholder || isDeclined
+          const nameIsLink = cancelled || !(isPlaceholder || isDeclined)
+          const nameEl = !nameIsLink
             ? <span className={`text-sm font-medium ${isDeclined ? 'text-slate-500 line-through italic' : 'text-slate-500 italic'}`}>{run.name}</span>
-            : <Link href={runHref(run.code, run.status)} data-testid={bookedOnYearSheet ? 'booked-year-sheet-run' : undefined} className={`text-sm font-medium hover:text-amber-400 transition-colors ${bookedOnYearSheet ? 'text-slate-200 line-through decoration-slate-500' : 'text-white'}`}>{run.name}</Link>
+            : <Link href={runHref(run.code, run.status)} data-testid={cancelled ? 'cancelled-rescheduled-run' : bookedOnYearSheet ? 'booked-year-sheet-run' : undefined} className={`text-sm font-medium hover:text-amber-400 transition-colors ${cancelled ? 'text-slate-300' : bookedOnYearSheet ? 'text-slate-200 line-through decoration-slate-500' : 'text-white'}`}>{run.name}</Link>
 
           return (
             <div key={run.id} className={`px-4 py-3 ${isPlaceholder || isDeclined ? 'opacity-60' : ''}`}>
               <div className="flex items-center justify-between gap-2 mb-1">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span data-testid="run-list-code" className={`font-bold text-sm flex-shrink-0 ${isDeclined ? 'text-slate-500 line-through' : isPlaceholder ? 'text-slate-500' : completed ? 'text-slate-400' : 'text-amber-400'}`}>
+                  <span data-testid="run-list-code" className={`font-bold text-sm flex-shrink-0 ${isDeclined ? 'text-slate-500 line-through' : isPlaceholder || cancelled ? 'text-slate-500' : completed ? 'text-slate-400' : 'text-amber-400'}`}>
                     {run.code}
                   </span>
                   <span className={`px-2 py-0.5 rounded border text-xs font-medium ${completed ? 'bg-slate-700 text-slate-400 border-slate-600' : (STATUS_STYLES[run.status] ?? STATUS_STYLES.confirmed)}`}>
                     {completed ? 'COMPLETED' : (STATUS_LABELS[run.status] ?? formatBookingStatus(run.status))}
                   </span>
                 </div>
+                {!cancelled && (
                 <div className="flex-shrink-0">
                   <StatusChangeButtons runId={run.id} currentStatus={run.status} onStatusChange={onStatusChange} />
                 </div>
+                )}
               </div>
               <div className="mb-1">{nameEl}</div>
               <div className="flex items-center justify-between gap-2">
@@ -249,13 +265,13 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
                 className={`border-b border-slate-700/50 transition-colors ${isPlaceholder || isDeclined ? 'opacity-60' : 'hover:bg-slate-700/30'} ${i === runs.length - 1 ? 'border-0' : ''}`}
               >
                 <td className="px-4 py-3">
-                  <span data-testid="run-list-code" className={`font-bold text-sm ${isDeclined ? 'text-slate-500 line-through' : isPlaceholder ? 'text-slate-500' : completed ? 'text-slate-400' : 'text-amber-400'}`}>{run.code}</span>
+                  <span data-testid="run-list-code" className={`font-bold text-sm ${isDeclined ? 'text-slate-500 line-through' : isPlaceholder || cancelled ? 'text-slate-500' : completed ? 'text-slate-400' : 'text-amber-400'}`}>{run.code}</span>
                 </td>
                 <td className="px-4 py-3">
-                  {isPlaceholder || isDeclined ? (
+                  {!cancelled && (isPlaceholder || isDeclined) ? (
                     <span className={`text-slate-500 text-sm italic ${isDeclined ? 'line-through' : ''}`}>{run.name}</span>
                   ) : (
-                    <Link href={runHref(run.code, run.status)} data-testid={!advancingEntry && isBookedBookingStatus(run.status) ? 'booked-year-sheet-run' : undefined} className={`text-sm hover:text-amber-400 transition-colors ${!advancingEntry && isBookedBookingStatus(run.status) ? 'text-slate-200 line-through decoration-slate-500' : 'text-white'}`}>
+                    <Link href={runHref(run.code, run.status)} data-testid={cancelled ? 'cancelled-rescheduled-run' : !advancingEntry && isBookedBookingStatus(run.status) ? 'booked-year-sheet-run' : undefined} className={`text-sm hover:text-amber-400 transition-colors ${cancelled ? 'text-slate-300' : !advancingEntry && isBookedBookingStatus(run.status) ? 'text-slate-200 line-through decoration-slate-500' : 'text-white'}`}>
                       {run.name}
                     </Link>
                   )}
@@ -287,7 +303,9 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
                   )}
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap">
-                  <StatusChangeButtons runId={run.id} currentStatus={run.status} onStatusChange={onStatusChange} />
+                  {!cancelled && (
+                    <StatusChangeButtons runId={run.id} currentStatus={run.status} onStatusChange={onStatusChange} />
+                  )}
                 </td>
               </tr>
             )
@@ -347,10 +365,17 @@ export default function RunsPageClient({
     router.refresh()
   }
 
-  const declinedRuns      = listedRuns.filter(r => r.status === 'declined')
-  const activeRuns        = listedRuns.filter(r => r.status !== 'declined')
-  const completedRuns     = activeRuns.filter(r => r.end_date && r.end_date < today)
-  const upcomingRuns      = activeRuns.filter(r => !r.end_date || r.end_date >= today)
+  const { activeRuns: listedActiveRuns, cancelledRuns } = partitionRunsActiveVsCancelled(listedRuns)
+  const declinedRuns      = listedActiveRuns.filter(r => r.status === 'declined')
+  const activeRuns        = listedActiveRuns.filter(r => r.status !== 'declined')
+  const completedRuns     = activeRuns.filter(r => {
+    const end = runListEndDate(r)
+    return !!end && end < today
+  })
+  const upcomingRuns      = activeRuns.filter(r => {
+    const end = runListEndDate(r)
+    return !end || end >= today
+  })
   const confirmedRuns     = upcomingRuns.filter(r => r.status === 'confirmed')
   const proposedRuns      = upcomingRuns.filter(r => r.status === 'proposed')
   const placeholderRuns   = upcomingRuns.filter(r => r.status === 'placeholder')
@@ -460,6 +485,18 @@ export default function RunsPageClient({
 
       {activeTab === 'declined' && (
         <RunTable runs={declinedRuns} completionByRun={completionByRun} declined onStatusChange={handleStatusChange} />
+      )}
+
+      {cancelledRuns.length > 0 && (
+        <div className="mt-12 pt-6 border-t border-slate-800" data-testid="cancelled-rescheduled-runs">
+          <div className="mb-4 flex items-center gap-3">
+            <h2 className="text-slate-500 text-lg font-semibold">{CANCELLED_OR_RESCHEDULED_HEADING}</h2>
+            <span className="text-slate-600 text-sm">
+              {cancelledRuns.length} run{cancelledRuns.length !== 1 ? 's' : ''} — still openable
+            </span>
+          </div>
+          <RunTable runs={cancelledRuns} completionByRun={completionByRun} cancelled onStatusChange={handleStatusChange} />
+        </div>
       )}
     </div>
   )

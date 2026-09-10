@@ -39,6 +39,7 @@ export interface Show {
   capacity_bands?: unknown | null
   ticket_price: number | null
   show_order: number
+  harbour_status?: string | null
   created_at: string
 }
 

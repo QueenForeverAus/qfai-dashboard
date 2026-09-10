@@ -59,6 +59,7 @@ test('Advancing Shows lists BOOKED runs only — proposed stay on Run Costings',
   await expect(page.getByRole('heading', { name: /^advancing shows$/i })).toBeVisible()
   await expect(page.getByText(/booked runs only/i)).toBeVisible()
   await expect(page.getByRole('button', { name: /^PROPOSED$/i })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /cancelled \/ rescheduled/i })).toHaveCount(0)
 
   const advancingCodes = new Set(
     (await page.getByTestId('run-list-code').allTextContents()).map(code => code.trim()),
