@@ -14,7 +14,9 @@ import {
 import {
   ADVANCING_COSTS_LABEL,
   V3_NO_HARBOUR_IN_S1,
+  V3_RUN_ONCE_SECTIONS,
   V3_SECTION1_TITLE,
+  V3_VENUE_CYCLE_SECTIONS,
   buildV3RunModel,
   buildV3ShowModel,
   collapseMirrorPairs,
@@ -22,6 +24,7 @@ import {
   computeDueToQf,
   computeV3Margin,
   findCancelingDeltaTwins,
+  isV3RunModel,
   settlementCostColumns,
   settlementDelta,
   uniqueRunCostLines,
@@ -49,6 +52,11 @@ test('LOCKED design doc is in-repo and names the four sections + Finance GREEN',
   assert.match(doc, /never auto-send/)
   assert.match(doc, /Expected \| Actual \| Δ/)
   assert.match(doc, /not Lead/)
+  assert.match(doc, /per venue/i)
+  assert.match(doc, /Separate Due to Hirer total per venue/)
+  assert.match(doc, /Once per run/)
+  assert.deepEqual([...V3_VENUE_CYCLE_SECTIONS], [1, 2])
+  assert.deepEqual([...V3_RUN_ONCE_SECTIONS], [3, 4])
 })
 
 test('§1 Due to Hirer has no Harbour 10% and follows +tickets − insides − venue buckets + deposit', () => {
@@ -432,7 +440,7 @@ test('unsigned costs and Δ = Actual − Expected never invent a ±X twin on the
   ]), [{ keyA: 'hire', keyB: 'hire-mirror', amount: 1900 }])
 })
 
-test('buildV3RunModel rolls 26R-shaped multi-show cost_fields into one settlement', () => {
+test('buildV3RunModel keeps per-venue §1/§2 cycles and one run §3', () => {
   const gosford = {
     id: 'show-gosford',
     venue_name: 'Laycock St Theatre',
@@ -529,32 +537,60 @@ test('buildV3RunModel rolls 26R-shaped multi-show cost_fields into one settlemen
     fields,
     actuals: [],
   })
-  const hire = model.section1.find(r => r.key === 'hire')
-  assert.ok(hire)
-  assert.equal(hire.expected, 7400)
-  assert.equal(hire.actual, null)
-  assert.equal(hire.delta, null)
-  assert.equal(hire.children.length, 2)
-  assert.ok(hire.children.every(c => c.expected != null && c.actual == null))
+  assert.equal(isV3RunModel(model), true)
+  assert.equal(model.venues.length, 2)
+  assert.equal(model.expected.dueToHirer, null)
+  assert.equal(model.actual.dueToHirer, null)
+  const gosfordModel = model.venues.find(v => v.show.id === gosford.id)!.model
+  const richmondModel = model.venues.find(v => v.show.id === richmond.id)!.model
+  const gosfordHire = gosfordModel.section1.find(r => r.key === 'hire')
+  const richmondHire = richmondModel.section1.find(r => r.key === 'hire')
+  assert.equal(gosfordHire?.expected, 1900)
+  assert.equal(richmondHire?.expected, 5500)
+  assert.equal(gosfordHire?.actual, null)
+  assert.equal(richmondHire?.actual, null)
+  assert.equal(gosfordHire?.delta, null)
+  assert.equal(richmondHire?.delta, null)
+  assert.notEqual(gosfordModel.dueToHirerExpected, richmondModel.dueToHirerExpected)
+  assert.equal(gosfordModel.section1.filter(r => r.key === 'due_to_hirer').length, 1)
+  assert.equal(richmondModel.section1.filter(r => r.key === 'due_to_hirer').length, 1)
+  assert.match(gosfordModel.section1.find(r => r.key === 'due_to_hirer')!.label, /Laycock/)
+  assert.match(richmondModel.section1.find(r => r.key === 'due_to_hirer')!.label, /Regent/)
+  assert.ok(gosfordModel.section2.some(r => r.key === 'due_to_qf'))
+  assert.ok(richmondModel.section2.some(r => r.key === 'due_to_qf'))
+  assert.equal(gosfordModel.section3.length, 0)
+  assert.equal(richmondModel.section3.length, 0)
+  assert.equal(gosfordModel.section4.length, 0)
+  assert.equal(richmondModel.section4.length, 0)
   assert.equal(model.section3.filter(r => r.key === 'band_costs').length, 1)
-  assert.equal(model.section1.filter(r => r.key === 'due_to_hirer').length, 1)
+  assert.equal(model.section4.filter(r => r.key.startsWith('owner_')).length, 3)
+  assert.equal(model.dueToQfExpected, roundMoney((gosfordModel.dueToQfExpected ?? 0) + (richmondModel.dueToQfExpected ?? 0)))
   assert.deepEqual(findCancelingDeltaTwins([
-    ...model.section1,
-    ...model.section2,
+    ...gosfordModel.section1,
+    ...richmondModel.section1,
+    ...gosfordModel.section2,
+    ...richmondModel.section2,
     ...model.section3,
     ...model.section4,
   ]), [])
-  assert.equal(settlementDelta(model.dueToHirerExpected, model.dueToHirerActual), 0)
   const flags = buildV3RedFlags(model)
   assert.equal(flags.some(f => f.code === 'hire-variance' || f.code === 'wild-variance'), false)
   const overlap = flags.find(f => f.code === 'vt-package-staff-overlap')
   assert.ok(overlap)
   assert.equal(overlap.severity, 'info')
   assert.match(overlap.detail, /not a −X\/\+X variance/)
-  const staff = model.section1.find(r => r.key === 'staff')
-  const production = model.section1.find(r => r.key === 'production')
-  assert.equal(staff?.actual, null)
-  assert.equal(production?.actual, null)
+  assert.match(overlap.detail, /Regent/)
+  assert.equal(richmondModel.section1.find(r => r.key === 'staff')?.actual, null)
+  assert.equal(richmondModel.section1.find(r => r.key === 'production')?.actual, null)
+  const nigel = formatV3NigelAssessment({
+    runCode: '26R01',
+    venueName: 'Gosford + Richmond',
+    model,
+    flags,
+  })
+  assert.match(nigel, /Laycock/)
+  assert.match(nigel, /Regent/)
+  assert.match(nigel, /each venue settles its own cycle/)
 })
 
 test('signed venue actual does not invent a −X/+X hire pair', () => {
@@ -710,12 +746,16 @@ test('Advancing Costs stay run-level once when every show sheet embeds run_costs
   assert.equal(advancing.length, 1)
   const childKeys = advancing[0]!.children.map(c => c.key)
   assert.equal(childKeys.length, new Set(childKeys).size)
-  assert.equal(model.section1.filter(r => r.key === 'due_to_hirer').length, 1)
-  assert.equal(model.section1.filter(r => r.key === 'hire').length, 1)
-  const hire = model.section1.find(r => r.key === 'hire')
-  assert.equal(hire?.expected, 7400)
-  assert.equal(hire?.actual, null)
-  assert.equal(hire?.delta, null)
+  assert.equal(model.venues.length, 2)
+  assert.equal(model.venues.every(v => v.model.section3.length === 0 && v.model.section1.filter(r => r.key === 'due_to_hirer').length === 1), true)
+  const gosfordHire = model.venues.find(v => v.show.id === gosford.id)?.model.section1.find(r => r.key === 'hire')
+  const richmondHire = model.venues.find(v => v.show.id === richmond.id)?.model.section1.find(r => r.key === 'hire')
+  assert.equal(gosfordHire?.expected, 1900)
+  assert.equal(richmondHire?.expected, 5500)
+  assert.equal(gosfordHire?.actual, null)
+  assert.equal(richmondHire?.actual, null)
+  assert.equal(gosfordHire?.delta, null)
+  assert.equal(richmondHire?.delta, null)
 })
 
 test('26R02 BNZ-shaped costing does not emit ± twin Δ on hire / staff / marketing / AV', () => {
@@ -799,19 +839,29 @@ test('26R02 BNZ-shaped costing does not emit ± twin Δ on hire / staff / market
     fields,
     actuals: [],
   })
-  for (const key of ['hire', 'staff', 'marketing', 'production'] as const) {
-    const row = model.section1.find(r => r.key === key)
-    assert.ok(row, key)
-    assert.ok((row!.expected ?? 0) >= 0, `${key} expected ≥0`)
-    assert.equal(row!.actual, null, `${key} actual stays empty until a statement`)
-    assert.equal(row!.delta, null, `${key} Δ is not −Expected`)
-    assert.ok(row!.children.every(c => (c.expected ?? 0) >= 0 && c.actual == null))
+  assert.equal(model.venues.length, 2)
+  assert.equal(model.expected.dueToHirer, null)
+  for (const venue of model.venues) {
+    for (const key of ['hire', 'staff', 'marketing', 'production'] as const) {
+      const row = venue.model.section1.find(r => r.key === key)
+      assert.ok(row, `${venue.show.venue_name} ${key}`)
+      assert.ok((row!.expected ?? 0) >= 0, `${key} expected ≥0`)
+      assert.equal(row!.actual, null, `${key} actual stays empty until a statement`)
+      assert.equal(row!.delta, null, `${key} Δ is not −Expected`)
+      assert.ok(row!.children.every(c => (c.expected ?? 0) >= 0 && c.actual == null))
+    }
+    assert.equal(venue.model.section1.filter(r => r.key === 'due_to_hirer').length, 1)
+    assert.equal(venue.model.section3.length, 0)
   }
-  assert.equal(model.section1.find(r => r.key === 'hire')?.expected, 14417.88)
+  assert.equal(model.venues.find(v => v.show.id === auckland.id)?.model.section1.find(r => r.key === 'hire')?.expected, 7150)
+  assert.equal(model.venues.find(v => v.show.id === hamilton.id)?.model.section1.find(r => r.key === 'hire')?.expected, 7267.88)
+  assert.notEqual(
+    model.venues[0]!.model.dueToHirerExpected,
+    model.venues[1]!.model.dueToHirerExpected,
+  )
   assert.equal(model.section3.filter(r => r.key === 'band_costs').length, 1)
   assert.deepEqual(findCancelingDeltaTwins([
-    ...model.section1,
-    ...model.section2,
+    ...model.venues.flatMap(v => [...v.model.section1, ...v.model.section2]),
     ...model.section3,
     ...model.section4,
   ]), [])

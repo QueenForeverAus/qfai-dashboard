@@ -6,6 +6,19 @@
 
 This file is the canonical source of truth for Settlements v3. Do not invent a different layout. Screen shape below is binding for UX intent.
 
+### Multi-show HARD lock (Gareth 2026-09-10)
+
+One settlement **route** per run (`/settlements/26r01`). Venue tabs live **inside** that page. Do not go back to `/settlements/{run}/{showId}` as a second sheet.
+
+| Section | Grain | UI |
+| --- | --- | --- |
+| **§1 Due to Hirer** | **Per venue** | Tab per venue. Full line list repeated. **Separate Due to Hirer total per venue** — never one combined total. |
+| **§2 Remittance** | **Per venue** | Same venue tabs. Harbour remits each venue settlement. |
+| **§3 Advancing Costs** | **Once per run** | Below the venue tabs as a single block. Run-level band costs. No ± twins. |
+| **§4 Owners** | **Once per run** | After venue remittances. Gareth 40 / Brad 30 / Scott 30 of the run margin. |
+
+26R01 (Gosford+Richmond) and 26R02 (Auckland+Hamilton) are smoke only — the model is systemic for every multi-show run.
+
 Foundations already on main (keep):
 
 - Venue Production/AV and Production Bought In labels — SHA `81993b7a`
@@ -68,7 +81,7 @@ Gareth 40 / Brad 30 / Scott 30 of Pre-Distribution Margin + the existing distrib
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Run chrome · tickets sold (actual count) · email-scrape ingest │
+│  Run chrome · email-scrape ingest                               │
 ├─────────────────────────────────────────────────────────────────┤
 │  NIGEL ASSESSMENT (paragraph)                                   │
 │  PROMINENT RED FLAGS                                            │
@@ -76,10 +89,13 @@ Gareth 40 / Brad 30 / Scott 30 of Pre-Distribution Margin + the existing distrib
 │  [Draft Harbour accept/challenge]  [Draft Michael fact-check]   │
 │  preview only — never auto-send                                 │
 ├─────────────────────────────────────────────────────────────────┤
-│  §1 Settlement — Due to Hirer          (own card)               │
-│  §2 Remittance — Due to QF             (own card)               │
-│  §3 Pre-Distribution Margin            (own card)               │
-│  §4 Owner Distribution                 (own card)               │
+│  Venue tabs (multi-show): [Gosford Due $X] [Richmond Due $Y]    │
+│  tickets sold (this venue)                                      │
+│  §1 Settlement — Due to Hirer   (this venue’s full lines)       │
+│  §2 Remittance — Due to QF      (this venue)                    │
+├─────────────────────────────────────────────────────────────────┤
+│  §3 Advancing Costs / Pre-Distribution Margin   (once per run)  │
+│  §4 Owner Distribution                          (once per run)  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

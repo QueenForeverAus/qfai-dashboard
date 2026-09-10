@@ -2,20 +2,24 @@
  * Settlements v3 — four locked sections (Gareth / Lead SoT).
  * Canonical design: docs/settlements-due-to-hirer-v3.md (LOCKED 2026-09-10).
  *
- * §1 Settlement (Due to Hirer) — venue proposes to pay Hirer. NO Harbour 10%.
- *    +tickets − insides − hire − staff − marketing − Venue Production/AV − other
- *    + hire deposit (skip when PDF already nets it).
+ * Multi-show HARD lock (Gareth 2026-09-10): one settlement **route** per run.
+ * Venue tabs live inside that page. Never a combined Due to Hirer for two venues.
  *
- * §2 Remittance (Due to QF) — agreed Due to Hirer
+ * §1 Settlement (Due to Hirer) — **per venue**. Full line list + own Due to Hirer total.
+ *    +tickets − insides − hire − staff − marketing − Venue Production/AV − other
+ *    + hire deposit (skip when that venue PDF already nets it). NO Harbour 10%.
+ *
+ * §2 Remittance (Due to QF) — **per venue** (same tabs). Harbour remits per venue cycle.
  *    − Harbour 10% of (ticket sales − classic insides)
  *    − rare deductibles (not LPA/EIS/APRA as insides).
  *
- * §3 Pre-Distribution Margin — remittance − band costs − GST quarantine
- *    − 20% reserve on the ex-GST residual. No invented GST rates.
+ * §3 Advancing Costs / Pre-Distribution Margin — **once per run** (sum of venue remittances
+ *    − run band costs − GST quarantine − 20% ex-GST reserve). Never duplicated per show.
  *
- * §4 Owner Distribution — Gareth 40 / Brad 30 / Scott 30 + existing distribute gate.
+ * §4 Owner Distribution — **once at run**, after venue remittances.
+ *    Gareth 40 / Brad 30 / Scott 30 + existing distribute gate.
  *
- * Expected stays bound to Advancing. Data model may keep expected/actual under roll-ups.
+ * Costs ≥0 Expected/Actual. Δ = Actual − Expected. No ± twins.
  */
 
 import {
@@ -64,13 +68,17 @@ export const ADVANCING_COSTS_LABEL = 'Advancing Costs'
 export const V3_SECTION4_TITLE = '§4 Owner Distribution'
 
 export const V3_SECTION1_NOTE =
-  'Venue proposes to pay the Hirer. Harbour 10% is not deducted here. Hire deposit is added only when the statement has not already netted it.'
+  'This venue’s own settlement cycle. Harbour 10% is not deducted here. Hire deposit is added only when this venue’s statement has not already netted it. Each venue has its own Due to Hirer total — never a combined figure for the run.'
 export const V3_SECTION2_NOTE =
-  'Agreed Due to Hirer minus Harbour 10% of (ticket sales − classic insides) minus rare deductibles. LPA / EIS / APRA are not insides.'
+  'Harbour remits this venue’s settlement: agreed Due to Hirer minus Harbour 10% of (ticket sales − classic insides) minus rare deductibles. LPA / EIS / APRA are not insides.'
 export const V3_SECTION3_NOTE =
-  'Advancing Costs (live from Advancing — PAID / confirmed / AUTO CALC). Remittance minus those QF payables, then GST quarantine (stored only), then 20% reserve on the ex-GST residual. No Expected | Actual | Δ chrome here.'
+  'Advancing Costs once per run (live from Advancing — PAID / confirmed / AUTO CALC). Sum of venue remittances minus those QF payables, then GST quarantine (stored only), then 20% reserve on the ex-GST residual. No Expected | Actual | Δ chrome here.'
 export const V3_SECTION4_NOTE =
-  'Gareth 40 / Brad 30 / Scott 30 of Pre-Distribution Margin. Distribute gate is unchanged — figure-accuracy Confirmed is not enough.'
+  'Gareth 40 / Brad 30 / Scott 30 of the run Pre-Distribution Margin after venue remittances. Distribute gate is unchanged — figure-accuracy Confirmed is not enough.'
+
+/** HARD product lock: §1/§2 are venue cycles; §3/§4 are run-level once. */
+export const V3_VENUE_CYCLE_SECTIONS = [1, 2] as const
+export const V3_RUN_ONCE_SECTIONS = [3, 4] as const
 
 export const V3_COL_LINE = 'Line'
 export const V3_COL_EXPECTED = 'Expected'
@@ -153,6 +161,42 @@ export type V3ShowModel = {
   section2: V3RollupRow[]
   section3: V3RollupRow[]
   section4: V3RollupRow[]
+}
+
+export type V3VenueCycle = {
+  show: { id: string; venue_name: string; venue_city?: string | null }
+  model: V3ShowModel
+}
+
+/**
+ * One settlement per run. §1/§2 live on `venues` (each venue is its own cycle).
+ * `section3` / `section4` are run-level once. There is no combined Due to Hirer.
+ */
+export type V3RunModel = {
+  venues: V3VenueCycle[]
+  section3: V3RollupRow[]
+  section4: V3RollupRow[]
+  dueToQfExpected: number | null
+  dueToQfActual: number | null
+  preDistExpected: number | null
+  preDistActual: number | null
+  ownerSplitsExpected: OwnerSplits | null
+  ownerSplitsActual: OwnerSplits | null
+  expected: V3SideMath
+  actual: V3SideMath
+  depositNetting: DepositNetting | null
+  statementLines: V3ClassifiedLine[]
+}
+
+export function isV3RunModel(model: V3ShowModel | V3RunModel): model is V3RunModel {
+  return Array.isArray((model as V3RunModel).venues)
+}
+
+/** Sum only when every venue has a figure — never invent a partial run total. */
+export function sumAllOrNull(values: Array<number | null | undefined>): number | null {
+  if (values.length === 0) return null
+  if (values.some(v => v == null || !Number.isFinite(Number(v)))) return null
+  return roundMoney(values.reduce((n, v) => n + Number(v), 0))
 }
 
 function money(n: number | null | undefined): number | null {
@@ -708,6 +752,9 @@ function row(
 export function buildV3ShowModel(opts: {
   showId: string
   grain?: V3SettlementGrain
+  venueLabel?: string
+  /** When true, skip §3/§4 on this venue model — run grain owns those once. */
+  omitRunSections?: boolean
   lines: DecoratedSheetLine[]
   runLines?: DecoratedSheetLine[]
   fields: CostingSnapshotField[]
@@ -718,7 +765,9 @@ export function buildV3ShowModel(opts: {
 }): V3ShowModel {
   const grain: V3SettlementGrain = opts.grain ?? 'show'
   const lines = opts.lines.filter(l => l.group !== 'run_costs')
-  const runLines = uniqueRunCostLines(opts.runLines ?? opts.lines.filter(l => l.group === 'run_costs'))
+  const runLines = opts.omitRunSections
+    ? []
+    : uniqueRunCostLines(opts.runLines ?? opts.lines.filter(l => l.group === 'run_costs'))
   const classified = classifySettlementLines(
     opts.statementLines ?? statementLinesFromActuals(opts.actuals, opts.showId, grain),
     'venue_statement',
@@ -966,7 +1015,7 @@ export function buildV3ShowModel(opts: {
     row({
       key: 'due_to_hirer',
       section: 1,
-      label: 'Due to Hirer',
+      label: opts.venueLabel ? `Due to Hirer — ${opts.venueLabel}` : 'Due to Hirer',
       sign: '=',
       expected: expected.dueToHirer,
       actual: actual.dueToHirer,
@@ -1013,7 +1062,7 @@ export function buildV3ShowModel(opts: {
     row({
       key: 'due_to_qf',
       section: 2,
-      label: 'Due to QF (remittance)',
+      label: opts.venueLabel ? `Due to QF (remittance) — ${opts.venueLabel}` : 'Due to QF (remittance)',
       sign: '=',
       expected: expected.dueToQf,
       actual: actual.dueToQf,
@@ -1024,11 +1073,47 @@ export function buildV3ShowModel(opts: {
     }),
   ]
 
+  const runSections = opts.omitRunSections
+    ? { section3: [] as V3RollupRow[], section4: [] as V3RollupRow[] }
+    : buildV3RunLevelSections({
+      expected,
+      actual,
+      runLines,
+      remittanceLabel: '+ Remittance (Due to QF)',
+    })
+
+  return {
+    dueToHirerExpected: expected.dueToHirer,
+    dueToHirerActual: actual.dueToHirer,
+    dueToQfExpected: expected.dueToQf,
+    dueToQfActual: actual.dueToQf,
+    preDistExpected: opts.omitRunSections ? null : expected.preDistMargin,
+    preDistActual: opts.omitRunSections ? null : actual.preDistMargin,
+    ownerSplitsExpected: opts.omitRunSections ? null : expected.ownerSplits,
+    ownerSplitsActual: opts.omitRunSections ? null : actual.ownerSplits,
+    expected,
+    actual,
+    depositNetting: netting,
+    statementLines: classified,
+    section1,
+    section2,
+    section3: runSections.section3,
+    section4: runSections.section4,
+  }
+}
+
+function buildV3RunLevelSections(opts: {
+  expected: V3SideMath
+  actual: V3SideMath
+  runLines: DecoratedSheetLine[]
+  remittanceLabel?: string
+}): { section3: V3RollupRow[]; section4: V3RollupRow[] } {
+  const { expected, actual, runLines } = opts
   const section3: V3RollupRow[] = [
     row({
       key: 's3_remittance',
       section: 3,
-      label: '+ Remittance (Due to QF)',
+      label: opts.remittanceLabel ?? '+ Remittance (Due to QF)',
       sign: '+',
       expected: expected.dueToQf,
       actual: actual.dueToQf,
@@ -1045,7 +1130,7 @@ export function buildV3ShowModel(opts: {
       kind: 'money',
       note: (() => {
         const paid = runLines.filter(l => l.group === 'run_costs' && l.actualPaid).length
-        const base = 'Crew / travel / Production Bought In from Advancing — not §1 venue lines'
+        const base = 'Crew / travel / Production Bought In from Advancing — not §1 venue lines. Once per run.'
         return paid ? `${paid} PAID from Advancing · ${base}` : base
       })(),
       children: bandChildren(runLines),
@@ -1123,25 +1208,7 @@ export function buildV3ShowModel(opts: {
       testId: 'v3-owner-scott',
     }),
   ]
-
-  return {
-    dueToHirerExpected: expected.dueToHirer,
-    dueToHirerActual: actual.dueToHirer,
-    dueToQfExpected: expected.dueToQf,
-    dueToQfActual: actual.dueToQf,
-    preDistExpected: expected.preDistMargin,
-    preDistActual: actual.preDistMargin,
-    ownerSplitsExpected: expected.ownerSplits,
-    ownerSplitsActual: actual.ownerSplits,
-    expected,
-    actual,
-    depositNetting: netting,
-    statementLines: classified,
-    section1,
-    section2,
-    section3,
-    section4,
-  }
+  return { section3, section4 }
 }
 
 export function v3SectionMeta(id: V3SectionId): { title: string; note: string; testId: string } {
@@ -1156,8 +1223,10 @@ export function v3HarbourLivesInSection1(): boolean {
 }
 
 /**
- * One Settlements model per run. Show-scoped cost_fields / actuals roll up;
- * Advancing Costs stay run-level once. Never emit a §1–§4 card per show.
+ * One Settlements model per run. Each venue is its own §1/§2 cycle (full
+ * lines + own Due to Hirer / remittance). §3 Advancing Costs and §4 owners
+ * are computed once from the sum of venue remittances. Never a combined
+ * Due to Hirer, and never a duplicated §3 per show.
  */
 export function buildV3RunModel(opts: {
   shows: Array<{ id: string; venue_name: string; venue_city?: string | null }>
@@ -1168,19 +1237,125 @@ export function buildV3RunModel(opts: {
   remittanceLines?: RemittanceLine[] | null
   gstLines?: KnownGstLine[] | null
   statementLines?: V3RawLine[] | null
-}): V3ShowModel {
-  const lines = mergeShowSheetLines(opts.showSheets)
-  return buildV3ShowModel({
-    showId: opts.shows[0]?.id ?? 'run',
-    grain: 'run',
-    lines,
-    runLines: uniqueRunCostLines(opts.runLines),
-    fields: opts.fields,
-    actuals: opts.actuals,
-    remittanceLines: opts.remittanceLines,
-    gstLines: opts.gstLines,
-    statementLines: opts.statementLines,
+}): V3RunModel {
+  const runLines = uniqueRunCostLines(opts.runLines)
+  const sheetById = new Map(opts.showSheets.map(sheet => [sheet.show.id, sheet]))
+  const venues: V3VenueCycle[] = opts.shows.map(show => {
+    const sheet = sheetById.get(show.id)
+    const venueLabel = show.venue_city ? `${show.venue_name} · ${show.venue_city}` : show.venue_name
+    return {
+      show,
+      model: buildV3ShowModel({
+        showId: show.id,
+        grain: 'show',
+        venueLabel,
+        omitRunSections: true,
+        lines: (sheet?.lines ?? []).filter(l => l.group !== 'run_costs'),
+        runLines: [],
+        fields: opts.fields,
+        actuals: opts.actuals,
+        remittanceLines: opts.remittanceLines,
+        gstLines: opts.gstLines,
+        statementLines: opts.statementLines?.length && opts.shows.length === 1
+          ? opts.statementLines
+          : undefined,
+      }),
+    }
   })
+
+  const gst = resolveKnownGst({ lines: opts.gstLines })
+  const expectedBand = unsignedSettlementCost(groupAmount(runLines, 'run_costs', 'expected')) ?? 0
+  const actualBand = costOrFallback(groupAmount(runLines, 'run_costs', 'actual'), expectedBand)
+  const dueToQfExpected = sumAllOrNull(venues.map(v => v.model.dueToQfExpected))
+  const dueToQfActual = sumAllOrNull(venues.map(v => v.model.dueToQfActual))
+  const expectedMargin = computeV3Margin({
+    remittance: dueToQfExpected,
+    bandCosts: expectedBand,
+    gstQuarantine: gst.amount ?? 0,
+    gstKnown: gst.source === 'known',
+    gstSourceLabel: gst.sourceLabel,
+  })
+  const actualMargin = computeV3Margin({
+    remittance: dueToQfActual,
+    bandCosts: actualBand,
+    gstQuarantine: gst.amount ?? 0,
+    gstKnown: gst.source === 'known',
+    gstSourceLabel: gst.sourceLabel,
+  })
+
+  const expected: V3SideMath = {
+    tickets: sumAllOrNull(venues.map(v => v.model.expected.tickets)),
+    insides: sumAllOrNull(venues.map(v => v.model.expected.insides)),
+    insideSource: venues.some(v => v.model.expected.insideSource === 'known')
+      ? 'known'
+      : venues.some(v => v.model.expected.insideSource === 'estimated')
+        ? 'estimated'
+        : 'missing',
+    insideLabel: 'Sum of venue insides — Harbour 10% is taken per venue, not on this roll-up.',
+    hire: sumAllOrNull(venues.map(v => v.model.expected.hire)),
+    staff: sumAllOrNull(venues.map(v => v.model.expected.staff)),
+    marketing: sumAllOrNull(venues.map(v => v.model.expected.marketing)),
+    production: sumAllOrNull(venues.map(v => v.model.expected.production)),
+    other: sumAllOrNull(venues.map(v => v.model.expected.other)) ?? 0,
+    deposit: sumAllOrNull(venues.map(v => v.model.expected.deposit)) ?? 0,
+    depositApplied: sumAllOrNull(venues.map(v => v.model.expected.depositApplied)) ?? 0,
+    depositNetted: venues.some(v => v.model.expected.depositNetted),
+    depositResidual: venues.find(v => v.model.expected.depositResidual)?.model.expected.depositResidual ?? null,
+    dueToHirer: null,
+    harbourCommission: sumAllOrNull(venues.map(v => v.model.expected.harbourCommission)),
+    deductibles: roundMoney(venues.reduce((n, v) => n + (v.model.expected.deductibles ?? 0), 0)),
+    dueToQf: dueToQfExpected,
+    ...expectedMargin,
+  }
+  const actual: V3SideMath = {
+    tickets: sumAllOrNull(venues.map(v => v.model.actual.tickets)),
+    insides: sumAllOrNull(venues.map(v => v.model.actual.insides)),
+    insideSource: venues.some(v => v.model.actual.insideSource === 'known')
+      ? 'known'
+      : venues.some(v => v.model.actual.insideSource === 'estimated')
+        ? 'estimated'
+        : 'missing',
+    insideLabel: 'Sum of venue insides — Harbour 10% is taken per venue, not on this roll-up.',
+    hire: sumAllOrNull(venues.map(v => v.model.actual.hire)),
+    staff: sumAllOrNull(venues.map(v => v.model.actual.staff)),
+    marketing: sumAllOrNull(venues.map(v => v.model.actual.marketing)),
+    production: sumAllOrNull(venues.map(v => v.model.actual.production)),
+    other: sumAllOrNull(venues.map(v => v.model.actual.other)) ?? 0,
+    deposit: sumAllOrNull(venues.map(v => v.model.actual.deposit)) ?? 0,
+    depositApplied: sumAllOrNull(venues.map(v => v.model.actual.depositApplied)) ?? 0,
+    depositNetted: venues.some(v => v.model.actual.depositNetted),
+    depositResidual: venues.find(v => v.model.actual.depositResidual)?.model.actual.depositResidual ?? null,
+    dueToHirer: null,
+    harbourCommission: sumAllOrNull(venues.map(v => v.model.actual.harbourCommission)),
+    deductibles: roundMoney(venues.reduce((n, v) => n + (v.model.actual.deductibles ?? 0), 0)),
+    dueToQf: dueToQfActual,
+    ...actualMargin,
+  }
+
+  const { section3, section4 } = buildV3RunLevelSections({
+    expected,
+    actual,
+    runLines,
+    remittanceLabel: venues.length > 1
+      ? '+ Remittance (sum of venue Due to QF)'
+      : '+ Remittance (Due to QF)',
+  })
+
+  return {
+    venues,
+    section3,
+    section4,
+    dueToQfExpected,
+    dueToQfActual,
+    preDistExpected: expected.preDistMargin,
+    preDistActual: actual.preDistMargin,
+    ownerSplitsExpected: expected.ownerSplits,
+    ownerSplitsActual: actual.ownerSplits,
+    expected,
+    actual,
+    depositNetting: null,
+    statementLines: venues.flatMap(v => v.model.statementLines),
+  }
 }
 
 export function definedBandCostKeys(): string[] {

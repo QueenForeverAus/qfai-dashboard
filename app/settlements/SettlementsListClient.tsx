@@ -263,7 +263,7 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
                           <li key={show.id}>
                             <div className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-slate-800/80 text-sm">
                               <Link
-                                href={settlementSheetHref(run.code)}
+                                href={settlementSheetHref(run.code, show.id)}
                                 className="flex-1 min-w-0 flex items-center justify-between gap-3"
                                 data-testid={`settlement-show-${show.id}`}
                               >

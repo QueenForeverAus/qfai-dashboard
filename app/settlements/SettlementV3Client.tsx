@@ -1,9 +1,9 @@
 'use client'
 
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { formatDateAU, formatDateShortAU } from '@/lib/dates'
+import { formatDateAU } from '@/lib/dates'
 import { SETTLEMENTS_MODULE_LABEL, formatSettlementsMoney, type BandCostLine } from '@/lib/settlements'
 import type { CostingSnapshotField } from '@/lib/settlements'
 import type { SettlementShow } from '@/lib/settlements-load'
@@ -18,7 +18,6 @@ import {
   buildRunSheet,
   col2SourceNote,
   isSettlementsDemoRun,
-  settlementSheetHref,
   type SettlementExpectedSource,
 } from '@/lib/settlements-sheet'
 import {
@@ -56,8 +55,9 @@ import {
   buildV3RunModel,
   v3SectionMeta,
   type V3RollupRow,
+  type V3RunModel,
   type V3SectionId,
-  type V3ShowModel,
+  type V3VenueCycle,
 } from '@/lib/settlements-v3'
 import { buildV3RedFlags, formatV3NigelAssessment, prominentFlags } from '@/lib/settlements-v3-flags'
 import {
@@ -404,6 +404,7 @@ function SectionCard({
   onToggle,
   busy,
   childHandlers,
+  venueId,
 }: {
   id: V3SectionId
   rows: V3RollupRow[]
@@ -412,6 +413,7 @@ function SectionCard({
   onToggle: (key: string) => void
   busy: boolean
   childHandlers: Parameters<typeof RollupTable>[0]['childHandlers']
+  venueId?: string | null
 }) {
   const meta = v3SectionMeta(id)
   return (
@@ -419,6 +421,7 @@ function SectionCard({
       className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-3"
       data-testid={meta.testId}
       {...(id === 3 ? { 'data-advancing-once': 'true' } : {})}
+      {...(venueId ? { 'data-venue-id': venueId } : {})}
     >
       <div>
         <h2 className="text-white font-semibold">{meta.title}</h2>
@@ -750,24 +753,6 @@ export default function SettlementV3Client({
 
       <SettlementsTabBar runCode={run.code} showId={null} active="sheet" />
 
-      {shows.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-4" data-testid="settlements-run-venues">
-          <span className="px-2.5 py-1 rounded-md text-xs border bg-amber-400/10 text-amber-400 border-amber-700">
-            Run settlement
-          </span>
-          {shows.map(show => (
-            <a
-              key={show.id}
-              href={`#venue-${show.id}`}
-              className={`px-2.5 py-1 rounded-md text-xs border ${focusedShowId === show.id ? 'bg-slate-700 text-white border-slate-500' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}
-            >
-              {show.venue_name}
-              <span className="text-slate-600 ml-1">{formatDateShortAU(show.show_date)}</span>
-            </a>
-          ))}
-        </div>
-      )}
-
       {error && (
         <div className="mb-4 px-3 py-2 rounded-lg bg-red-950/40 border border-red-900 text-red-300 text-sm">{error}</div>
       )}
@@ -872,6 +857,7 @@ export default function SettlementV3Client({
           <RunV3Blocks
             shows={displayShows}
             model={model}
+            initialVenueId={focusedShowId}
             draftTickets={draftTickets}
             onTickets={(showId, v) => setDraftTickets(prev => ({ ...prev, [showId]: v }))}
             onSaveTickets={showId => void saveTickets(showId)}
@@ -945,9 +931,17 @@ export default function SettlementV3Client({
   )
 }
 
+function venueIdFromHash(venues: V3VenueCycle[]): string | null {
+  if (typeof window === 'undefined') return null
+  const raw = window.location.hash.replace(/^#venue-/, '')
+  if (!raw) return null
+  return venues.some(v => v.show.id === raw) ? raw : null
+}
+
 function RunV3Blocks({
   shows,
   model,
+  initialVenueId,
   draftTickets,
   onTickets,
   onSaveTickets,
@@ -961,7 +955,8 @@ function RunV3Blocks({
   onError,
 }: {
   shows: SettlementShow[]
-  model: V3ShowModel
+  model: V3RunModel
+  initialVenueId: string | null
   draftTickets: Record<string, string>
   onTickets: (showId: string, v: string) => void
   onSaveTickets: (showId: string) => void
@@ -974,58 +969,134 @@ function RunV3Blocks({
   onBusy: (v: boolean) => void
   onError: (msg: string | null) => void
 }) {
+  const venues = model.venues
+  const [activeVenueId, setActiveVenueId] = useState<string | null>(
+    () => initialVenueId ?? venues[0]?.show.id ?? null,
+  )
+
+  useEffect(() => {
+    const applyHash = () => {
+      const fromHash = venueIdFromHash(venues)
+      if (fromHash) setActiveVenueId(fromHash)
+    }
+    applyHash()
+    window.addEventListener('hashchange', applyHash)
+    return () => window.removeEventListener('hashchange', applyHash)
+  }, [venues])
+
+  const active = venues.find(v => v.show.id === activeVenueId) ?? venues[0] ?? null
+  const show = active ? shows.find(s => s.id === active.show.id) ?? null : null
+  const multi = venues.length > 1
+
   return (
     <div className="space-y-4" data-testid="settlements-run-grain">
-      <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-3">
-        <div>
-          <h2 className="text-white font-semibold">Shows on this run</h2>
-          <p className="text-[11px] text-slate-500 mt-1">
-            One settlement covers every show. Ticket counts stay per venue; hire / staff / marketing / AV roll into the run.
+      {multi ? (
+        <div className="space-y-2" data-testid="settlements-run-venues">
+          <p className="text-[11px] text-slate-500">
+            Each venue is its own settlement cycle. Switch tabs for the full §1 / §2 lines and that venue’s Due to Hirer. Advancing Costs stay once below.
           </p>
+          <div
+            role="tablist"
+            aria-label="Venue settlement cycles"
+            className="flex flex-wrap gap-1.5"
+            data-testid="settlements-venue-tabs"
+          >
+            {venues.map(venue => {
+              const selected = venue.show.id === active?.show.id
+              const due = venue.model.dueToHirerActual ?? venue.model.dueToHirerExpected
+              return (
+                <a
+                  key={venue.show.id}
+                  href={`#venue-${venue.show.id}`}
+                  role="tab"
+                  aria-selected={selected}
+                  data-testid={`settlements-venue-tab-${venue.show.id}`}
+                  onClick={() => setActiveVenueId(venue.show.id)}
+                  className={`px-2.5 py-1.5 rounded-md text-xs border scroll-mt-4 ${
+                    selected
+                      ? 'bg-amber-400/10 text-amber-400 border-amber-700'
+                      : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+                  }`}
+                >
+                  <span className="font-semibold">{venue.show.venue_name}</span>
+                  {venue.show.venue_city ? <span className="text-slate-600 ml-1">{venue.show.venue_city}</span> : null}
+                  <span
+                    className="block text-[10px] tabular-nums mt-0.5"
+                    data-testid={`v3-due-to-hirer-venue-${venue.show.id}`}
+                  >
+                    Due to Hirer {due == null ? '—' : formatSettlementsMoney(due)}
+                  </span>
+                </a>
+              )
+            })}
+          </div>
         </div>
-        <ul className="space-y-3">
-          {shows.map(show => (
-            <li key={show.id} id={`venue-${show.id}`} className="flex flex-wrap items-end justify-between gap-3 scroll-mt-4 target:ring-1 target:ring-amber-600 rounded-lg">
-              <div>
-                <div className="text-slate-200 text-sm">{show.venue_name}</div>
-                <p className="text-slate-500 text-xs mt-0.5">
-                  {show.venue_city} · {formatDateAU(show.show_date)}
-                  {show.capacity ? ` · Cap ${show.capacity.toLocaleString()}` : ''}
-                  {show.ticket_price != null ? ` · $${Number(show.ticket_price).toFixed(2)} nett` : ''}
-                </p>
-              </div>
-              <form
-                className="flex flex-wrap items-end gap-2"
-                data-testid={`sheet-tickets-form-${show.id}`}
-                onSubmit={e => {
-                  e.preventDefault()
-                  onSaveTickets(show.id)
-                }}
-              >
-                <label className="text-[10px] uppercase tracking-wide text-slate-500">
-                  {TICKETS_SOLD_LABEL}
-                  <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={draftTickets[show.id] ?? ''}
-                    onChange={e => onTickets(show.id, e.target.value)}
-                    data-testid={`sheet-tickets-input-${show.id}`}
-                    className="mt-1 block w-28 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm"
-                  />
-                </label>
-                <button type="submit" disabled={busy} data-testid={`sheet-tickets-save-${show.id}`} className="bg-amber-400 text-slate-900 text-xs font-semibold px-3 py-1.5 rounded disabled:opacity-50">
-                  {busy ? 'Saving…' : 'Save count'}
-                </button>
-              </form>
-            </li>
-          ))}
-        </ul>
-        <p className="text-[11px] text-slate-600">{TICKETS_SOLD_HELP}</p>
-      </div>
+      ) : null}
 
-      <SectionCard id={1} rows={model.section1} expanded={expanded} onToggle={onToggle} busy={busy} childHandlers={childHandlers} />
-      <SectionCard id={2} rows={model.section2} expanded={expanded} onToggle={onToggle} busy={busy} childHandlers={childHandlers} />
+      {active && show ? (
+        <div
+          id={`venue-${show.id}`}
+          className="space-y-4 scroll-mt-4"
+          data-testid="settlements-venue-cycle"
+          data-venue-id={show.id}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-white font-semibold">{show.venue_name}</h2>
+              <p className="text-slate-500 text-xs mt-0.5">
+                {show.venue_city} · {formatDateAU(show.show_date)}
+                {show.capacity ? ` · Cap ${show.capacity.toLocaleString()}` : ''}
+                {show.ticket_price != null ? ` · $${Number(show.ticket_price).toFixed(2)} nett` : ''}
+              </p>
+            </div>
+            <form
+              className="flex flex-wrap items-end gap-2"
+              data-testid={`sheet-tickets-form-${show.id}`}
+              onSubmit={e => {
+                e.preventDefault()
+                onSaveTickets(show.id)
+              }}
+            >
+              <label className="text-[10px] uppercase tracking-wide text-slate-500">
+                {TICKETS_SOLD_LABEL}
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={draftTickets[show.id] ?? ''}
+                  onChange={e => onTickets(show.id, e.target.value)}
+                  data-testid={`sheet-tickets-input-${show.id}`}
+                  className="mt-1 block w-28 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm"
+                />
+              </label>
+              <button type="submit" disabled={busy} data-testid={`sheet-tickets-save-${show.id}`} className="bg-amber-400 text-slate-900 text-xs font-semibold px-3 py-1.5 rounded disabled:opacity-50">
+                {busy ? 'Saving…' : 'Save count'}
+              </button>
+            </form>
+          </div>
+          <p className="text-[11px] text-slate-600">{TICKETS_SOLD_HELP}</p>
+
+          <SectionCard
+            id={1}
+            rows={active.model.section1}
+            venueId={show.id}
+            expanded={expanded}
+            onToggle={onToggle}
+            busy={busy}
+            childHandlers={childHandlers}
+          />
+          <SectionCard
+            id={2}
+            rows={active.model.section2}
+            venueId={show.id}
+            expanded={expanded}
+            onToggle={onToggle}
+            busy={busy}
+            childHandlers={childHandlers}
+          />
+        </div>
+      ) : null}
+
       <SectionCard
         id={3}
         rows={model.section3}
