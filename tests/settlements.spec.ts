@@ -21,25 +21,27 @@ test('Settlements lists runs; opening a run lands on the 3-col sheet', async ({ 
   await expect(page.getByRole('heading', { name: /^settlements$/i })).toBeVisible({ timeout: 8000 })
   await expect(page.getByText(/proposed payment/i)).toBeVisible()
   await expect(page.getByText(/expected vs actual/i).first()).toBeVisible()
-  if (await page.getByTestId('settlement-demo-TCOMP1').count()) {
-    await expect(page.getByTestId('settlements-demo-glance')).toBeVisible()
-    for (const key of ['not_settled', 'settled', 'settled_remitted']) {
-      await page.getByTestId(`settlements-bucket-${key}`).click()
-      if (await page.getByTestId('settlement-run-TCOMP1').count()) break
-    }
-    await expect(page.getByTestId('settlement-demo-badge-TCOMP1')).toBeVisible()
-  }
+  await expect(page.getByTestId('settlements-demo-glance')).toHaveCount(0)
+  await expect(page.getByTestId('settlement-demo-TCOMP1')).toHaveCount(0)
+  await expect(page.getByTestId('settlement-run-TCOMP1')).toHaveCount(0)
+  await expect(page.getByTestId('settlement-run-SAMP01')).toHaveCount(0)
+  await expect(page.getByTestId('settlement-run-TRECV1')).toHaveCount(0)
 
   await expect(page.getByTestId('settlements-bucket-tabs')).toBeVisible()
   if (await page.getByTestId('settlements-list-run-grain').count()) {
     await expect(page.getByTestId('settlements-list-run-grain')).toBeVisible()
   }
+  const liveSettled = []
   for (const code of ['26R01', '26R02']) {
     const card = page.getByTestId(`settlement-run-${code}`)
     if (await card.count()) {
+      liveSettled.push(code)
       await expect(card).toHaveCount(1)
       await expect(card).toHaveAttribute('href', new RegExp(`/settlements/${code.toLowerCase()}/?$`))
     }
+  }
+  if (liveSettled.length > 0) {
+    await expect(page.getByTestId('settlements-bucket-settled')).toHaveAttribute('aria-selected', 'true')
   }
   await expect(page.getByTestId('settlement-run-R12')).toHaveCount(0)
 
@@ -59,6 +61,18 @@ test('Settlements lists runs; opening a run lands on the 3-col sheet', async ({ 
   await page.waitForURL(/\/settlements\/[^/]+\/remittance/i)
   await expect(page.getByTestId('remittance-compare')).toBeVisible()
   await expect(page.getByTestId('add-remittance')).toBeVisible()
+})
+
+test('26R01 / 26R02 deep-links open the sheet from seeded Actuals', async ({ page }) => {
+  for (const code of ['26r01', '26r02']) {
+    await page.goto(`/settlements/${code}`)
+    if (!page.url().match(new RegExp(`/settlements/${code}/?$`, 'i'))) {
+      continue
+    }
+    await expect(page.getByTestId('settlements-sheet')).toBeVisible({ timeout: 8000 })
+    await expect(page.getByTestId('settlements-sheet-pre-show')).toHaveCount(0)
+    await expect(page.getByTestId('settlements-left-pane')).toHaveCount(0)
+  }
 })
 
 test('Band Costs quote/invoice stub attaches a dummy PDF and shows a chip', async ({ page }) => {

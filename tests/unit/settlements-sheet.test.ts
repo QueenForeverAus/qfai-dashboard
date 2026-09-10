@@ -200,10 +200,14 @@ test('sheet is the canonical Settlements front door; Wave-1 and remittance are s
   assert.equal(remittanceHref('TCOMP1', 'show-1'), '/settlements/tcomp1/show-1/remittance')
 })
 
-test('TCOMP1, SAMP##, and DEMO/SAMPLE notes mark the staging glance run; R12 does not', () => {
+test('TCOMP1, TRECV1, SAMP##, and DEMO/SAMPLE notes mark demo runs; live 26R / R12 do not', () => {
   assert.equal(isSettlementsDemoRun({ code: 'TCOMP1', name: 'Geelong' }), true)
+  assert.equal(isSettlementsDemoRun({ code: 'TRECV1', name: 'Receipts' }), true)
   assert.equal(isSettlementsDemoRun({ code: 'SAMP01', name: 'The Marble Room' }), true)
+  assert.equal(isSettlementsDemoRun({ code: 'SAMP', name: 'Loose sample' }), true)
   assert.equal(isSettlementsDemoRun({ code: 'R12', name: 'R12 Melbourne' }), false)
+  assert.equal(isSettlementsDemoRun({ code: '26R01', name: 'Gosford + Richmond' }), false)
+  assert.equal(isSettlementsDemoRun({ code: '26R02', name: 'Auckland + Hamilton' }), false)
   assert.equal(isSettlementsDemoRun({ code: 'X1', name: 'DEMO completed show' }), true)
   assert.equal(isSettlementsDemoRun({ code: 'X2', name: 'Night two', notes: 'SAMPLE for staging' }), true)
 })

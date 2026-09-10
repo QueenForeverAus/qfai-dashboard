@@ -5,12 +5,14 @@ import {
   SETTLEMENTS_LIST_EMPTY,
   classifySettlementsListBucket,
   defaultSettlementsListBucket,
+  filterSettlementsIndexRuns,
   filterSettlementsListRuns,
   groupSettlementsListRuns,
   hasSettlementIn,
+  isSettlementsIndexEligibleRun,
   isSettlementsListCompletedRun,
 } from '../../lib/settlements-list.ts'
-import { settlementSheetHref } from '../../lib/settlements-sheet.ts'
+import { isSettlementsDemoRun, settlementSheetHref } from '../../lib/settlements-sheet.ts'
 
 const TODAY = '2026-09-07'
 const past = { show_date: '2026-07-18' }
@@ -62,6 +64,18 @@ test('completed list runs require every show to have occurred; proposed never qu
   assert.equal(isSettlementsListCompletedRun({
     status: 'post_show',
     shows: [{ show_date: null }],
+    today: TODAY,
+  }), false)
+  assert.equal(isSettlementsListCompletedRun({
+    status: 'confirmed',
+    shows: [],
+    end_date: '2026-08-22',
+    today: TODAY,
+  }), true)
+  assert.equal(isSettlementsListCompletedRun({
+    status: 'confirmed',
+    shows: [],
+    end_date: '2027-05-14',
     today: TODAY,
   }), false)
 })
@@ -139,7 +153,7 @@ test('server-side filter drops proposed / BOOKED future / in-progress', () => {
   assert.deepEqual(kept.map(r => r.code), ['SAMP01', 'TCOMP1'])
 })
 
-test('group + default tab prefer the first non-empty bucket', () => {
+test('group + default tab prefer settled when live settled runs exist', () => {
   const grouped = groupSettlementsListRuns([
     { bucket: 'settled' as const },
     { bucket: 'settled_remitted' as const },
@@ -154,10 +168,161 @@ test('group + default tab prefer the first non-empty bucket', () => {
     settled_remitted: 1,
   }), 'settled')
   assert.equal(defaultSettlementsListBucket({
+    not_settled: 8,
+    settled: 2,
+    settled_remitted: 0,
+  }), 'settled')
+  assert.equal(defaultSettlementsListBucket({
+    not_settled: 0,
+    settled: 0,
+    settled_remitted: 1,
+  }), 'settled_remitted')
+  assert.equal(defaultSettlementsListBucket({
+    not_settled: 3,
+    settled: 0,
+    settled_remitted: 0,
+  }), 'not_settled')
+  assert.equal(defaultSettlementsListBucket({
     not_settled: 0,
     settled: 0,
     settled_remitted: 0,
   }), 'not_settled')
   assert.match(SETTLEMENTS_LIST_EMPTY, /completed shows/)
   assert.equal(SETTLEMENTS_LIST_BUCKET_LABELS.settled_remitted, 'Settled & remitted')
+})
+
+test('26R-like completed run with Actuals and no run_settlements lands in settled', () => {
+  const run = {
+    code: '26R01',
+    name: 'Gosford + Richmond',
+    status: 'confirmed',
+    end_date: '2026-08-22',
+    hasVenueSettlementActuals: true,
+    shows: [
+      { show_date: '2026-08-21', harbour_status: 'CONFIRMED', venue_name: 'Gosford' },
+      { show_date: '2026-08-22', harbour_status: 'CONFIRMED', venue_name: 'Richmond' },
+    ],
+  }
+  assert.equal(isSettlementsDemoRun(run), false)
+  assert.equal(isSettlementsListCompletedRun({
+    status: run.status,
+    shows: run.shows,
+    today: TODAY,
+  }), true)
+  assert.equal(isSettlementsIndexEligibleRun(run, TODAY), true)
+  assert.equal(classifySettlementsListBucket({
+    status: 'confirmed',
+    remittanceStatus: undefined,
+    hasVenueSettlementActuals: true,
+  }), 'settled')
+  const kept = filterSettlementsIndexRuns([run], TODAY)
+  assert.deepEqual(kept.map(r => r.code), ['26R01'])
+  assert.equal(settlementSheetHref('26R01'), '/settlements/26r01')
+  assert.equal(settlementSheetHref('26R02'), '/settlements/26r02')
+})
+
+test('index drops SAMP/DEMO/TCOMP1/TRECV1 even when they look completed', () => {
+  const kept = filterSettlementsIndexRuns([
+    {
+      code: 'SAMP01',
+      name: 'SAMPLE night',
+      status: 'confirmed',
+      hasVenueSettlementActuals: false,
+      shows: [{ show_date: '2026-07-18', harbour_status: 'CONFIRMED' }],
+    },
+    {
+      code: 'SAMP',
+      name: 'Loose sample code',
+      status: 'confirmed',
+      shows: [{ show_date: '2026-07-18', harbour_status: 'CONFIRMED' }],
+    },
+    {
+      code: 'TCOMP1',
+      name: 'Geelong',
+      status: 'confirmed',
+      hasVenueSettlementActuals: true,
+      shows: [{ show_date: '2026-07-18', harbour_status: 'CONFIRMED' }],
+    },
+    {
+      code: 'TRECV1',
+      name: 'Receipts demo',
+      status: 'confirmed',
+      shows: [{ show_date: '2026-07-18', harbour_status: 'CONFIRMED' }],
+    },
+    {
+      code: 'X1',
+      name: 'DEMO completed show',
+      status: 'confirmed',
+      shows: [{ show_date: '2026-07-18', harbour_status: 'CONFIRMED' }],
+    },
+    {
+      code: '26R02',
+      name: 'Auckland + Hamilton',
+      status: 'confirmed',
+      hasVenueSettlementActuals: true,
+      shows: [
+        { show_date: '2026-09-04', harbour_status: 'CONFIRMED', venue_name: 'Auckland' },
+        { show_date: '2026-09-05', harbour_status: 'CONFIRMED', venue_name: 'Hamilton' },
+      ],
+    },
+  ], TODAY)
+  assert.deepEqual(kept.map(r => r.code), ['26R02'])
+})
+
+test('index drops fully RETIRED harbour_status runs; mixed runs keep active shows', () => {
+  const kept = filterSettlementsIndexRuns([
+    {
+      code: 'SAMP03',
+      name: 'Still a sample if retire marker missing',
+      status: 'confirmed',
+      hasVenueSettlementActuals: true,
+      shows: [{ show_date: '2026-07-18', harbour_status: 'RETIRED', venue_name: 'Town Hall' }],
+    },
+    {
+      code: 'OLD01',
+      name: 'Retired weekend',
+      status: 'confirmed',
+      hasVenueSettlementActuals: true,
+      shows: [
+        { show_date: '2026-07-18', harbour_status: 'RETIRED', venue_name: 'Civic' },
+        { show_date: '2026-07-19', harbour_status: 'retired', venue_name: 'PAC' },
+      ],
+    },
+    {
+      code: 'OLD02',
+      name: 'Retired venue name',
+      status: 'confirmed',
+      shows: [{ show_date: '2026-07-18', venue_name: 'RETIRED Civic Theatre' }],
+    },
+    {
+      code: '26R01',
+      name: 'Gosford + Richmond',
+      status: 'confirmed',
+      hasVenueSettlementActuals: true,
+      shows: [
+        { show_date: '2026-08-21', harbour_status: 'CONFIRMED', venue_name: 'Gosford' },
+        { show_date: '2026-08-22', harbour_status: 'RETIRED', venue_name: 'Scratch date' },
+      ],
+    },
+  ], TODAY)
+  assert.deepEqual(kept.map(r => r.code), ['26R01'])
+  assert.deepEqual(kept[0]!.shows.map(s => s.venue_name), ['Gosford'])
+})
+
+test('index includes a confirmed run with Actuals even without completed-show calendar if Actuals exist', () => {
+  const kept = filterSettlementsIndexRuns([
+    {
+      code: '26R01',
+      name: 'Gosford + Richmond',
+      status: 'confirmed',
+      hasVenueSettlementActuals: true,
+      shows: [{ show_date: '2026-08-21', harbour_status: 'CONFIRMED' }],
+    },
+  ], TODAY)
+  assert.equal(kept.length, 1)
+  assert.equal(classifySettlementsListBucket({
+    status: 'confirmed',
+    remittanceStatus: 'open',
+    hasVenueSettlementActuals: true,
+  }), 'settled')
 })

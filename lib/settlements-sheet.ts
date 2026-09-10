@@ -139,15 +139,15 @@ export function remittanceHref(runCode: string, showId?: string | null): string 
   return showId ? `/settlements/${runCode.toLowerCase()}/${showId}/remittance` : base
 }
 
-/** Staging glance: TCOMP1, SAMP##, or name/notes that say DEMO / SAMPLE. Never invents figures. */
+/** Staging SAMPLE/DEMO codes hidden from the Settlements index. Never invents figures. */
 export function isSettlementsDemoRun(run: {
   code?: string | null
   name?: string | null
   notes?: string | null
 }): boolean {
   const code = String(run.code ?? '').toUpperCase()
-  if (code === 'TCOMP1') return true
-  if (/^SAMP\d+$/.test(code)) return true
+  if (code === 'TCOMP1' || code === 'TRECV1') return true
+  if (/^SAMP\d*$/.test(code)) return true
   return /\b(demo|sample)\b/i.test(`${run.name ?? ''} ${run.notes ?? ''}`)
 }
 

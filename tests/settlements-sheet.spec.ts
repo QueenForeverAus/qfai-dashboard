@@ -30,23 +30,19 @@ test('Settlements list hides proposed/future R12; deep-link still pre-show block
   await expect(page.getByTestId('tab-sheet')).toHaveCount(0)
 })
 
-test('Tour Desk → Settlements → TCOMP1 lands on Settlements v3, not Wave-1 dual pane', async ({ page }) => {
+test('Tour Desk → Settlements hides TCOMP1; deep-link still lands on Settlements v3', async ({ page }) => {
   await page.goto('/runs')
   await page.getByRole('link', { name: /^settlements$/i }).click()
   await expect(page).toHaveURL(/\/settlements\/?$/)
-  const glance = page.getByTestId('settlement-demo-TCOMP1')
-  if (await glance.count() === 0) {
+  await expect(page.getByTestId('settlements-demo-glance')).toHaveCount(0)
+  await expect(page.getByTestId('settlement-demo-TCOMP1')).toHaveCount(0)
+  await expect(page.getByTestId('settlement-run-TCOMP1')).toHaveCount(0)
+
+  await page.goto('/settlements/tcomp1')
+  if (!page.url().match(/\/settlements\/tcomp1\/?$/i)) {
     test.skip(true, 'TCOMP1 not present on this environment')
     return
   }
-  await expect(page.getByTestId('settlements-demo-glance')).toBeVisible()
-  for (const key of ['not_settled', 'settled', 'settled_remitted']) {
-    await page.getByTestId(`settlements-bucket-${key}`).click()
-    if (await page.getByTestId('settlement-run-TCOMP1').count()) break
-  }
-  await expect(page.getByTestId('settlement-demo-badge-TCOMP1')).toBeVisible()
-  await glance.click()
-  await page.waitForURL(/\/settlements\/tcomp1\/?$/i)
   await expect(page).not.toHaveURL(/\/sheet/i)
   await expect(page.getByTestId('settlements-sheet')).toBeVisible({ timeout: 8000 })
   await expect(page.getByTestId('settlements-demo-banner')).toBeVisible()
