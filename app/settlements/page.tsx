@@ -5,7 +5,7 @@ import SettlementsListClient, { type SettlementListRun } from './SettlementsList
 import { runDateRangeFromShows } from '@/lib/run-dates'
 import {
   classifySettlementsListBucket,
-  isSettlementsListCompletedRun,
+  filterSettlementsIndexRuns,
 } from '@/lib/settlements-list'
 
 export const dynamic = 'force-dynamic'
@@ -23,7 +23,7 @@ export default async function SettlementsIndexPage() {
 
   const admin = createAdminClient()
   const [{ data: runs }, { data: settlements }, { data: bandCosts }, { data: actuals }] = await Promise.all([
-    admin.from('runs').select('id, code, name, status, start_date, end_date, notes, shows(id, venue_name, venue_city, show_date, show_order)').order('start_date', { ascending: true }),
+    admin.from('runs').select('id, code, name, status, start_date, end_date, notes, shows(id, venue_name, venue_city, show_date, show_order, harbour_status)').order('start_date', { ascending: true }),
     admin.from('run_settlements').select('run_id, costing_finalised_at, remittance_status'),
     admin.from('band_cost_lines').select('run_id, paid, waived'),
     admin.from('settlement_actual_lines').select('run_id, line_kind'),
@@ -41,25 +41,39 @@ export default async function SettlementsIndexPage() {
     openByRun.set(line.run_id, (openByRun.get(line.run_id) ?? 0) + 1)
   }
 
-  const list: SettlementListRun[] = []
-  for (const run of runs ?? []) {
+  const candidates = (runs ?? []).map(run => {
     const shows = [...((run.shows ?? []) as SettlementListRun['shows'])].sort((a, b) => a.show_order - b.show_order)
-    if (!isSettlementsListCompletedRun({ status: run.status, shows })) continue
+    return {
+      id: run.id,
+      code: run.code,
+      name: run.name,
+      notes: (run.notes as string | null) ?? null,
+      status: run.status,
+      start_date: run.start_date as string | null,
+      end_date: run.end_date as string | null,
+      shows,
+      hasVenueSettlementActuals: venueActualsByRun.has(run.id),
+    }
+  })
 
+  // Demo + fully-retired dropped here. Visibility is calendar completion
+  // and/or seeded Actuals — no run_settlements / costing_finalised gate.
+  const list: SettlementListRun[] = []
+  for (const run of filterSettlementsIndexRuns(candidates)) {
     const settlement = settlementByRun.get(run.id)
-    const dates = runDateRangeFromShows(shows)
+    const dates = runDateRangeFromShows(run.shows)
     const bucket = classifySettlementsListBucket({
       status: run.status,
       remittanceStatus: (settlement?.remittance_status as string | undefined) ?? 'open',
-      hasVenueSettlementActuals: venueActualsByRun.has(run.id),
+      hasVenueSettlementActuals: run.hasVenueSettlementActuals,
     })
 
     list.push({
       id: run.id,
       code: run.code,
       name: run.name,
-      notes: (run.notes as string | null) ?? null,
-      status: run.status,
+      notes: run.notes,
+      status: String(run.status ?? ''),
       start_date: dates.start ?? run.start_date,
       end_date: dates.end ?? run.end_date,
       finalised: Boolean(settlement?.costing_finalised_at),
@@ -67,7 +81,7 @@ export default async function SettlementsIndexPage() {
       remittance_status: (settlement?.remittance_status as string | undefined) ?? 'open',
       bucket,
       band_cost_open: openByRun.get(run.id) ?? 0,
-      shows,
+      shows: run.shows,
     })
   }
 

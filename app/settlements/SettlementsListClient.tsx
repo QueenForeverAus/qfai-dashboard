@@ -7,12 +7,7 @@ import {
   SETTLEMENT_PROPOSED_NOTE,
   SETTLEMENTS_MODULE_LABEL,
 } from '@/lib/settlements'
-import {
-  SETTLEMENTS_DEMO_BADGE,
-  SETTLEMENTS_DEMO_GLANCE_LABEL,
-  isSettlementsDemoRun,
-  settlementSheetHref,
-} from '@/lib/settlements-sheet'
+import { settlementSheetHref } from '@/lib/settlements-sheet'
 import {
   SETTLEMENTS_LIST_BUCKETS,
   SETTLEMENTS_LIST_BUCKET_EMPTY,
@@ -28,6 +23,7 @@ export type SettlementListShow = {
   venue_city: string
   show_date: string | null
   show_order: number
+  harbour_status?: string | null
 }
 
 export type SettlementListRun = {
@@ -86,7 +82,6 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
     for (const run of runs) {
       if (
         run.code.toUpperCase() === 'R12'
-        || isSettlementsDemoRun(run)
         || run.finalised
         || run.status === 'post_show'
         || run.bucket !== 'not_settled'
@@ -97,8 +92,6 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
     return initial
   })
   const [query, setQuery] = useState('')
-
-  const demoRuns = useMemo(() => runs.filter(isSettlementsDemoRun), [runs])
 
   const filtered = useMemo(() => {
     const inBucket = runs.filter(run => run.bucket === bucket)
@@ -126,23 +119,6 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
         <p className="text-slate-500 text-xs mt-1">
           Opening a run lands on the 3-column Expected vs Actual sheet. Remittance and Wave-1 agent settlement stay available from the sheet.
         </p>
-        {demoRuns.length > 0 && (
-          <p className="text-slate-400 text-xs mt-2" data-testid="settlements-demo-glance">
-            {SETTLEMENTS_DEMO_GLANCE_LABEL}:{' '}
-            {demoRuns.map((run, i) => (
-              <span key={run.id}>
-                {i > 0 ? ', ' : ''}
-                <Link
-                  href={settlementSheetHref(run.code)}
-                  className="text-teal-300 hover:underline font-semibold"
-                  data-testid={`settlement-demo-${run.code}`}
-                >
-                  {run.code}
-                </Link>
-              </span>
-            ))}
-          </p>
-        )}
       </div>
 
       <div
@@ -220,14 +196,6 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
                   >
                     <span className="text-amber-400 font-bold shrink-0">{run.code}</span>
                     <span className="text-white text-sm truncate">{run.name}</span>
-                    {isSettlementsDemoRun(run) && (
-                      <span
-                        data-testid={`settlement-demo-badge-${run.code}`}
-                        className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-teal-900/40 text-teal-300 border border-teal-800"
-                      >
-                        {SETTLEMENTS_DEMO_BADGE}
-                      </span>
-                    )}
                     <span className={`hidden sm:inline px-2 py-0.5 rounded text-[10px] font-semibold uppercase border ${STATUS[run.status] ?? 'bg-slate-700 text-slate-400 border-slate-600'}`}>
                       {run.status.replace('_', ' ')}
                     </span>
