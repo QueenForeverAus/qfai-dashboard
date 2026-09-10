@@ -58,6 +58,7 @@ export const V3_HEADING = 'Settlements'
 export const V3_SECTION1_TITLE = '§1 Settlement — Due to Hirer'
 export const V3_SECTION2_TITLE = '§2 Remittance — Due to QF'
 export const V3_SECTION3_TITLE = '§3 Pre-Distribution Margin'
+export const ADVANCING_COSTS_LABEL = 'Advancing Costs'
 export const V3_SECTION4_TITLE = '§4 Owner Distribution'
 
 export const V3_SECTION1_NOTE =
@@ -65,7 +66,7 @@ export const V3_SECTION1_NOTE =
 export const V3_SECTION2_NOTE =
   'Agreed Due to Hirer minus Harbour 10% of (ticket sales − classic insides) minus rare deductibles. LPA / EIS / APRA are not insides.'
 export const V3_SECTION3_NOTE =
-  'Remittance minus QF band costs (crew / travel / Production Bought In — not §1 venue lines), then GST quarantine (stored only), then 20% reserve on the ex-GST residual.'
+  'Advancing Costs (live from Advancing — PAID / confirmed / AUTO CALC). Remittance minus those QF payables, then GST quarantine (stored only), then 20% reserve on the ex-GST residual. No Expected | Actual | Δ chrome here.'
 export const V3_SECTION4_NOTE =
   'Gareth 40 / Brad 30 / Scott 30 of Pre-Distribution Margin. Distribute gate is unchanged — figure-accuracy Confirmed is not enough.'
 
@@ -753,12 +754,16 @@ export function buildV3ShowModel(opts: {
     row({
       key: 'band_costs',
       section: 3,
-      label: '− Band costs (QF payables)',
+      label: `− ${ADVANCING_COSTS_LABEL}`,
       sign: '−',
       expected: expected.bandCosts,
       actual: actual.bandCosts,
       kind: 'money',
-      note: 'Crew / travel / Production Bought In — not §1 venue lines',
+      note: (() => {
+        const paid = runLines.filter(l => l.group === 'run_costs' && l.actualPaid).length
+        const base = 'Crew / travel / Production Bought In from Advancing — not §1 venue lines'
+        return paid ? `${paid} PAID from Advancing · ${base}` : base
+      })(),
       children: bandChildren(runLines),
       testId: 'settlements-sheet-run-costs',
     }),

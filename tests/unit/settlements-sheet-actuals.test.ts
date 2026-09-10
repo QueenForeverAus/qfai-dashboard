@@ -120,6 +120,60 @@ test('venue settlement actuals enter as confirmed and flag variance vs Col2', ()
   assert.equal(hire.varianceSeverity, 'hard')
 })
 
+test('PAID on Advancing copies through to Settlements as locked PAID', () => {
+  const hire = field({
+    field_key: 'venue_hire',
+    label: 'Venue Hire',
+    show_id: pastShow.id,
+    value: 3200,
+    entries: [{ id: 'e1', description: 'Hire', notes: '', amount: 3200, gst_included: true, confirmed: true, paid: false }],
+  })
+  const flights = field({
+    field_key: 'flights',
+    label: 'Flights',
+    category: 'Travel & Accommodation',
+    show_id: null,
+    value: 1840,
+    entries: [{ id: 'e2', description: 'Flights', notes: '', amount: 1840, gst_included: true, confirmed: true, paid: true, paid_at: '2026-04-01T00:00:00.000Z' }],
+  })
+  const accom = field({
+    field_key: 'accommodation',
+    label: 'Accommodation',
+    category: 'Travel & Accommodation',
+    show_id: null,
+    value: 1260,
+    entries: [{ id: 'e3', description: 'Hotel', notes: '', amount: 1260, gst_included: true, confirmed: true, paid: true, paid_at: '2026-04-01T00:00:00.000Z' }],
+  })
+  const crew = field({
+    field_key: 'crew_fees_total',
+    label: 'Crew Fees (all shows)',
+    category: 'Crew & Operations',
+    show_id: null,
+    value: 2650,
+    entries: [{ id: 'e4', description: 'Crew', notes: '', amount: 2650, gst_included: true, confirmed: true, paid: false }],
+  })
+  const lines = buildShowSheetLines({
+    show: pastShow,
+    fields: [hire, flights, accom, crew],
+    tickets: 400,
+    ticketsSource: 'entered',
+    includeRunCosts: true,
+  }).lines
+  assert.equal(lines.find(l => l.key === 'run:flights')?.expectedPaid, true)
+  assert.equal(lines.find(l => l.key === 'run:accommodation')?.expectedPaid, true)
+  assert.equal(lines.find(l => l.key === 'run:crew_fees_total')?.expectedPaid, false)
+
+  const decorated = applyCol3Actuals({ lines, actuals: [], showId: pastShow.id })
+  const paidFlights = decorated.find(l => l.key === 'run:flights')
+  const paidAccom = decorated.find(l => l.key === 'run:accommodation')
+  const openCrew = decorated.find(l => l.key === 'run:crew_fees_total')
+  assert.equal(paidFlights?.actualPaid, true)
+  assert.equal(paidAccom?.actualPaid, true)
+  assert.equal(openCrew?.actualPaid, false)
+  assert.equal(canEditSheetBandActual(paidFlights?.actualPaid), false)
+  assert.equal(canEditSheetBandActual(openCrew?.actualPaid), true)
+})
+
 test('band costs copy from Advancing and stay editable until PAID', () => {
   const open = applyCol3Actuals({
     lines: builtLines(),
@@ -201,7 +255,7 @@ test('Challenge draft reuses Wave 1 path and never auto-sends', () => {
   assert.match(COL3_PLACEHOLDER_NOTE, /confirmed/)
 })
 
-test('Harbour fixture is venue-keyed manual ingest, not OCR', () => {
+test('Harbour-shaped lines remain available as email-scrape sample data, not a UI loader', () => {
   const geelong = harbourFixtureLinesForVenue('Geelong Performing Arts Centre')
   assert.ok(geelong.some(l => l.line_key === 'show:venue_hire' && l.amount === 3100))
   assert.ok(geelong.some(l => l.line_key === 'show:venue_marketing::edm' && l.amount === 80))
@@ -209,6 +263,7 @@ test('Harbour fixture is venue-keyed manual ingest, not OCR', () => {
   assert.ok(geelong.some(l => l.line_key === 'show:venue_marketing::fb' && l.amount === 70))
   assert.equal(HARBOUR_FIXTURE_BY_VENUE['Missing Venue'], undefined)
   assert.equal(harbourFixtureLinesForVenue('R12 future').length, 0)
+  assert.match(COL3_ACTUALS_NOTE, /never auto-sent/)
 })
 
 test('count mismatch is a soft variance; exact $1+ is hard', () => {

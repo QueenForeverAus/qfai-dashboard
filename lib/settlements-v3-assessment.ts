@@ -16,8 +16,19 @@ export const ASSESSMENT_CHAT_NOTE =
 
 export const ASSESSMENT_DRAFT_NEVER_SEND = CHALLENGE_NEVER_SEND_NOTE
 
-export const MICHAEL_FACTCHECK_TO = 'Michael (fact-check)'
+export const MICHAEL_FACTCHECK_FROM = 'Nigel (tours@)'
+export const MICHAEL_FACTCHECK_TO = 'Michael'
 export const HARBOUR_ASSESSMENT_TO = 'Harbour (agent)'
+export const HARBOUR_ASSESSMENT_FROM = 'Settlements (preview)'
+
+/** Michael owns venue production — not travel, marketing, owners, or Harbour. */
+export const MICHAEL_FACTCHECK_SCOPE_NOTE =
+  'Venue Staff, Venue Production/AV, other venue production charges, and Backline Hire only.'
+
+const MICHAEL_OTHER_PRODUCTION_RE =
+  /\b(backline|a\/?v|audio.?visual|production|lighting|sound\s*(?:hire|package|system)|stage|rigging|vision|tech\s*package|mic|monitor|speaker|hazer|fog)\b/i
+const MICHAEL_OUT_OF_SCOPE_RE =
+  /\b(travel|flight|accom|hotel|uber|marketing|edm|banner|facebook|\bfb\b|harbour|commission|owner|gareth|brad|scott|gst|reserve|margin|deal|hirer|remittance)\b/i
 
 export const AUDIT_FIELD_ASSESSMENT_COMMENT = 'Settlement assessment comment'
 export const AUDIT_FIELD_ASSESSMENT_DRAFT = 'Settlement assessment email draft'
@@ -74,6 +85,89 @@ export function formatAssessmentDraftAuditCopy(opts: {
   }
 }
 
+export type MichaelFactCheckLine = {
+  key: string
+  label: string
+  expected: number | null
+  actual: number | null
+  note?: string
+}
+
+export function isMichaelOtherProductionCharge(label: string): boolean {
+  const text = String(label ?? '')
+  if (!text.trim()) return false
+  if (MICHAEL_OUT_OF_SCOPE_RE.test(text) && !MICHAEL_OTHER_PRODUCTION_RE.test(text)) return false
+  if (/\b(lpa|eis|apra|one\s*music|electricity|power|rights)\b/i.test(text)) return false
+  return MICHAEL_OTHER_PRODUCTION_RE.test(text)
+}
+
+export function collectMichaelFactCheckLines(model: V3ShowModel): MichaelFactCheckLine[] {
+  const out: MichaelFactCheckLine[] = []
+  const staff = model.section1.find(r => r.key === 'staff')
+  if (staff) {
+    const kids = staff.children.length ? staff.children : [{
+      key: staff.key,
+      label: staff.label.replace(/^−\s*/, ''),
+      expected: staff.expected,
+      actual: staff.actual,
+      note: staff.note,
+    }]
+    for (const child of kids) {
+      out.push({
+        key: child.key,
+        label: child.label,
+        expected: child.expected,
+        actual: child.actual,
+        note: child.note,
+      })
+    }
+  }
+  const production = model.section1.find(r => r.key === 'production')
+  if (production) {
+    const kids = production.children.length ? production.children : [{
+      key: production.key,
+      label: production.label.replace(/^−\s*/, ''),
+      expected: production.expected,
+      actual: production.actual,
+      note: production.note,
+    }]
+    for (const child of kids) {
+      out.push({
+        key: child.key,
+        label: child.label,
+        expected: child.expected,
+        actual: child.actual,
+        note: child.note,
+      })
+    }
+  }
+  const other = model.section1.find(r => r.key === 'other')
+  for (const child of other?.children ?? []) {
+    if (isMichaelOtherProductionCharge(child.label)) {
+      out.push({
+        key: child.key,
+        label: child.label,
+        expected: child.expected,
+        actual: child.actual,
+        note: child.note,
+      })
+    }
+  }
+  const advancing = model.section3.find(r => r.key === 'band_costs')
+  for (const child of advancing?.children ?? []) {
+    if (/backline/i.test(`${child.key} ${child.label}`)) {
+      out.push({
+        key: child.key,
+        label: child.label,
+        expected: child.expected,
+        actual: child.actual,
+        note: child.note,
+      })
+    }
+  }
+  return out
+}
+
 export function buildAssessmentEmailDraft(opts: {
   kind: AssessmentDraftKind
   runCode: string
@@ -83,7 +177,7 @@ export function buildAssessmentEmailDraft(opts: {
   flags: V3RedFlag[]
   messages: Array<Pick<SettlementAssessmentMessage, 'author_name' | 'body' | 'created_at'>>
   nigelParagraph?: string
-}): { subject: string; body: string; to_label: string; reason: string } {
+}): { subject: string; body: string; to_label: string; from_label: string; reason: string } {
   const nigel = opts.nigelParagraph ?? formatV3NigelAssessment({
     runCode: opts.runCode,
     venueName: opts.venueName,
@@ -104,29 +198,37 @@ export function buildAssessmentEmailDraft(opts: {
   ].join('\n')
 
   if (opts.kind === 'michael_factcheck') {
-    const reason = 'Michael fact-check from Settlements assessment thread'
+    const reason = 'Michael fact-check from Nigel (tours@) — venue production lines only'
+    const scoped = collectMichaelFactCheckLines(opts.model)
+    const scopedBlock = scoped.length
+      ? scoped.map(line => {
+        const bits = [
+          line.label,
+          line.expected != null ? `Advancing ${fmt(line.expected)}` : null,
+          line.actual != null ? `statement ${fmt(line.actual)}` : 'statement not on file yet',
+          line.note,
+        ].filter(Boolean)
+        return `- ${bits.join(' · ')}`
+      }).join('\n')
+      : '- No Venue Staff / Venue Production/AV / production-other / Backline Hire figures on file yet. Please confirm if anything in your scope was missed.'
     const body = [
-      `Michael — fact-check draft for ${opts.runCode} (${opts.venueName}).`,
+      `From: ${MICHAEL_FACTCHECK_FROM}`,
+      `To: ${MICHAEL_FACTCHECK_TO}`,
       '',
-      nigel,
+      `Michael — please fact-check the venue production costs for ${opts.runCode} (${opts.venueName}).`,
       '',
-      'Figures (Portal Settlements v3):',
-      figures,
+      `In your scope only: ${MICHAEL_FACTCHECK_SCOPE_NOTE}`,
+      'I am not asking about travel, marketing, owner costs, or Harbour commission.',
       '',
-      'Flags:',
-      flags,
-      '',
-      'Assessment thread (Gareth / operators):',
-      thread,
-      '',
-      'Please confirm venue rates / omitted insides / deposit treatment. This is a draft — not sent.',
+      scopedBlock,
       '',
       ASSESSMENT_DRAFT_NEVER_SEND,
-      `Drafted by ${opts.actorName.trim() || 'operator'}. Not sent.`,
+      `Drafted by ${opts.actorName.trim() || 'operator'} on behalf of Nigel (tours@). Not sent.`,
     ].join('\n')
     return {
+      from_label: MICHAEL_FACTCHECK_FROM,
       to_label: MICHAEL_FACTCHECK_TO,
-      subject: `${opts.runCode} Michael fact-check — draft (not sent)`,
+      subject: `${opts.runCode} venue production fact-check — draft (not sent)`,
       body,
       reason,
     }
@@ -149,6 +251,7 @@ export function buildAssessmentEmailDraft(opts: {
       `Drafted by ${opts.actorName.trim() || 'operator'}. Not sent.`,
     ].join('\n')
     return {
+      from_label: HARBOUR_ASSESSMENT_FROM,
       to_label: HARBOUR_ASSESSMENT_TO,
       subject: `${opts.runCode} settlement accept — draft (not sent)`,
       body,
@@ -174,6 +277,7 @@ export function buildAssessmentEmailDraft(opts: {
     `Drafted by ${opts.actorName.trim() || 'operator'}. Not sent.`,
   ].join('\n')
   return {
+    from_label: HARBOUR_ASSESSMENT_FROM,
     to_label: HARBOUR_ASSESSMENT_TO,
     subject: `${opts.runCode} settlement challenge — draft (not sent)`,
     body,

@@ -199,7 +199,10 @@ export async function loadSettlementWorkspace(runCode: string): Promise<Settleme
 
   const actuals: SettlementActualLine[] = (actualRows ?? []).flatMap(row => {
     if (!isSettlementActualKind(row.line_kind) || !isSettlementActualStatus(row.status)) return []
-    const source = row.source === 'harbour_fixture' || row.source === 'advancing_copy' || row.source === 'manual'
+    const source = row.source === 'harbour_fixture'
+      || row.source === 'advancing_copy'
+      || row.source === 'manual'
+      || row.source === 'email_scrape'
       ? row.source
       : 'manual'
     return [{

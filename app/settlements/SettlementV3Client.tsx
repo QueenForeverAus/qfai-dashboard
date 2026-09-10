@@ -34,8 +34,7 @@ import {
 } from '@/lib/settlements-distribute-gate'
 import {
   CHALLENGE_BUTTON_LABEL,
-  HARBOUR_FIXTURE_BUTTON_LABEL,
-  HARBOUR_FIXTURE_HELP,
+  EMAIL_SCRAPE_INGEST_NOTE,
   SHEET_CHALLENGE_NEVER_SEND_NOTE,
   VENUE_CHALLENGED_LABEL,
   VENUE_CONFIRMED_LABEL,
@@ -51,23 +50,23 @@ import {
 } from '@/lib/settlements-sheet-actuals'
 import type { InsideFactorValues, KnownInsideLine } from '@/lib/pnl-run-costing'
 import {
+  ADVANCING_COSTS_LABEL,
   V3_COL_ACTUAL,
   V3_COL_DELTA,
   V3_COL_EXPECTED,
   V3_COL_LINE,
   V3_HEADING,
-  V3_SECTION3_TITLE,
   buildV3ShowModel,
   v3SectionMeta,
   type V3RollupRow,
   type V3SectionId,
   type V3ShowModel,
 } from '@/lib/settlements-v3'
-import { BNZ_FIXTURE_HELP, BNZ_FIXTURE_LABEL } from '@/lib/settlements-v3-bnz'
 import { buildV3RedFlags, formatV3NigelAssessment, prominentFlags } from '@/lib/settlements-v3-flags'
 import {
   ASSESSMENT_CHAT_NOTE,
   ASSESSMENT_DRAFT_NEVER_SEND,
+  MICHAEL_FACTCHECK_FROM,
   defaultDraftKindFromFlags,
   type AssessmentDraftKind,
   type SettlementAssessmentMessage,
@@ -267,11 +266,13 @@ function RollupTable({
   onToggle,
   busy,
   childHandlers,
+  compareChrome = true,
 }: {
   rows: V3RollupRow[]
   expanded: Set<string>
   onToggle: (key: string) => void
   busy: boolean
+  compareChrome?: boolean
   childHandlers: {
     onConfirmVenue: (line: DecoratedSheetLine, amount: number) => void
     onChallenge: (line: DecoratedSheetLine) => void
@@ -286,15 +287,25 @@ function RollupTable({
         <thead>
           <tr className="text-[10px] uppercase tracking-wide text-slate-500">
             <th className="text-left font-semibold pb-2 pr-3" data-testid="settlements-sheet-col1">{V3_COL_LINE}</th>
-            <th className="text-right font-semibold pb-2 px-3" data-testid="settlements-sheet-col2">{V3_COL_EXPECTED}</th>
-            <th className="text-right font-semibold pb-2 px-3" data-testid="settlements-sheet-col3">{V3_COL_ACTUAL}</th>
-            <th className="text-right font-semibold pb-2 pl-3">{V3_COL_DELTA}</th>
+            {compareChrome ? (
+              <>
+                <th className="text-right font-semibold pb-2 px-3" data-testid="settlements-sheet-col2">{V3_COL_EXPECTED}</th>
+                <th className="text-right font-semibold pb-2 px-3" data-testid="settlements-sheet-col3">{V3_COL_ACTUAL}</th>
+                <th className="text-right font-semibold pb-2 pl-3">{V3_COL_DELTA}</th>
+              </>
+            ) : (
+              <>
+                <th className="text-right font-semibold pb-2 px-3" data-testid="settlements-sheet-advancing-costs">{ADVANCING_COSTS_LABEL}</th>
+                <th className="text-right font-semibold pb-2 pl-3">Status</th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
           {rows.map(row => {
             const open = expanded.has(row.key)
             const canExpand = row.children.length > 0
+            const advancingAmount = row.expected ?? row.actual
             return (
               <Fragment key={row.key}>
                 <tr
@@ -314,24 +325,48 @@ function RollupTable({
                     </button>
                     {row.note ? <span className="block text-[10px] text-slate-600 font-normal pl-5">{row.note}</span> : null}
                   </td>
-                  <td className={`py-2 px-3 text-right tabular-nums ${row.highlight ? 'text-amber-300 font-semibold' : 'text-white'}`}>
-                    {fmtMoneyOrDash(row.expected, row.kind)}
-                  </td>
-                  <td className={`py-2 px-3 text-right tabular-nums ${row.highlight ? 'text-teal-300 font-semibold' : 'text-white'}`} data-testid={row.key === 'hire' ? 'sheet-actual-show:venue_hire' : undefined}>
-                    {fmtMoneyOrDash(row.actual, row.kind)}
-                    {row.key === 'hire' && row.actual != null && (
-                      <div className="text-[10px] text-teal-400" data-testid="sheet-actual-status-show:venue_hire">{VENUE_CONFIRMED_LABEL}</div>
-                    )}
-                  </td>
-                  <td className="py-2 pl-3 text-right tabular-nums text-slate-400" data-testid={row.delta && row.delta !== 0 ? `sheet-variance-${row.key === 'hire' ? 'show:venue_hire' : row.key}` : undefined}>
-                    {row.delta == null || row.delta === 0 ? '—' : `${row.delta > 0 ? '+' : ''}${fmtMoneyOrDash(row.delta, row.kind)}`}
-                  </td>
+                  {compareChrome ? (
+                    <>
+                      <td className={`py-2 px-3 text-right tabular-nums ${row.highlight ? 'text-amber-300 font-semibold' : 'text-white'}`}>
+                        {fmtMoneyOrDash(row.expected, row.kind)}
+                      </td>
+                      <td className={`py-2 px-3 text-right tabular-nums ${row.highlight ? 'text-teal-300 font-semibold' : 'text-white'}`} data-testid={row.key === 'hire' ? 'sheet-actual-show:venue_hire' : undefined}>
+                        {fmtMoneyOrDash(row.actual, row.kind)}
+                        {row.key === 'hire' && row.actual != null && (
+                          <div className="text-[10px] text-teal-400" data-testid="sheet-actual-status-show:venue_hire">{VENUE_CONFIRMED_LABEL}</div>
+                        )}
+                      </td>
+                      <td className="py-2 pl-3 text-right tabular-nums text-slate-400" data-testid={row.delta && row.delta !== 0 ? `sheet-variance-${row.key === 'hire' ? 'show:venue_hire' : row.key}` : undefined}>
+                        {row.delta == null || row.delta === 0 ? '—' : `${row.delta > 0 ? '+' : ''}${fmtMoneyOrDash(row.delta, row.kind)}`}
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className={`py-2 px-3 text-right tabular-nums ${row.highlight ? 'text-amber-300 font-semibold' : 'text-white'}`}>
+                        {fmtMoneyOrDash(advancingAmount, row.kind)}
+                      </td>
+                      <td className="py-2 pl-3 text-right text-[10px] text-slate-500">
+                        {row.key === 'band_costs' ? 'from Advancing' : ''}
+                      </td>
+                    </>
+                  )}
                 </tr>
                 {open && row.children.map(child => (
                   <tr key={child.key} className="border-t border-slate-800/60 bg-slate-900/30" data-testid={`sheet-rollup-child-${child.key}`}>
-                    <td className="py-1.5 pr-3 pl-8 text-[12px] text-slate-400">{child.label}</td>
-                    <td className="py-1.5 px-3 text-right text-[12px] tabular-nums text-slate-300">{fmtMoneyOrDash(child.expected)}</td>
-                    <td className="py-1.5 px-3 text-right text-[12px] tabular-nums text-slate-200">{fmtMoneyOrDash(child.actual)}</td>
+                    <td className="py-1.5 pr-3 pl-8 text-[12px] text-slate-400">
+                      {child.label}
+                      {child.note ? <span className="block text-[10px] text-slate-600">{child.note}</span> : null}
+                    </td>
+                    {compareChrome ? (
+                      <>
+                        <td className="py-1.5 px-3 text-right text-[12px] tabular-nums text-slate-300">{fmtMoneyOrDash(child.expected)}</td>
+                        <td className="py-1.5 px-3 text-right text-[12px] tabular-nums text-slate-200">{fmtMoneyOrDash(child.actual)}</td>
+                      </>
+                    ) : (
+                      <td className="py-1.5 px-3 text-right text-[12px] tabular-nums text-slate-200">
+                        {fmtMoneyOrDash(child.expected ?? child.actual)}
+                      </td>
+                    )}
                     <td className="py-1.5 pl-3 align-top">
                       {child.sheetLine && (
                         <ChildActions
@@ -377,7 +412,14 @@ function SectionCard({
         <h2 className="text-white font-semibold">{meta.title}</h2>
         <p className="text-[11px] text-slate-500 mt-1">{meta.note}</p>
       </div>
-      <RollupTable rows={rows} expanded={expanded} onToggle={onToggle} busy={busy} childHandlers={childHandlers} />
+      <RollupTable
+        rows={rows}
+        expanded={expanded}
+        onToggle={onToggle}
+        busy={busy}
+        childHandlers={childHandlers}
+        compareChrome={id !== 3}
+      />
       {extra}
     </section>
   )
@@ -571,25 +613,6 @@ export default function SettlementV3Client({
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save actual')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function loadFixture(kind?: 'bnz') {
-    setBusy(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/settlements/${run.id}/sheet/fixture`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ show_id: focusedShowId, kind }),
-      })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body.error || 'Could not load fixture')
-      router.refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load fixture')
     } finally {
       setBusy(false)
     }
@@ -846,31 +869,10 @@ export default function SettlementV3Client({
 
           <div className="flex flex-wrap items-start justify-between gap-3">
             <p className="text-[11px] text-slate-500 max-w-2xl" data-testid="settlements-sheet-col3-note">
-              Venue settlement figures enter as confirmed. Assessment-thread drafts are the primary Harbour / Michael path (never auto-sent). Per-line challenge is optional and secondary.
+              Venue settlement figures enter as confirmed from settlement / remittance email attachments. Assessment-thread drafts are the primary Harbour / Michael path (never auto-sent). Per-line challenge is optional and secondary.
             </p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={busy}
-                data-testid="sheet-harbour-fixture"
-                onClick={() => void loadFixture()}
-                className="text-[11px] font-semibold px-3 py-1.5 rounded border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-50"
-              >
-                {HARBOUR_FIXTURE_BUTTON_LABEL}
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                data-testid="sheet-bnz-fixture"
-                onClick={() => void loadFixture('bnz')}
-                className="text-[11px] font-semibold px-3 py-1.5 rounded border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-50"
-              >
-                Load {BNZ_FIXTURE_LABEL}
-              </button>
-            </div>
           </div>
-          <p className="text-[11px] text-slate-600">{HARBOUR_FIXTURE_HELP}</p>
-          <p className="text-[11px] text-slate-600">{BNZ_FIXTURE_HELP}</p>
+          <p className="text-[11px] text-slate-600" data-testid="settlements-email-scrape-note">{EMAIL_SCRAPE_INGEST_NOTE}</p>
 
           {models.map(({ show, model }) => (
             <ShowV3Blocks
@@ -921,6 +923,9 @@ export default function SettlementV3Client({
           {draftPreview && (
             <section data-testid="sheet-challenge-draft-preview" className="bg-slate-900 rounded-xl border border-amber-800/50 p-4 space-y-2">
               <div className="text-[10px] font-bold uppercase tracking-wide text-amber-400">Draft only — not sent</div>
+              {/Nigel \(tours@\)/i.test(draftPreview.body) && (
+                <div className="text-slate-400 text-xs">From: {MICHAEL_FACTCHECK_FROM}</div>
+              )}
               <div className="text-slate-400 text-xs">To: {draftPreview.to_label}</div>
               <div className="text-white text-sm font-semibold">{draftPreview.subject}</div>
               <pre className="text-slate-300 text-xs whitespace-pre-wrap font-sans">{draftPreview.body}</pre>
@@ -1024,18 +1029,6 @@ function ShowV3Blocks({
         onToggle={onToggle}
         busy={busy}
         childHandlers={childHandlers}
-        extra={(
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div data-testid="settlements-sheet-expected-pnl" className="text-xs text-slate-400">
-              <div className="text-amber-400 font-semibold mb-1">Expected {V3_SECTION3_TITLE}</div>
-              {fmtMoneyOrDash(model.preDistExpected)}
-            </div>
-            <div data-testid="settlements-sheet-actual-pnl" className="text-xs text-slate-400">
-              <div className="text-teal-300 font-semibold mb-1">Actual {V3_SECTION3_TITLE}</div>
-              {fmtMoneyOrDash(model.preDistActual)}
-            </div>
-          </div>
-        )}
       />
       <SectionCard
         id={4}
