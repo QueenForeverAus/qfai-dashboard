@@ -26,6 +26,8 @@ import {
   visibleTours,
   type TourRow,
 } from '@/lib/tours'
+import { AdvancingSlaBanner } from '@/components/AdvancingSlaBanner'
+import type { AdvancingSlaWeeks } from '@/lib/portal-settings'
 
 const STATUS_STYLES: Record<string, string> = {
   confirmed:   'bg-green-900/40 text-green-400 border-green-800',
@@ -384,6 +386,7 @@ export default function RunsPageClient({
   desk,
   activeAdvancingRunIds = [],
   tours = [],
+  advancingSla,
 }: {
   allRuns: Run[]
   today: string
@@ -395,6 +398,7 @@ export default function RunsPageClient({
   desk?: Desk
   activeAdvancingRunIds?: string[]
   tours?: TourRow[]
+  advancingSla?: AdvancingSlaWeeks
 }) {
   const [activeTab, setActiveTab] = useState<Tab>('all')
   const [tourTab, setTourTab] = useState<string>(ALL_SHOWS_TAB)
@@ -483,6 +487,12 @@ export default function RunsPageClient({
     }).length)
   }
 
+  const firstShowDate = upcomingRuns
+    .flatMap(r => r.shows ?? [])
+    .map(s => s.show_date)
+    .filter((d): d is string => Boolean(d))
+    .sort()[0] ?? null
+
   return (
     <div className="p-4 sm:p-6" data-testid={advancingDesk ? 'advancing-shows-list' : 'run-costings-list'}>
       {/* Header */}
@@ -492,6 +502,9 @@ export default function RunsPageClient({
           <p className="text-slate-500 text-sm mb-2">
             BOOKED runs only. Proposed and held stay on Run Costings.
           </p>
+        )}
+        {advancingDesk && advancingSla && (
+          <AdvancingSlaBanner sla={advancingSla} showDate={firstShowDate} />
         )}
         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6">
           <div>

@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { RUN_DEFAULTS } from '@/lib/defaults/run-defaults'
 import { generateEntries, type FactorOverrides } from '@/lib/defaults/generate-entries'
+import { loadPortalSettings, PORTAL_SETTINGS_DEFAULTS } from '@/lib/portal-settings'
 
 // Factor keys → affected cost_field field_keys (estimated state only)
 const FACTOR_FIELD_MAP: Record<string, string[]> = {
@@ -19,6 +20,7 @@ function computeNewValue(
   runCode: string,
   numShows: number,
   factors: FactorOverrides,
+  lightingHireDefault = PORTAL_SETTINGS_DEFAULTS.lighting_hire_default,
 ): number | null {
   switch (fieldKey) {
     case 'accommodation': {
@@ -32,7 +34,7 @@ function computeNewValue(
     case 'food_basics':
       return numShows * (factors.food_basics_per_show ?? 225)
     case 'lighting_hire':
-      return factors.lighting_hire_per_run ?? 330
+      return factors.lighting_hire_per_run ?? lightingHireDefault
     case 'backline_hire':
       return factors.backline_hire_per_run ?? 3800
     case 'crew_travel_day': {
@@ -89,6 +91,7 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    const lightingHireDefault = (await loadPortalSettings(supabase)).lighting_hire_default
     const today = new Date().toISOString().slice(0, 10)
     const { data: runs } = await supabase.from('runs').select('id, code, status')
     for (const run of runs ?? []) {
@@ -117,7 +120,7 @@ export async function PATCH(req: NextRequest) {
 
       const numShows = shows.length
       for (const field of fields) {
-        const newValue = computeNewValue(field.field_key, run.code, numShows, factorMap)
+        const newValue = computeNewValue(field.field_key, run.code, numShows, factorMap, lightingHireDefault)
         const newEntries = generateEntries(field.field_key, field.state, defaults, shows, factorMap)
         const patch: Record<string, unknown> = {}
         if (newValue !== null) patch.value = newValue

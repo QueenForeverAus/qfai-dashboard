@@ -777,6 +777,6 @@ export const RUN_DEFAULTS: Record<string, RunDefault> = {
   },
 }
 
-export const LIGHTING_HIRE_PER_RUN = 330  // $ — fixed per weekend run
+export const LIGHTING_HIRE_PER_RUN = 330  // $ — compile-time fallback; Settings lighting_hire_default is SoT
 export const FOOD_PER_SHOW = 225           // $ — fixed per show
 export const CREW_FEE_PER_SHOW = 2650     // $ — Adam $600 + Michael lighting $600 + Michael PM $250 + Darryn $600 + Danny $600

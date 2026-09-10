@@ -5,8 +5,8 @@
  * workspace. Costing cost lines stay locked; Advancing is the working copy.
  * Advancing edits never write back into Run Costings.
  *
- * Settings extras (BOOKED lock toggle, lighting hire, Advancing SLA) are PARKED.
- * Costing lock stays hardcoded ON.
+ * BOOKED Run Costing freeze is an Admin Settings toggle (default ON).
+ * Advancing workspace copy still happens at BOOKED regardless of that toggle.
  *
  * Advancing Shows index membership lives in `isAdvancingShowsListRun`
  * (lib/tour-desk-nav.ts): BOOKED and/or an active workspace only.
@@ -15,7 +15,7 @@
 import { isBookedBookingStatus } from './booked-cost-freeze.ts'
 import type { CostEntry, StaffLineItem } from './cost-fields.ts'
 
-/** Settings extras PARKED. Do not add a Settings UI to unlock this. */
+/** Default ON. Runtime freeze also reads portal_settings.booked_costing_lock. */
 export const TOUR_DESK_V2_SETTINGS_LOCK_ON = true as const
 
 /** Hard rule — Advancing must never mutate locked Run Costings. */

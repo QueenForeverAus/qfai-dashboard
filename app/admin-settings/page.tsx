@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/server-admin'
 import { getAdminOwnerActor } from '@/lib/admin-access'
 import type { TourRow } from '@/lib/tours'
+import { loadPortalSettings } from '@/lib/portal-settings'
 import AdminSettingsClient from './AdminSettingsClient'
 
 export const dynamic = 'force-dynamic'
@@ -17,11 +18,19 @@ export default async function AdminSettingsPage() {
   }
 
   const supabase = createAdminClient()
-  const { data: tours } = await supabase
-    .from('tours')
-    .select('id, name, date_from, date_to, sort_order, created_at, updated_at')
-    .order('sort_order', { ascending: true })
-    .order('name', { ascending: true })
+  const [{ data: tours }, portalSettings] = await Promise.all([
+    supabase
+      .from('tours')
+      .select('id, name, date_from, date_to, sort_order, created_at, updated_at')
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true }),
+    loadPortalSettings(supabase),
+  ])
 
-  return <AdminSettingsClient initialTours={(tours ?? []) as TourRow[]} />
+  return (
+    <AdminSettingsClient
+      initialTours={(tours ?? []) as TourRow[]}
+      initialSettings={portalSettings}
+    />
+  )
 }

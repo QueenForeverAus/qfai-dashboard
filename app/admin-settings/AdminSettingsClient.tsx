@@ -7,6 +7,7 @@ import {
   isCompleteTour,
   type TourRow,
 } from '@/lib/tours'
+import type { PortalSettings } from '@/lib/portal-settings'
 
 const inputClass =
   'w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 [color-scheme:dark]'
@@ -45,8 +46,17 @@ function payloadFromForm(form: TourForm) {
   }
 }
 
-export default function AdminSettingsClient({ initialTours }: { initialTours: TourRow[] }) {
+export default function AdminSettingsClient({
+  initialTours,
+  initialSettings,
+}: {
+  initialTours: TourRow[]
+  initialSettings: PortalSettings
+}) {
   const [tours, setTours] = useState<TourRow[]>(initialTours)
+  const [settings, setSettings] = useState<PortalSettings>(initialSettings)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [settingsError, setSettingsError] = useState('')
   const [editingId, setEditingId] = useState<string | 'new' | null>(null)
   const [form, setForm] = useState<TourForm>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -151,10 +161,118 @@ export default function AdminSettingsClient({ initialTours }: { initialTours: To
       <div className="mb-6">
         <h1 className="text-white text-2xl font-bold">Settings</h1>
         <p className="text-slate-400 text-sm mt-1">
-          Tour seasons for Run Costings and Advancing Shows. Date ranges here are the source of truth —
-          assignment is computed from show dates. Incomplete Tours (missing a date) stay on this page until both dates are set.
+          Admin/Owner only. Tour seasons plus BOOKED costing lock, lighting hire default, and Advancing SLA weeks.
+          Owner split and Harbour commission are not on this page.
         </p>
       </div>
+
+      <form
+        onSubmit={async e => {
+          e.preventDefault()
+          setSettingsError('')
+          setSettingsSaving(true)
+          const res = await fetch('/api/portal-settings', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings),
+          })
+          const body = await res.json().catch(() => null)
+          setSettingsSaving(false)
+          if (!res.ok) {
+            setSettingsError(body?.error ?? 'Could not save settings.')
+            return
+          }
+          setSettings(body as PortalSettings)
+          flash('Settings saved.')
+        }}
+        className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-6 space-y-5"
+        data-testid="portal-settings-form"
+      >
+        <h2 className="text-white font-semibold">Portal defaults</h2>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-1 accent-amber-400"
+            checked={settings.booked_costing_lock}
+            onChange={e => setSettings(s => ({ ...s, booked_costing_lock: e.target.checked }))}
+            data-testid="booked-costing-lock"
+          />
+          <span>
+            <span className="text-white text-sm font-medium">BOOKED costing lock</span>
+            <span className="block text-slate-400 text-xs mt-0.5">
+              When on (default), accepting a run as BOOKED freezes Run Costing lines. Sell-through stays editable. Advancing still gets a working copy.
+            </span>
+          </span>
+        </label>
+
+        <div className="max-w-xs">
+          <label className={labelClass}>Lighting hire default ($ per run)</label>
+          <input
+            className={inputClass}
+            type="number"
+            min="0"
+            step="1"
+            value={settings.lighting_hire_default}
+            onChange={e => setSettings(s => ({ ...s, lighting_hire_default: Number(e.target.value) }))}
+            data-testid="lighting-hire-default"
+          />
+          <p className="text-slate-500 text-xs mt-1">Used when seeding Production Bought In / lighting_hire. Default 330.</p>
+        </div>
+
+        <div>
+          <p className={labelClass}>Advancing SLA (weeks before first show)</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-slate-500 text-xs mb-1">Aim send</label>
+              <input
+                className={inputClass}
+                type="number"
+                min="0"
+                step="1"
+                value={settings.advancing_sla_aim_weeks}
+                onChange={e => setSettings(s => ({ ...s, advancing_sla_aim_weeks: Number(e.target.value) }))}
+              />
+            </div>
+            <div>
+              <label className="block text-slate-500 text-xs mb-1">Ping</label>
+              <input
+                className={inputClass}
+                type="number"
+                min="0"
+                step="1"
+                value={settings.advancing_sla_ping_weeks}
+                onChange={e => setSettings(s => ({ ...s, advancing_sla_ping_weeks: Number(e.target.value) }))}
+              />
+            </div>
+            <div>
+              <label className="block text-slate-500 text-xs mb-1">Tech chase</label>
+              <input
+                className={inputClass}
+                type="number"
+                min="0"
+                step="1"
+                value={settings.advancing_sla_tech_chase_weeks}
+                onChange={e => setSettings(s => ({ ...s, advancing_sla_tech_chase_weeks: Number(e.target.value) }))}
+              />
+            </div>
+          </div>
+        </div>
+
+        {settingsError && <p className="text-red-400 text-sm">{settingsError}</p>}
+        <button
+          type="submit"
+          disabled={settingsSaving}
+          className="bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-slate-900 font-semibold px-4 py-2.5 rounded-lg transition-colors"
+        >
+          {settingsSaving ? 'Saving…' : 'Save portal defaults'}
+        </button>
+      </form>
+
+      <p className="text-slate-400 text-sm mb-4">
+        Tour date ranges here are the source of truth — assignment is computed from show dates.
+        Incomplete Tours (missing a date) stay on this page until both dates are set.
+      </p>
 
       {overlaps.length > 0 && (
         <div
