@@ -11,7 +11,7 @@ import {
 } from '@/lib/settlements-sheet'
 
 /**
- * Secondary affordances only. The 3-col sheet is the Settlements front door —
+ * Secondary affordances only. Settlements v3 (four sections) is the front door —
  * this row must not re-expose Wave-1 Agent Settlement as a peer tab.
  */
 export default function SettlementsTabBar({

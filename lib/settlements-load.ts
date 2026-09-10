@@ -31,6 +31,7 @@ import {
   applySettlementExpectedShows,
   resolveSettlementExpectedLive,
 } from '@/lib/settlements-expected'
+import type { SettlementAssessmentMessage } from '@/lib/settlements-v3-assessment'
 
 export {
   SETTLEMENTS_COL2_WRITES_COST_FIELDS,
@@ -79,6 +80,8 @@ export type SettlementWorkspaceData = {
   remittanceKnownLines: KnownInsideLine[]
   /** Remittance + agent-statement lines used to resolve stored GST (never a rate). */
   gstKnownLines: KnownInsideLine[]
+  /** Portal assessment chat — not a Lead mirror. Empty if the table is not on this env yet. */
+  assessmentMessages: SettlementAssessmentMessage[]
 }
 
 export async function loadSettlementWorkspace(runCode: string): Promise<SettlementWorkspaceData | null> {
@@ -116,6 +119,13 @@ export async function loadSettlementWorkspace(runCode: string): Promise<Settleme
     ]),
     loadActiveAdvancingWorkspace(admin, run.id),
   ])
+
+  const assessmentMessagesResult = await admin
+    .from('settlement_assessment_messages')
+    .select('*')
+    .eq('run_id', run.id)
+    .order('created_at', { ascending: true })
+    .then(res => res, () => ({ data: null, error: { message: 'unavailable' } }))
 
   const advancingFields = advancingWorkspace && isAdvancingWorkspaceActive(advancingWorkspace)
     ? await loadAdvancingCostFields(admin, advancingWorkspace.id)
@@ -249,5 +259,20 @@ export async function loadSettlementWorkspace(runCode: string): Promise<Settleme
         amount: Number(line.amount) || 0,
       })),
     ],
+    assessmentMessages: mapAssessmentMessages(assessmentMessagesResult),
   }
+}
+
+function mapAssessmentMessages(result: { data: unknown; error: { message?: string } | null }): SettlementAssessmentMessage[] {
+  if (result.error) return []
+  const rows = Array.isArray(result.data) ? result.data : []
+  return rows.map((row: Record<string, unknown>) => ({
+    id: String(row.id),
+    run_id: String(row.run_id),
+    show_id: (row.show_id as string | null) ?? null,
+    author_id: (row.author_id as string | null) ?? null,
+    author_name: String(row.author_name ?? 'Operator'),
+    body: String(row.body ?? ''),
+    created_at: String(row.created_at ?? ''),
+  }))
 }

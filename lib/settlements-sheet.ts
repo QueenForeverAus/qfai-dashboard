@@ -45,13 +45,13 @@ import {
 import { snapshotFieldTotal, type CostingSnapshotField } from './settlements.ts'
 
 export const SHEET_TAB_LABEL = 'Sheet'
-export const SHEET_HEADING = 'Expected vs actual'
+export const SHEET_HEADING = 'Settlements'
 export const AGENT_SETTLEMENT_NAV_LABEL = 'Agent settlement'
 export const WAVE1_AGENT_SEGMENT = 'agent'
 export const SETTLEMENTS_DEMO_BADGE = 'DEMO'
 export const SETTLEMENTS_DEMO_GLANCE_LABEL = 'Sample completed show'
 export const SETTLEMENTS_DEMO_BANNER =
-  'DEMO sample completed show — glance the 3-col sheet here. Figures come from Advancing and the Harbour fixture path; nothing is invented on this page.'
+  'DEMO sample completed show — glance Settlements v3 here. Figures come from Advancing and the Harbour / BNZ fixture path; nothing is invented on this page.'
 export const COL1_HEADER = 'Line'
 export const COL2_HEADER = 'Expected (Advancing)'
 export const COL2_LIVE_ADVANCING_NOTE =

@@ -7,6 +7,8 @@ import {
   formatSheetActualAuditCopy,
   harbourFixtureLinesForVenue,
 } from '@/lib/settlements-sheet-actuals'
+import { BNZ_NETTED_DEPOSIT_LINES } from '@/lib/settlements-v3-bnz'
+import { classifySettlementLine } from '@/lib/settlements-v3-buckets'
 
 function kindForKey(lineKey: string) {
   if (lineKey.startsWith('run:')) return 'band_cost' as const
@@ -25,26 +27,35 @@ export async function POST(
   const run = await resolveSettlementsRun(admin, runId)
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
 
-  const body = await req.json().catch(() => ({})) as { show_id?: string | null }
+  const body = await req.json().catch(() => ({})) as { show_id?: string | null; kind?: string }
   const { data: shows } = await admin
     .from('shows')
     .select('id, venue_name, show_date, run_id')
     .eq('run_id', run.id)
 
+  const bnz = body.kind === 'bnz'
   const targets = (shows ?? []).filter(show => {
     if (!showHasOccurred(show.show_date)) return false
     if (body.show_id && show.id !== body.show_id) return false
+    if (bnz) return true
     return harbourFixtureLinesForVenue(show.venue_name).length > 0
   })
 
   if (targets.length === 0) {
-    return NextResponse.json({ error: 'No Harbour fixture for an occurred show on this run' }, { status: 404 })
+    return NextResponse.json({
+      error: bnz
+        ? 'No occurred show for a BNZ-shaped fixture on this run'
+        : 'No Harbour fixture for an occurred show on this run',
+    }, { status: 404 })
   }
 
   const now = new Date().toISOString()
   const saved = []
   for (const show of targets) {
-    for (const line of harbourFixtureLinesForVenue(show.venue_name)) {
+    const fixtureLines = bnz
+      ? bnzLinesAsActuals()
+      : harbourFixtureLinesForVenue(show.venue_name)
+    for (const line of fixtureLines) {
       const row = {
         run_id: run.id,
         show_id: show.id,
@@ -76,8 +87,8 @@ export async function POST(
     const copy = formatSheetActualAuditCopy({
       actorName: actor.fullName,
       runCode: run.code,
-      label: 'Harbour fixture',
-      amount: harbourFixtureLinesForVenue(show.venue_name).reduce((n, l) => n + l.amount, 0),
+      label: bnz ? 'BNZ-shaped fixture' : 'Harbour fixture',
+      amount: fixtureLines.reduce((n, l) => n + l.amount, 0),
       source: 'harbour_fixture',
       showLabel: show.venue_name,
     })
@@ -92,5 +103,53 @@ export async function POST(
     }])
   }
 
-  return NextResponse.json({ lines: saved, note: 'Harbour fixture applied as confirmed. Not OCR.' }, { status: 201 })
+  return NextResponse.json({
+    lines: saved,
+    note: bnz
+      ? 'BNZ-shaped fixture applied as confirmed. Invented lines — not OCR.'
+      : 'Harbour fixture applied as confirmed. Not OCR.',
+  }, { status: 201 })
+}
+
+function bnzLinesAsActuals(): Array<{ line_key: string; amount: number; notes?: string }> {
+  const bucketCount: Record<string, number> = {}
+  const out: Array<{ line_key: string; amount: number; notes?: string }> = []
+  for (const raw of BNZ_NETTED_DEPOSIT_LINES) {
+    const classified = classifySettlementLine(raw)
+    if (classified.kind === 'due_to_hirer') {
+      out.push({ line_key: 'show:due_to_hirer', amount: raw.amount, notes: raw.description })
+      continue
+    }
+    if (classified.kind === 'tickets') {
+      out.push({ line_key: 'gross_ticket_sales', amount: raw.amount, notes: raw.description })
+      continue
+    }
+    if (classified.kind === 'inside') {
+      const n = (bucketCount.inside = (bucketCount.inside ?? 0) + 1)
+      out.push({ line_key: `inside_pre_commission::${n}`, amount: raw.amount, notes: raw.description })
+      continue
+    }
+    if (classified.kind === 'deposit') {
+      out.push({ line_key: 'show:hire_deposit', amount: raw.amount, notes: raw.description })
+      continue
+    }
+    const parent =
+      classified.kind === 'hire' ? 'show:venue_hire'
+        : classified.kind === 'staff' ? 'show:venue_staff'
+          : classified.kind === 'marketing' ? 'show:venue_marketing'
+            : classified.kind === 'production' ? 'show:production_costs'
+              : classified.kind === 'other' ? 'show:other'
+                : null
+    if (!parent) continue
+    const n = (bucketCount[parent] = (bucketCount[parent] ?? 0) + 1)
+    const line_key = n === 1 && classified.kind !== 'marketing' && classified.kind !== 'other'
+      ? parent
+      : `${parent}::${slug(raw.description)}`
+    out.push({ line_key, amount: raw.amount, notes: raw.description })
+  }
+  return out
+}
+
+function slug(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'line'
 }
