@@ -9,7 +9,7 @@
 import { CHALLENGE_NEVER_SEND_NOTE } from './remittance.ts'
 import type { V3RedFlag } from './settlements-v3-flags.ts'
 import { formatV3NigelAssessment } from './settlements-v3-flags.ts'
-import type { V3ShowModel } from './settlements-v3.ts'
+import { isV3RunModel, type V3RunModel, type V3ShowModel } from './settlements-v3.ts'
 
 export const ASSESSMENT_CHAT_NOTE =
   'Gareth comments on this Portal assessment thread. This is not a Lead mirror.'
@@ -101,7 +101,20 @@ export function isMichaelOtherProductionCharge(label: string): boolean {
   return MICHAEL_OTHER_PRODUCTION_RE.test(text)
 }
 
-export function collectMichaelFactCheckLines(model: V3ShowModel): MichaelFactCheckLine[] {
+export function collectMichaelFactCheckLines(model: V3ShowModel | V3RunModel): MichaelFactCheckLine[] {
+  if (isV3RunModel(model)) {
+    const fromVenues = model.venues.flatMap(venue => {
+      const prefix = model.venues.length > 1 ? `${venue.show.venue_name}: ` : ''
+      return collectShowMichaelLines(venue.model)
+        .filter(line => !line.key.startsWith('run:'))
+        .map(line => ({ ...line, label: `${prefix}${line.label}` }))
+    })
+    return [...fromVenues, ...collectBacklineLines(model.section3)]
+  }
+  return collectShowMichaelLines(model)
+}
+
+function collectShowMichaelLines(model: V3ShowModel): MichaelFactCheckLine[] {
   const out: MichaelFactCheckLine[] = []
   const staff = model.section1.find(r => r.key === 'staff')
   if (staff) {
@@ -153,19 +166,21 @@ export function collectMichaelFactCheckLines(model: V3ShowModel): MichaelFactChe
       })
     }
   }
-  const advancing = model.section3.find(r => r.key === 'band_costs')
-  for (const child of advancing?.children ?? []) {
-    if (/backline/i.test(`${child.key} ${child.label}`)) {
-      out.push({
-        key: child.key,
-        label: child.label,
-        expected: child.expected,
-        actual: child.actual,
-        note: child.note,
-      })
-    }
-  }
+  out.push(...collectBacklineLines(model.section3))
   return out
+}
+
+function collectBacklineLines(section3: V3ShowModel['section3']): MichaelFactCheckLine[] {
+  const advancing = section3.find(r => r.key === 'band_costs')
+  return (advancing?.children ?? [])
+    .filter(child => /backline/i.test(`${child.key} ${child.label}`))
+    .map(child => ({
+      key: child.key,
+      label: child.label,
+      expected: child.expected,
+      actual: child.actual,
+      note: child.note,
+    }))
 }
 
 export function buildAssessmentEmailDraft(opts: {
@@ -173,7 +188,7 @@ export function buildAssessmentEmailDraft(opts: {
   runCode: string
   venueName: string
   actorName: string
-  model: V3ShowModel
+  model: V3ShowModel | V3RunModel
   flags: V3RedFlag[]
   messages: Array<Pick<SettlementAssessmentMessage, 'author_name' | 'body' | 'created_at'>>
   nigelParagraph?: string
@@ -190,12 +205,20 @@ export function buildAssessmentEmailDraft(opts: {
   const flags = opts.flags.length
     ? opts.flags.map(f => `- [${f.severity.toUpperCase()} ${f.code}] ${f.title} — ${f.detail}`).join('\n')
     : '- none'
-  const figures = [
-    `Due to Hirer (venue proposal): Expected ${fmt(opts.model.dueToHirerExpected)} / Actual ${fmt(opts.model.dueToHirerActual)}`,
-    `Due to QF (remittance): Expected ${fmt(opts.model.dueToQfExpected)} / Actual ${fmt(opts.model.dueToQfActual)}`,
-    `Pre-Distribution Margin: Expected ${fmt(opts.model.preDistExpected)} / Actual ${fmt(opts.model.preDistActual)}`,
-    `Harbour 10% (sales − classic insides): ${fmt(opts.model.actual.harbourCommission)}`,
-  ].join('\n')
+  const figures = isV3RunModel(opts.model) && opts.model.venues.length > 0
+    ? [
+      ...opts.model.venues.map(v =>
+        `${v.show.venue_name} Due to Hirer: Expected ${fmt(v.model.dueToHirerExpected)} / Actual ${fmt(v.model.dueToHirerActual)} · remittance ${fmt(v.model.dueToQfExpected)} / ${fmt(v.model.dueToQfActual)}`,
+      ),
+      `Due to QF (sum of venue remittances): Expected ${fmt(opts.model.dueToQfExpected)} / Actual ${fmt(opts.model.dueToQfActual)}`,
+      `Pre-Distribution Margin: Expected ${fmt(opts.model.preDistExpected)} / Actual ${fmt(opts.model.preDistActual)}`,
+    ].join('\n')
+    : [
+      `Due to Hirer (venue proposal): Expected ${fmt((opts.model as V3ShowModel).dueToHirerExpected)} / Actual ${fmt((opts.model as V3ShowModel).dueToHirerActual)}`,
+      `Due to QF (remittance): Expected ${fmt(opts.model.dueToQfExpected)} / Actual ${fmt(opts.model.dueToQfActual)}`,
+      `Pre-Distribution Margin: Expected ${fmt(opts.model.preDistExpected)} / Actual ${fmt(opts.model.preDistActual)}`,
+      `Harbour 10% (sales − classic insides): ${fmt(opts.model.actual.harbourCommission)}`,
+    ].join('\n')
 
   if (opts.kind === 'michael_factcheck') {
     const reason = 'Michael fact-check from Nigel (tours@) — venue production lines only'

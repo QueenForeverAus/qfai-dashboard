@@ -10,7 +10,7 @@ import {
   type VarianceSeverity,
 } from './remittance-variance.ts'
 import { roundMoney } from './pnl-run-costing.ts'
-import type { V3RollupRow, V3ShowModel } from './settlements-v3.ts'
+import { isV3RunModel, type V3RollupRow, type V3RunModel, type V3ShowModel } from './settlements-v3.ts'
 
 export const V3_FLAG_CODES = [
   'tickets-variance',
@@ -95,7 +95,30 @@ function fmt(n: number): string {
   return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(roundMoney(n))
 }
 
-export function buildV3RedFlags(model: V3ShowModel): V3RedFlag[] {
+export function buildV3RedFlags(model: V3ShowModel | V3RunModel): V3RedFlag[] {
+  if (isV3RunModel(model)) {
+    const flags = model.venues.flatMap(venue => {
+      const prefix = model.venues.length > 1 ? `${venue.show.venue_name}: ` : ''
+      return buildV3ShowRedFlags(venue.model)
+        .filter(flag => flag.code !== 'gst-missing')
+        .map(flag => ({ ...flag, detail: `${prefix}${flag.detail}` }))
+    })
+    if (!model.actual.gstKnown) {
+      flags.push({
+        code: 'gst-missing',
+        severity: 'info',
+        title: 'GST quarantine missing',
+        detail: model.actual.gstSourceLabel,
+        rowKey: 'gst_quarantine',
+      })
+    }
+    flags.sort((a, b) => severityRank(a.severity) - severityRank(b.severity))
+    return flags
+  }
+  return buildV3ShowRedFlags(model)
+}
+
+function buildV3ShowRedFlags(model: V3ShowModel): V3RedFlag[] {
   const flags: V3RedFlag[] = []
   const byKey = (key: string) => model.section1.find(r => r.key === key)
     ?? model.section2.find(r => r.key === key)
@@ -209,19 +232,22 @@ export function prominentFlags(flags: V3RedFlag[]): V3RedFlag[] {
 export function formatV3NigelAssessment(opts: {
   runCode: string
   venueName: string
-  model: V3ShowModel
+  model: V3ShowModel | V3RunModel
   flags: V3RedFlag[]
 }): string {
   const { model, flags } = opts
-  const dueE = model.dueToHirerExpected
-  const dueA = model.dueToHirerActual
-  const remitA = model.dueToQfActual
-  const marginA = model.preDistActual
   const hard = flags.filter(f => f.severity === 'hard')
   const soft = flags.filter(f => f.severity === 'soft')
+  const dueLine = isV3RunModel(model) && model.venues.length > 0
+    ? `each venue settles its own cycle (${model.venues.map(v =>
+      `${v.show.venue_name} Due to Hirer ${fmtOrDash(v.model.dueToHirerActual)} against Advancing ${fmtOrDash(v.model.dueToHirerExpected)}`
+    ).join('; ')}).`
+    : `venue proposes Due to Hirer ${fmtOrDash((model as V3ShowModel).dueToHirerActual)} against Advancing ${fmtOrDash((model as V3ShowModel).dueToHirerExpected)} (Δ ${fmtOrDash(deltaOf((model as V3ShowModel).dueToHirerExpected, (model as V3ShowModel).dueToHirerActual))}).`
+  const remitA = model.dueToQfActual
+  const marginA = model.preDistActual
   const parts = [
-    `Nigel assessment for ${opts.runCode} · ${opts.venueName}: venue proposes Due to Hirer ${fmtOrDash(dueA)} against Advancing ${fmtOrDash(dueE)} (Δ ${fmtOrDash(deltaOf(dueE, dueA))}).`,
-    `Harbour 10% is taken in §2 on ticket sales minus classic insides only — Due to QF ${fmtOrDash(remitA)}. Pre-Distribution Margin ${fmtOrDash(marginA)} after band costs, GST quarantine (${model.actual.gstKnown ? 'known' : 'missing — residual may still include GST'}), and the 20% ex-GST reserve.`,
+    `Nigel assessment for ${opts.runCode} · ${opts.venueName}: ${dueLine}`,
+    `Harbour 10% is taken in §2 per venue on ticket sales minus classic insides only — Due to QF ${fmtOrDash(remitA)}. Pre-Distribution Margin ${fmtOrDash(marginA)} after band costs, GST quarantine (${model.actual.gstKnown ? 'known' : 'missing — residual may still include GST'}), and the 20% ex-GST reserve.`,
   ]
   if (hard.length) {
     parts.push(`Prominent red flags: ${hard.map(f => f.title).join('; ')}.`)
