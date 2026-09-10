@@ -5,7 +5,6 @@ import { getAdminOwnerActor } from '@/lib/admin-access'
 import {
   loadPortalSettings,
   pickPortalSettingsPatch,
-  type PortalSettingKey,
 } from '@/lib/portal-settings'
 
 export async function GET() {
@@ -38,7 +37,6 @@ export async function PATCH(req: NextRequest) {
       .from('portal_settings')
       .upsert({ key, value, updated_at: now }, { onConflict: 'key' })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    void key as PortalSettingKey
   }
 
   const settings = await loadPortalSettings(supabase)

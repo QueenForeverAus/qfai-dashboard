@@ -128,7 +128,7 @@ export function groupRunsByTour<T extends TourRunLike>(
     }
   }
 
-  const result = groups.filter(g => g.runs.length > 0)
+  const result: TourRunGroup<T>[] = groups.filter(g => g.runs.length > 0)
   if (unassigned.length > 0) {
     result.push({ tour: null, heading: UNASSIGNED_TOUR_HEADING, runs: unassigned })
   }
