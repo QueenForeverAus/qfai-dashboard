@@ -266,6 +266,18 @@ test('Harbour-shaped lines remain available as email-scrape sample data, not a U
   assert.match(COL3_ACTUALS_NOTE, /never auto-sent/)
 })
 
+test('signed venue actual is unsigned so Δ is not ±2X', () => {
+  const lines = applyCol3Actuals({
+    lines: builtLines(),
+    actuals: [actual({ line_key: 'show:venue_hire', line_kind: 'venue_settlement', amount: -3200 })],
+    showId: pastShow.id,
+  })
+  const hire = lines.find(l => l.key === 'show:venue_hire')
+  assert.equal(hire?.expected, 3200)
+  assert.equal(hire?.actual, 3200)
+  assert.equal(hire?.variance, 0)
+})
+
 test('count mismatch is a soft variance; exact $1+ is hard', () => {
   const count = sheetVarianceFlag({ expected: 400, actual: 398, kind: 'count' })
   assert.equal(count?.severity, 'soft')

@@ -44,6 +44,7 @@ import {
   classifySettlementLines,
   extractHireDepositFromText,
   pdfInsideKnown,
+  parentFieldKey,
   printedDueToHirer,
   resolveDepositNetting,
   resolveStatementInside,
@@ -79,6 +80,8 @@ export const V3_NO_HARBOUR_IN_S1 = true as const
 
 export type V3SectionId = 1 | 2 | 3 | 4
 
+export type V3SettlementGrain = 'show' | 'run'
+
 export type V3ChildLine = {
   key: string
   label: string
@@ -86,6 +89,7 @@ export type V3ChildLine = {
   actual: number | null
   note?: string
   sheetLine?: DecoratedSheetLine
+  showId?: string | null
 }
 
 export type V3RollupRow = {
@@ -155,9 +159,194 @@ function money(n: number | null | undefined): number | null {
   return roundMoney(Number(n))
 }
 
-function deltaOf(expected: number | null, actual: number | null): number | null {
+/**
+ * Cost / deduction columns are unsigned. Sign lives on the row (`+` / `−`),
+ * never as a mirrored amount that invents Δ = ±2X or a −X / +X twin pair.
+ */
+export function unsignedSettlementCost(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(Number(value))) return null
+  return roundMoney(Math.abs(Number(value)))
+}
+
+/** Δ = Actual − Expected after both columns are already unsigned costs (or signed totals). */
+export function settlementDelta(expected: number | null, actual: number | null): number | null {
   if (expected == null || actual == null) return null
   return roundMoney(actual - expected)
+}
+
+function deltaOf(expected: number | null, actual: number | null): number | null {
+  return settlementDelta(expected, actual)
+}
+
+function costOrFallback(
+  realActual: number | null | undefined,
+  expected: number | null | undefined,
+): number {
+  return unsignedSettlementCost(realActual) ?? unsignedSettlementCost(expected) ?? 0
+}
+
+function normalizeLineKey(key: string): string {
+  return parentFieldKey(key).toLowerCase()
+}
+
+function normalizeLineLabel(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+function sameSettlementLine(
+  a: { key: string; label: string },
+  b: { key: string; label: string },
+): boolean {
+  if (normalizeLineKey(a.key) && normalizeLineKey(a.key) === normalizeLineKey(b.key)) return true
+  const la = normalizeLineLabel(a.label)
+  const lb = normalizeLineLabel(b.label)
+  return Boolean(la) && la === lb
+}
+
+function amountsMirror(a: number | null, b: number | null): boolean {
+  if (a == null || b == null) return false
+  return Math.abs(roundMoney(a + b)) < 0.005 && Math.abs(a) >= 0.005
+}
+
+/**
+ * Drop invented −X / +X twins for the same line. Remaining cost amounts are unsigned.
+ * Same-line expected-only X + actual-only ±X becomes one unsigned X / X row (Δ 0).
+ */
+export function collapseMirrorPairs<T extends {
+  key: string
+  label: string
+  expected: number | null
+  actual: number | null
+}>(rows: T[]): T[] {
+  const remaining = [...rows]
+  const out: T[] = []
+  while (remaining.length) {
+    const a = remaining.shift()!
+    const twinAt = remaining.findIndex(b => sameSettlementLine(a, b) && (
+      amountsMirror(a.expected, b.expected)
+      || amountsMirror(a.actual, b.actual)
+      || amountsMirror(a.expected, b.actual)
+      || amountsMirror(a.actual, b.expected)
+      || (
+        a.expected != null && a.actual == null
+        && b.actual != null && b.expected == null
+        && Math.abs(Math.abs(a.expected) - Math.abs(b.actual)) < 0.005
+      )
+      || (
+        b.expected != null && b.actual == null
+        && a.actual != null && a.expected == null
+        && Math.abs(Math.abs(b.expected) - Math.abs(a.actual)) < 0.005
+      )
+    ))
+    if (twinAt >= 0) {
+      const b = remaining.splice(twinAt, 1)[0]!
+      const amount = unsignedSettlementCost(a.expected)
+        ?? unsignedSettlementCost(a.actual)
+        ?? unsignedSettlementCost(b.expected)
+        ?? unsignedSettlementCost(b.actual)
+      out.push({
+        ...a,
+        expected: amount,
+        actual: amount,
+      })
+      continue
+    }
+    const sameRowMirror = amountsMirror(a.expected, a.actual)
+    const unsignedExpected = unsignedSettlementCost(a.expected)
+    const unsignedActual = unsignedSettlementCost(a.actual)
+    out.push({
+      ...a,
+      expected: unsignedExpected,
+      actual: sameRowMirror ? unsignedExpected : unsignedActual,
+    })
+  }
+  return out
+}
+
+/** Same-line Δ twins only (not a cost row vs its total). Used in tests + sanity checks. */
+export function findCancelingDeltaTwins(rows: Array<{
+  key: string
+  label: string
+  delta: number | null
+}>): Array<{ keyA: string; keyB: string; amount: number }> {
+  const twins: Array<{ keyA: string; keyB: string; amount: number }> = []
+  for (let i = 0; i < rows.length; i++) {
+    const a = rows[i]!
+    if (a.delta == null || Math.abs(a.delta) < 1) continue
+    for (let j = i + 1; j < rows.length; j++) {
+      const b = rows[j]!
+      if (b.delta == null || !sameSettlementLine(a, b)) continue
+      if (amountsMirror(a.delta, b.delta)) {
+        twins.push({ keyA: a.key, keyB: b.key, amount: Math.abs(a.delta) })
+      }
+    }
+  }
+  return twins
+}
+
+export type V3ShowSheet = {
+  show: { id: string; venue_name: string; venue_city?: string | null }
+  lines: DecoratedSheetLine[]
+}
+
+/** Roll per-show sheet lines into one run-grained sheet. Run costs stay on `runLines`. */
+export function mergeShowSheetLines(sheets: V3ShowSheet[]): DecoratedSheetLine[] {
+  if (sheets.length === 0) return []
+  const keyOrder: string[] = []
+  const seen = new Set<string>()
+  for (const sheet of sheets) {
+    for (const line of sheet.lines) {
+      if (line.group === 'run_costs') continue
+      if (seen.has(line.key)) continue
+      seen.add(line.key)
+      keyOrder.push(line.key)
+    }
+  }
+  return keyOrder.map(key => {
+    const parts = sheets.flatMap(sheet => {
+      const line = sheet.lines.find(l => l.key === key)
+      return line ? [{ show: sheet.show, line }] : []
+    })
+    const first = parts[0]!.line
+    const isCount = first.kind === 'count'
+    const expected = money(parts.reduce((n, p) => {
+      const value = isCount ? p.line.expected : unsignedSettlementCost(p.line.expected)
+      return n + (value ?? 0)
+    }, 0))
+    const actual = money(parts.reduce((n, p) => {
+      const raw = isCount
+        ? (p.line.actual ?? p.line.expected)
+        : (unsignedSettlementCost(p.line.actual) ?? unsignedSettlementCost(p.line.expected))
+      return n + (raw ?? 0)
+    }, 0))
+    const children = parts.flatMap(({ show, line }) => {
+      const venue = show.venue_city ? `${show.venue_name} · ${show.venue_city}` : show.venue_name
+      if (line.matchChildren?.length) {
+        return line.matchChildren.map(child => ({
+          ...child,
+          label: `${venue}: ${child.label}`,
+          amount: unsignedSettlementCost(child.amount) ?? 0,
+        }))
+      }
+      return [{
+        id: `${show.id}:${line.key}`,
+        lineKey: line.key,
+        label: venue,
+        amount: (isCount ? (line.actual ?? line.expected) : (unsignedSettlementCost(line.actual) ?? unsignedSettlementCost(line.expected))) ?? 0,
+        status: line.actualStatus === 'challenged' ? 'challenged' as const : 'confirmed' as const,
+        paid: Boolean(line.actualPaid),
+        challengeId: line.challengeId,
+      }]
+    })
+    return {
+      ...first,
+      expected,
+      actual,
+      variance: settlementDelta(expected, actual),
+      match: children.length >= 2 ? 'rollup' : first.match,
+      matchChildren: children,
+    }
+  })
 }
 
 function lineAmount(lines: DecoratedSheetLine[], key: string, side: 'expected' | 'actual'): number | null {
@@ -253,6 +442,23 @@ export function computeV3Margin(opts: {
   }
 }
 
+export function extractExpectedHireDeposits(
+  fields: CostingSnapshotField[],
+  showIds: string[],
+): { amount: number; note: string } {
+  const notes: string[] = []
+  let amount = 0
+  for (const showId of showIds) {
+    const one = extractExpectedHireDeposit(fields, showId)
+    amount = roundMoney(amount + one.amount)
+    if (one.amount > 0) notes.push(one.note)
+  }
+  return {
+    amount,
+    note: notes[0] ?? 'No hire deposit on Advancing',
+  }
+}
+
 export function extractExpectedHireDeposit(fields: CostingSnapshotField[], showId: string): {
   amount: number
   note: string
@@ -282,13 +488,18 @@ function looksLikeDepositEntry(description?: string | null, notes?: string | nul
 export function statementLinesFromActuals(
   actuals: SettlementActualLine[],
   showId: string,
+  grain: V3SettlementGrain = 'show',
 ): V3RawLine[] {
   return actuals
-    .filter(a => (a.show_id ?? null) === showId && a.line_kind === 'venue_settlement')
+    .filter(a => {
+      if (a.line_kind !== 'venue_settlement') return false
+      if (grain === 'run') return true
+      return (a.show_id ?? null) === showId
+    })
     .map(a => ({
       id: a.id,
       description: a.notes?.trim() || a.line_key,
-      amount: Number(a.amount) || 0,
+      amount: unsignedSettlementCost(a.amount) ?? 0,
       notes: a.notes,
       lineKey: a.line_key,
     }))
@@ -297,9 +508,10 @@ export function statementLinesFromActuals(
 export function remittanceDeductibles(
   lines: RemittanceLine[] | null | undefined,
   showId: string,
+  grain: V3SettlementGrain = 'show',
 ): { amount: number; children: V3ChildLine[] } {
   const matched = (lines ?? []).filter(l => {
-    if ((l.show_id ?? null) !== showId && l.show_id != null) return false
+    if (grain === 'show' && (l.show_id ?? null) !== showId && l.show_id != null) return false
     if (l.line_type !== 'deduction') return false
     const kind = classifySettlementLine({
       description: l.description,
@@ -311,53 +523,57 @@ export function remittanceDeductibles(
   const amount = roundMoney(matched.reduce((n, l) => n + Math.abs(Number(l.amount) || 0), 0))
   return {
     amount,
-    children: matched.map(l => ({
+    children: collapseMirrorPairs(matched.map(l => ({
       key: `deduct:${l.id}`,
       label: l.description,
-      expected: Math.abs(Number(l.amount) || 0),
-      actual: Math.abs(Number(l.amount) || 0),
+      expected: unsignedSettlementCost(l.amount),
+      actual: unsignedSettlementCost(l.amount),
       note: 'Rare remittance deductible — not an inside',
-    })),
+    }))),
   }
 }
 
 function childrenForBucket(
   lines: DecoratedSheetLine[],
   key: string,
+  showId?: string | null,
 ): V3ChildLine[] {
   const row = lines.find(l => l.key === key)
   if (!row) return []
   if (row.matchChildren?.length) {
-    return row.matchChildren.map(child => ({
+    return collapseMirrorPairs(row.matchChildren.map(child => ({
       key: child.lineKey,
       label: child.label,
       expected: null,
-      actual: child.amount,
+      actual: unsignedSettlementCost(child.amount),
       note: child.status === 'challenged' ? 'Challenged' : undefined,
       sheetLine: row,
-    }))
+      showId: showId ?? null,
+    })))
   }
-  return [{
+  return collapseMirrorPairs([{
     key: row.key,
     label: row.label,
-    expected: row.expected,
-    actual: row.actual,
+    expected: unsignedSettlementCost(row.expected),
+    actual: unsignedSettlementCost(row.actual) ?? unsignedSettlementCost(row.expected),
     note: row.note,
     sheetLine: row,
-  }]
+    showId: showId ?? null,
+  }])
 }
 
 function bandChildren(lines: DecoratedSheetLine[]): V3ChildLine[] {
-  return lines
+  return collapseMirrorPairs(lines
     .filter(l => l.group === 'run_costs')
     .map(l => ({
       key: l.key,
       label: displayCostFieldLabel(l.key.replace(/^run:/, ''), l.label),
-      expected: l.expected,
-      actual: l.actual,
+      expected: unsignedSettlementCost(l.expected),
+      actual: unsignedSettlementCost(l.actual) ?? unsignedSettlementCost(l.expected),
       note: l.actualPaid ? 'PAID' : l.note,
       sheetLine: l,
-    }))
+      showId: null,
+    })))
 }
 
 function sideMath(opts: {
@@ -436,6 +652,7 @@ function row(
 
 export function buildV3ShowModel(opts: {
   showId: string
+  grain?: V3SettlementGrain
   lines: DecoratedSheetLine[]
   runLines?: DecoratedSheetLine[]
   fields: CostingSnapshotField[]
@@ -444,52 +661,58 @@ export function buildV3ShowModel(opts: {
   gstLines?: KnownGstLine[] | null
   statementLines?: V3RawLine[] | null
 }): V3ShowModel {
+  const grain: V3SettlementGrain = opts.grain ?? 'show'
   const lines = opts.lines
   const runLines = opts.runLines ?? lines.filter(l => l.group === 'run_costs')
   const classified = classifySettlementLines(
-    opts.statementLines ?? statementLinesFromActuals(opts.actuals, opts.showId),
+    opts.statementLines ?? statementLinesFromActuals(opts.actuals, opts.showId, grain),
     'venue_statement',
   )
   const buckets = sumBuckets(classified)
-  const expectedDeposit = extractExpectedHireDeposit(opts.fields, opts.showId)
-  const deduct = remittanceDeductibles(opts.remittanceLines, opts.showId)
+  const showIds = grain === 'run'
+    ? [...new Set(opts.fields.map(f => f.show_id).filter((id): id is string => Boolean(id)))]
+    : [opts.showId]
+  const expectedDeposit = grain === 'run'
+    ? extractExpectedHireDeposits(opts.fields, showIds)
+    : extractExpectedHireDeposit(opts.fields, opts.showId)
+  const deduct = remittanceDeductibles(opts.remittanceLines, opts.showId, grain)
   const gst = resolveKnownGst({
     lines: opts.gstLines,
-    showId: opts.showId,
+    showId: grain === 'run' ? undefined : opts.showId,
   })
 
-  const expectedTickets = lineAmount(lines, 'gross_ticket_sales', 'expected')
-  const expectedInsides = lineAmount(lines, 'inside_pre_commission', 'expected')
-  const expectedHire = lineAmount(lines, 'show:venue_hire', 'expected') ?? 0
-  const expectedStaff = lineAmount(lines, 'show:venue_staff', 'expected') ?? 0
-  const expectedMarketing = lineAmount(lines, 'show:venue_marketing', 'expected') ?? 0
-  const expectedProduction = lineAmount(lines, 'show:production_costs', 'expected') ?? 0
-  const expectedBand = groupAmount(runLines, 'run_costs', 'expected')
+  const expectedTickets = unsignedSettlementCost(lineAmount(lines, 'gross_ticket_sales', 'expected'))
+  const expectedInsides = unsignedSettlementCost(lineAmount(lines, 'inside_pre_commission', 'expected'))
+  const expectedHire = unsignedSettlementCost(lineAmount(lines, 'show:venue_hire', 'expected')) ?? 0
+  const expectedStaff = unsignedSettlementCost(lineAmount(lines, 'show:venue_staff', 'expected')) ?? 0
+  const expectedMarketing = unsignedSettlementCost(lineAmount(lines, 'show:venue_marketing', 'expected')) ?? 0
+  const expectedProduction = unsignedSettlementCost(lineAmount(lines, 'show:production_costs', 'expected')) ?? 0
+  const expectedBand = unsignedSettlementCost(groupAmount(runLines, 'run_costs', 'expected')) ?? 0
 
-  const actualTicketsStored = lineAmount(lines, 'gross_ticket_sales', 'actual')
+  const actualTicketsStored = unsignedSettlementCost(lineAmount(lines, 'gross_ticket_sales', 'actual'))
   const actualTickets = buckets.tickets > 0
     ? buckets.tickets
-    : actualTicketsStored
+    : (actualTicketsStored ?? expectedTickets)
   const statementInside = resolveStatementInside({
     lines: classified,
-    estimatedInside: lineAmount(lines, 'inside_pre_commission', 'actual')
+    estimatedInside: unsignedSettlementCost(lineAmount(lines, 'inside_pre_commission', 'actual'))
       ?? expectedInsides,
   })
   const actualHire = classified.some(l => l.kind === 'hire')
-    ? buckets.hire
-    : (lineAmount(lines, 'show:venue_hire', 'actual') ?? 0)
+    ? (unsignedSettlementCost(buckets.hire) ?? 0)
+    : costOrFallback(lineAmount(lines, 'show:venue_hire', 'actual'), expectedHire)
   const actualStaff = classified.some(l => l.kind === 'staff')
-    ? buckets.staff
-    : (lineAmount(lines, 'show:venue_staff', 'actual') ?? 0)
+    ? (unsignedSettlementCost(buckets.staff) ?? 0)
+    : costOrFallback(lineAmount(lines, 'show:venue_staff', 'actual'), expectedStaff)
   const actualMarketing = classified.some(l => l.kind === 'marketing')
-    ? buckets.marketing
-    : (lineAmount(lines, 'show:venue_marketing', 'actual') ?? 0)
+    ? (unsignedSettlementCost(buckets.marketing) ?? 0)
+    : costOrFallback(lineAmount(lines, 'show:venue_marketing', 'actual'), expectedMarketing)
   const actualProduction = classified.some(l => l.kind === 'production')
-    ? buckets.production
-    : (lineAmount(lines, 'show:production_costs', 'actual') ?? 0)
-  const actualOther = buckets.other
-  const actualDeposit = buckets.deposit
-  const actualBand = groupAmount(runLines, 'run_costs', 'actual')
+    ? (unsignedSettlementCost(buckets.production) ?? 0)
+    : costOrFallback(lineAmount(lines, 'show:production_costs', 'actual'), expectedProduction)
+  const actualOther = unsignedSettlementCost(buckets.other) ?? 0
+  const actualDeposit = unsignedSettlementCost(buckets.deposit) ?? 0
+  const actualBand = costOrFallback(groupAmount(runLines, 'run_costs', 'actual'), expectedBand)
 
   const ticketsForNetting = actualTickets ?? expectedTickets ?? 0
   const insidesForNetting = statementInside.amount ?? 0
@@ -585,7 +808,7 @@ export function buildV3ShowModel(opts: {
       expected: expected.tickets,
       actual: actual.tickets,
       kind: 'money',
-      children: childrenForBucket(lines, 'gross_ticket_sales'),
+      children: childrenForBucket(lines, 'gross_ticket_sales', grain === 'run' ? null : opts.showId),
       testId: 'sheet-row-gross_ticket_sales',
     }),
     row({
@@ -597,7 +820,7 @@ export function buildV3ShowModel(opts: {
       actual: actual.insides,
       kind: 'money',
       note: actual.insideLabel,
-      children: childrenForBucket(lines, 'inside_pre_commission'),
+      children: childrenForBucket(lines, 'inside_pre_commission', grain === 'run' ? null : opts.showId),
       testId: 'sheet-row-inside_pre_commission',
     }),
     row({
@@ -608,7 +831,7 @@ export function buildV3ShowModel(opts: {
       expected: expected.hire,
       actual: actual.hire,
       kind: 'money',
-      children: childrenForBucket(lines, 'show:venue_hire'),
+      children: childrenForBucket(lines, 'show:venue_hire', grain === 'run' ? null : opts.showId),
       testId: 'sheet-actual-show:venue_hire',
     }),
     row({
@@ -619,7 +842,7 @@ export function buildV3ShowModel(opts: {
       expected: expected.staff,
       actual: actual.staff,
       kind: 'money',
-      children: childrenForBucket(lines, 'show:venue_staff'),
+      children: childrenForBucket(lines, 'show:venue_staff', grain === 'run' ? null : opts.showId),
     }),
     row({
       key: 'marketing',
@@ -629,7 +852,7 @@ export function buildV3ShowModel(opts: {
       expected: expected.marketing,
       actual: actual.marketing,
       kind: 'money',
-      children: childrenForBucket(lines, 'show:venue_marketing'),
+      children: childrenForBucket(lines, 'show:venue_marketing', grain === 'run' ? null : opts.showId),
       testId: 'sheet-rollup-show:venue_marketing',
     }),
     row({
@@ -640,7 +863,7 @@ export function buildV3ShowModel(opts: {
       expected: expected.production,
       actual: actual.production,
       kind: 'money',
-      children: childrenForBucket(lines, 'show:production_costs'),
+      children: childrenForBucket(lines, 'show:production_costs', grain === 'run' ? null : opts.showId),
     }),
     row({
       key: 'other',
@@ -651,12 +874,12 @@ export function buildV3ShowModel(opts: {
       actual: actual.other,
       kind: 'money',
       note: actual.other ? 'LPA / EIS / APRA and unclassified venue lines — not insides' : undefined,
-      children: classified.filter(l => l.kind === 'other').map(l => ({
+      children: collapseMirrorPairs(classified.filter(l => l.kind === 'other').map(l => ({
         key: l.id ?? l.description,
         label: l.description,
         expected: null,
-        actual: Math.abs(Number(l.amount) || 0),
-      })),
+        actual: unsignedSettlementCost(l.amount),
+      }))),
     }),
     row({
       key: 'deposit',
@@ -667,17 +890,17 @@ export function buildV3ShowModel(opts: {
           ? '+ Hire deposit (netted in Due to Hirer — once)'
           : '+ Hire deposit',
       sign: '+',
-      expected: expected.deposit,
-      actual: actual.depositApplied,
+      expected: unsignedSettlementCost(expected.deposit),
+      actual: unsignedSettlementCost(actual.depositApplied),
       kind: 'money',
       note: actual.depositResidual ?? expected.depositResidual ?? undefined,
-      children: classified.filter(l => l.kind === 'deposit').map(l => ({
+      children: collapseMirrorPairs(classified.filter(l => l.kind === 'deposit').map(l => ({
         key: l.id ?? 'deposit',
         label: l.description,
-        expected: expected.deposit,
-        actual: Math.abs(Number(l.amount) || 0),
+        expected: unsignedSettlementCost(expected.deposit),
+        actual: unsignedSettlementCost(l.amount),
         note: actual.depositNetted ? 'Already in printed Due to Hirer' : undefined,
-      })),
+      }))),
     }),
     row({
       key: 'due_to_hirer',
@@ -713,7 +936,7 @@ export function buildV3ShowModel(opts: {
       actual: actual.harbourCommission,
       kind: 'money',
       note: 'Locked 10%. Not LPA / EIS / APRA.',
-      children: childrenForBucket(lines, 'harbour_commission'),
+      children: childrenForBucket(lines, 'harbour_commission', grain === 'run' ? null : opts.showId),
       testId: 'sheet-row-harbour_commission',
     }),
     row({
@@ -869,6 +1092,34 @@ export function v3SectionMeta(id: V3SectionId): { title: string; note: string; t
 
 export function v3HarbourLivesInSection1(): boolean {
   return !V3_NO_HARBOUR_IN_S1
+}
+
+/**
+ * One Settlements model per run. Show-scoped cost_fields / actuals roll up;
+ * Advancing Costs stay run-level once. Never emit a §1–§4 card per show.
+ */
+export function buildV3RunModel(opts: {
+  shows: Array<{ id: string; venue_name: string; venue_city?: string | null }>
+  showSheets: V3ShowSheet[]
+  runLines: DecoratedSheetLine[]
+  fields: CostingSnapshotField[]
+  actuals: SettlementActualLine[]
+  remittanceLines?: RemittanceLine[] | null
+  gstLines?: KnownGstLine[] | null
+  statementLines?: V3RawLine[] | null
+}): V3ShowModel {
+  const lines = mergeShowSheetLines(opts.showSheets)
+  return buildV3ShowModel({
+    showId: opts.shows[0]?.id ?? 'run',
+    grain: 'run',
+    lines,
+    runLines: opts.runLines,
+    fields: opts.fields,
+    actuals: opts.actuals,
+    remittanceLines: opts.remittanceLines,
+    gstLines: opts.gstLines,
+    statementLines: opts.statementLines,
+  })
 }
 
 export function definedBandCostKeys(): string[] {

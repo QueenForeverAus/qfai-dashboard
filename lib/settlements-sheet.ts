@@ -116,7 +116,10 @@ export type SheetShowInput = {
 
 export type TicketsSoldSource = 'entered' | 'known' | 'missing'
 
-/** Canonical 3-col Expected vs Actual sheet (Settlements front door). */
+/**
+ * Canonical Settlements front door — always one settlement per **run**.
+ * `showId` is a bookmark alias only; the page still renders run grain.
+ */
 export function settlementSheetHref(runCode: string, showId?: string | null): string {
   const base = `/settlements/${runCode.toLowerCase()}`
   return showId ? `${base}/${showId}` : base

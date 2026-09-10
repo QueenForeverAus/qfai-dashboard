@@ -192,9 +192,20 @@ function moneyOrNull(value: number | null | undefined): number | null {
   return roundMoney(Number(value))
 }
 
+/** Cost columns stay ≥0. Sign lives on the row label, never as a mirrored amount. */
+function unsignedCost(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(Number(value))) return null
+  return roundMoney(Math.abs(Number(value)))
+}
+
 export function varianceOf(expected: number | null | undefined, actual: number | null | undefined): number | null {
   if (expected == null || actual == null) return null
   return roundMoney(Number(actual) - Number(expected))
+}
+
+export function costVarianceOf(expected: number | null | undefined, actual: number | null | undefined): number | null {
+  if (expected == null || actual == null) return null
+  return roundMoney((unsignedCost(actual) ?? 0) - (unsignedCost(expected) ?? 0))
 }
 
 /** Exact-dollar flag reused from remittance thresholds. Count lines skip money flags. */
@@ -249,8 +260,14 @@ function emptyDecor(kind: SheetLineActualKind | null): SheetActualDecor {
 }
 
 function fromStored(row: SettlementActualLine, line: SheetLine): SheetActualDecor {
-  const actual = line.kind === 'count' ? Math.round(Number(row.amount) || 0) : moneyOrNull(row.amount)
-  const flag = sheetVarianceFlag({ expected: line.expected, actual, kind: line.kind })
+  const raw = line.kind === 'count' ? Math.round(Number(row.amount) || 0) : moneyOrNull(row.amount)
+  const actual = line.kind === 'count' || line.group === 'pnl' || line.group === 'revenue'
+    ? raw
+    : unsignedCost(raw)
+  const expected = line.kind === 'count' || line.group === 'pnl' || line.group === 'revenue'
+    ? line.expected
+    : unsignedCost(line.expected)
+  const flag = sheetVarianceFlag({ expected, actual, kind: line.kind })
   return {
     actual,
     actualKind: row.line_kind,
@@ -260,7 +277,7 @@ function fromStored(row: SettlementActualLine, line: SheetLine): SheetActualDeco
     actualId: row.id,
     challengeId: row.challenge_id,
     quoteNote: row.quote_note,
-    variance: varianceOf(line.expected, actual),
+    variance: line.kind === 'count' || line.group === 'pnl' ? varianceOf(expected, actual) : costVarianceOf(expected, actual),
     varianceSeverity: flag?.severity ?? null,
     match: 'one',
     matchConfidence: 1,
@@ -299,8 +316,30 @@ function decorateLine(
       matchChildren: [],
     }
   }
+  // Venue costs with no stored actual: fall back to Expected (unsigned).
+  // Treating missing as $0 invents Δ = −expected and a canceling +expected on totals.
+  if (line.group === 'venue_costs') {
+    const expected = unsignedCost(line.expected)
+    const actual = expected
+    return {
+      ...line,
+      actual,
+      actualKind: 'venue_settlement',
+      actualStatus: null,
+      actualSource: actual == null ? null : 'computed',
+      actualPaid: false,
+      actualId: null,
+      challengeId: null,
+      quoteNote: null,
+      variance: costVarianceOf(expected, actual),
+      varianceSeverity: null,
+      match: 'one',
+      matchConfidence: 1,
+      matchChildren: [],
+    }
+  }
   // Venue settlement: tickets + computed revenue use the Col2 actual-ticket math
-  // until a Harbour/manual override is stored. Venue cost lines stay empty.
+  // until a Harbour/manual override is stored.
   if (line.group === 'tickets' || line.group === 'revenue') {
     const actual = line.expected
     const flag = sheetVarianceFlag({ expected: line.expected, actual, kind: line.kind })
@@ -395,20 +434,22 @@ export function applyCol3Actuals(opts: {
       claimedIds: claimed,
     })
     if (grouped.match === 'unmatched') return base
-    const flag = sheetVarianceFlag({ expected: line.expected, actual: grouped.actual, kind: line.kind })
+    const groupedActual = line.kind === 'count' ? grouped.actual : unsignedCost(grouped.actual)
+    const groupedExpected = line.kind === 'count' ? line.expected : unsignedCost(line.expected)
+    const flag = sheetVarianceFlag({ expected: groupedExpected, actual: groupedActual, kind: line.kind })
     const anyChallenged = grouped.children.some(c => c.status === 'challenged')
     const allPaid = grouped.children.length > 0 && grouped.children.every(c => c.paid)
     const primary = opts.actuals.find(a => a.id === grouped.children[0]?.id)
     const actualStatus: DecoratedSheetLine['actualStatus'] = anyChallenged ? 'challenged' : 'confirmed'
     return {
       ...base,
-      actual: grouped.actual,
+      actual: groupedActual,
       actualStatus,
       actualSource: (primary?.source as DecoratedSheetLine['actualSource']) ?? base.actualSource,
       actualPaid: lineKindForGroup(line.group) === 'band_cost' ? allPaid : base.actualPaid,
       actualId: grouped.children.length === 1 ? grouped.children[0]!.id : null,
       challengeId: grouped.children.find(c => c.challengeId)?.challengeId ?? null,
-      variance: varianceOf(line.expected, grouped.actual),
+      variance: line.kind === 'count' ? varianceOf(groupedExpected, groupedActual) : costVarianceOf(groupedExpected, groupedActual),
       varianceSeverity: flag?.severity ?? null,
       match: grouped.match,
       matchConfidence: grouped.confidence,

@@ -253,7 +253,7 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
                 {expanded && (
                   <div className="border-t border-slate-700/70 bg-slate-900/40">
                     <div className="px-4 py-2 text-[10px] uppercase tracking-wide text-slate-600">
-                      Nested shows · {formatDateAU(run.start_date)}{run.start_date !== run.end_date ? ` – ${formatDateAU(run.end_date)}` : ''}
+                      Venues on this run · one settlement · {formatDateAU(run.start_date)}{run.start_date !== run.end_date ? ` – ${formatDateAU(run.end_date)}` : ''}
                     </div>
                     {run.shows.length === 0 ? (
                       <p className="px-4 pb-3 text-slate-500 text-sm">No shows on this run.</p>
@@ -263,7 +263,7 @@ export default function SettlementsListClient({ runs }: { runs: SettlementListRu
                           <li key={show.id}>
                             <div className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-slate-800/80 text-sm">
                               <Link
-                                href={settlementSheetHref(run.code, show.id)}
+                                href={settlementSheetHref(run.code)}
                                 className="flex-1 min-w-0 flex items-center justify-between gap-3"
                                 data-testid={`settlement-show-${show.id}`}
                               >

@@ -107,6 +107,24 @@ test('buckets: not settled / settled / settled & remitted', () => {
   }), 'settled_remitted')
 })
 
+test('multi-show completed run is one list entry, never one card per show', () => {
+  const kept = filterSettlementsListRuns([
+    {
+      code: '26R01',
+      status: 'confirmed',
+      shows: [{ show_date: '2026-08-21' }, { show_date: '2026-08-22' }],
+    },
+    {
+      code: '26R02',
+      status: 'confirmed',
+      shows: [{ show_date: '2026-09-04' }, { show_date: '2026-09-05' }],
+    },
+  ], TODAY)
+  assert.deepEqual(kept.map(r => r.code), ['26R01', '26R02'])
+  assert.equal(kept[0].shows.length, 2)
+  assert.equal(kept[1].shows.length, 2)
+})
+
 test('server-side filter drops proposed / BOOKED future / in-progress', () => {
   const kept = filterSettlementsListRuns([
     { code: 'SAMP01', status: 'post_show', shows: [past] },

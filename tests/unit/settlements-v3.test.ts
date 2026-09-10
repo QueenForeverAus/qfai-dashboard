@@ -15,10 +15,15 @@ import {
   ADVANCING_COSTS_LABEL,
   V3_NO_HARBOUR_IN_S1,
   V3_SECTION1_TITLE,
+  buildV3RunModel,
   buildV3ShowModel,
+  collapseMirrorPairs,
   computeDueToHirer,
   computeDueToQf,
   computeV3Margin,
+  findCancelingDeltaTwins,
+  settlementDelta,
+  unsignedSettlementCost,
   v3HarbourLivesInSection1,
 } from '../../lib/settlements-v3.ts'
 import { buildShowSheetLines } from '../../lib/settlements-sheet.ts'
@@ -402,4 +407,185 @@ test('buildV3ShowModel wires §1–§4 from Advancing expected + classified actu
   const advancing = model.section3.find(r => r.key === 'band_costs')
   assert.ok(advancing)
   assert.match(advancing.label, new RegExp(ADVANCING_COSTS_LABEL))
+})
+
+test('unsigned costs and Δ = Actual − Expected never invent a ±X twin on the same line', () => {
+  assert.equal(unsignedSettlementCost(-1900), 1900)
+  assert.equal(unsignedSettlementCost(1900), 1900)
+  assert.equal(settlementDelta(1900, 1900), 0)
+  assert.equal(settlementDelta(1900, -1900), -3800)
+  assert.equal(settlementDelta(1900, unsignedSettlementCost(-1900)), 0)
+
+  const collapsed = collapseMirrorPairs([
+    { key: 'show:venue_hire', label: 'Venue Hire', expected: 1900, actual: null },
+    { key: 'show:venue_hire', label: 'Venue Hire', expected: null, actual: -1900 },
+  ])
+  assert.equal(collapsed.length, 1)
+  assert.equal(collapsed[0]?.expected, 1900)
+  assert.equal(collapsed[0]?.actual, 1900)
+  assert.equal(settlementDelta(collapsed[0]!.expected, collapsed[0]!.actual), 0)
+  assert.deepEqual(findCancelingDeltaTwins([
+    { key: 'hire', label: 'Venue Hire', delta: -1900 },
+    { key: 'hire-mirror', label: 'Venue Hire', delta: 1900 },
+  ]), [{ keyA: 'hire', keyB: 'hire-mirror', amount: 1900 }])
+})
+
+test('buildV3RunModel rolls 26R-shaped multi-show cost_fields into one settlement', () => {
+  const gosford = {
+    id: 'show-gosford',
+    venue_name: 'Laycock St Theatre',
+    venue_city: 'Gosford',
+    show_date: '2026-08-21',
+    show_order: 1,
+    capacity: 396,
+    capacity_bands: null,
+    ticket_price: 70.05,
+    tickets_sold: 200,
+    booking_fee_per_payer: null,
+    cc_fee_pct: null,
+  }
+  const richmond = {
+    id: 'show-richmond',
+    venue_name: 'The Regent',
+    venue_city: 'Richmond',
+    show_date: '2026-08-22',
+    show_order: 2,
+    capacity: 518,
+    capacity_bands: null,
+    ticket_price: 72,
+    tickets_sold: 250,
+    booking_fee_per_payer: null,
+    cc_fee_pct: null,
+  }
+  const fields = [
+    {
+      id: 'g-hire', run_id: '26r01', show_id: gosford.id, category: 'Venue Costs',
+      field_key: 'venue_hire', label: 'Venue Hire', value: 1900, state: 'known',
+      source: null, entries: [], line_items: [],
+    },
+    {
+      id: 'r-hire', run_id: '26r01', show_id: richmond.id, category: 'Venue Costs',
+      field_key: 'venue_hire', label: 'Venue Hire', value: 5500, state: 'known',
+      source: null, entries: [], line_items: [],
+    },
+    {
+      id: 'flights', run_id: '26r01', show_id: null, category: 'Travel',
+      field_key: 'flights', label: 'Flights', value: 2000, state: 'estimated',
+      source: null, entries: [], line_items: [],
+    },
+  ]
+  const gosfordLines = applyCol3Actuals({
+    lines: buildShowSheetLines({
+      show: gosford,
+      fields,
+      tickets: 200,
+      ticketsSource: 'entered',
+      includeRunCosts: false,
+    }).lines,
+    actuals: [],
+    showId: gosford.id,
+  })
+  const richmondLines = applyCol3Actuals({
+    lines: buildShowSheetLines({
+      show: richmond,
+      fields,
+      tickets: 250,
+      ticketsSource: 'entered',
+      includeRunCosts: false,
+    }).lines,
+    actuals: [],
+    showId: richmond.id,
+  })
+  const runLines = applyCol3Actuals({
+    lines: buildShowSheetLines({
+      show: gosford,
+      fields,
+      tickets: 450,
+      ticketsSource: 'entered',
+      includeRunCosts: true,
+    }).lines.filter(l => l.group === 'run_costs'),
+    actuals: [],
+    showId: null,
+  })
+  const model = buildV3RunModel({
+    shows: [gosford, richmond],
+    showSheets: [
+      { show: gosford, lines: gosfordLines },
+      { show: richmond, lines: richmondLines },
+    ],
+    runLines,
+    fields,
+    actuals: [],
+  })
+  const hire = model.section1.find(r => r.key === 'hire')
+  assert.ok(hire)
+  assert.equal(hire.expected, 7400)
+  assert.equal(hire.actual, 7400)
+  assert.equal(hire.delta, 0)
+  assert.equal(hire.children.length, 2)
+  assert.equal(model.section3.filter(r => r.key === 'band_costs').length, 1)
+  assert.equal(model.section1.filter(r => r.key === 'due_to_hirer').length, 1)
+  assert.deepEqual(findCancelingDeltaTwins([
+    ...model.section1,
+    ...model.section2,
+    ...model.section3,
+    ...model.section4,
+  ]), [])
+  assert.equal(settlementDelta(model.dueToHirerExpected, model.dueToHirerActual), 0)
+})
+
+test('signed venue actual does not invent a −X/+X hire pair', () => {
+  const show = {
+    id: 'show-gosford',
+    venue_name: 'Laycock St Theatre',
+    venue_city: 'Gosford',
+    show_date: '2026-08-21',
+    show_order: 1,
+    capacity: 396,
+    capacity_bands: null,
+    ticket_price: 70.05,
+    tickets_sold: 200,
+    booking_fee_per_payer: null,
+    cc_fee_pct: null,
+  }
+  const fields = [{
+    id: 'g-hire', run_id: '26r01', show_id: show.id, category: 'Venue Costs',
+    field_key: 'venue_hire', label: 'Venue Hire', value: 1900, state: 'known',
+    source: null, entries: [], line_items: [],
+  }]
+  const { lines } = buildShowSheetLines({
+    show,
+    fields,
+    tickets: 200,
+    ticketsSource: 'entered',
+    includeRunCosts: false,
+  })
+  const decorated = applyCol3Actuals({
+    lines,
+    actuals: [{
+      id: 'signed', run_id: '26r01', show_id: show.id, line_key: 'show:venue_hire',
+      line_kind: 'venue_settlement', amount: -1900, status: 'confirmed',
+      source: 'email_scrape', notes: 'Venue Hire', challenge_id: null, paid: false,
+      paid_at: null, quote_note: null, attachment_path: null, attachment_filename: null,
+      attachment_mime: null,
+    }],
+    showId: show.id,
+  })
+  const hireLine = decorated.find(l => l.key === 'show:venue_hire')
+  assert.equal(hireLine?.actual, 1900)
+  assert.equal(hireLine?.variance, 0)
+  const model = buildV3ShowModel({
+    showId: show.id,
+    lines: decorated,
+    fields,
+    actuals: [],
+    statementLines: [
+      { description: 'Venue Hire', amount: -1900, lineKey: 'show:venue_hire' },
+    ],
+  })
+  const hire = model.section1.find(r => r.key === 'hire')
+  assert.equal(hire?.expected, 1900)
+  assert.equal(hire?.actual, 1900)
+  assert.equal(hire?.delta, 0)
+  assert.deepEqual(findCancelingDeltaTwins(model.section1), [])
 })
