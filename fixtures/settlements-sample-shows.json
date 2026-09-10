@@ -7,14 +7,16 @@
     "path": "/api/admin/seed-settlements-samples",
     "body": { "confirm": "SAMPLE_ONLY" }
   },
+  "run_status": "confirmed",
+  "note": "SAMPLE runs stay BOOKED (confirmed) so Advancing stays open. Settlements uses past show_date. SAMP04 Northwharf is the Advancing + Settlements test vehicle.",
   "inventory": [
-    { "code": "SAMP01", "accuracy": "accurate", "lifecycle": "not_settled", "venue": "The Marble Room, Port Rowan", "show_date": "2026-07-18" },
-    { "code": "SAMP02", "accuracy": "accurate", "lifecycle": "settled", "venue": "Willowgate Civic Hall, Kestrel Bay", "show_date": "2026-06-22" },
-    { "code": "SAMP03", "accuracy": "accurate", "lifecycle": "settled_remitted", "venue": "Red Lantern Pavilion, Ironbark", "show_date": "2026-05-09" },
-    { "code": "SAMP04", "accuracy": "a_little_out", "lifecycle": "not_settled", "venue": "Northwharf Studio Theatre, Cape Lumen", "show_date": "2026-04-03" },
-    { "code": "SAMP05", "accuracy": "a_little_out", "lifecycle": "settled", "venue": "Clocktower Rooms, Millhaven", "show_date": "2026-03-14" },
-    { "code": "SAMP06", "accuracy": "a_little_out", "lifecycle": "settled_remitted", "venue": "Saltwind Arts House, Greyhaven", "show_date": "2026-02-28" },
-    { "code": "SAMP07", "accuracy": "completely_wrong", "lifecycle": "not_settled", "venue": "The Copper Attic, Finchley Vale", "show_date": "2026-01-11" },
-    { "code": "SAMP08", "accuracy": "completely_wrong", "lifecycle": "settled_remitted", "venue": "Harborlight Room, Newbridge-on-Murray", "show_date": "2025-12-07" }
+    { "code": "SAMP01", "accuracy": "accurate", "lifecycle": "not_settled", "venue": "The Marble Room, Port Rowan", "show_date": "2026-07-18", "run_status": "confirmed" },
+    { "code": "SAMP02", "accuracy": "accurate", "lifecycle": "settled", "venue": "Willowgate Civic Hall, Kestrel Bay", "show_date": "2026-06-22", "run_status": "confirmed" },
+    { "code": "SAMP03", "accuracy": "accurate", "lifecycle": "settled_remitted", "venue": "Red Lantern Pavilion, Ironbark", "show_date": "2026-05-09", "run_status": "confirmed" },
+    { "code": "SAMP04", "accuracy": "a_little_out", "lifecycle": "not_settled", "venue": "Northwharf Studio Theatre, Cape Lumen", "show_date": "2026-04-03", "run_status": "confirmed", "role": "Advancing + Settlements test vehicle" },
+    { "code": "SAMP05", "accuracy": "a_little_out", "lifecycle": "settled", "venue": "Clocktower Rooms, Millhaven", "show_date": "2026-03-14", "run_status": "confirmed" },
+    { "code": "SAMP06", "accuracy": "a_little_out", "lifecycle": "settled_remitted", "venue": "Saltwind Arts House, Greyhaven", "show_date": "2026-02-28", "run_status": "confirmed" },
+    { "code": "SAMP07", "accuracy": "completely_wrong", "lifecycle": "not_settled", "venue": "The Copper Attic, Finchley Vale", "show_date": "2026-01-11", "run_status": "confirmed" },
+    { "code": "SAMP08", "accuracy": "completely_wrong", "lifecycle": "settled_remitted", "venue": "Harborlight Room, Newbridge-on-Murray", "show_date": "2025-12-07", "run_status": "confirmed" }
   ]
 }

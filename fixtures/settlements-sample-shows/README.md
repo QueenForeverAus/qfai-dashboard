@@ -4,6 +4,10 @@ Eight invented completed runs (`SAMP01`–`SAMP08`) for the Settlements list and
 
 Hard-refuses production Supabase (`pfbgrukqxegkiaksuatm`). Idempotent — re-run safe.
 
+**Booking status:** SAMPLE runs stay `runs.status = confirmed` (Portal BOOKED) so Run Advancing stays open. Settlements completed-only still includes them because `show_date` is in the past. Do **not** re-seed them as `post_show` / `settled` — that regresses Advancing. Real non-SAMPLE shows stay BOOKED-only; this is not a production Advancing exception.
+
+**SAMP04 Northwharf Studio Theatre** is the Advancing + Settlements test vehicle: past show date, BOOKED status, and a realistic Advancing mix (some PAID, some confirmed unpaid, plus `social_ads_var` AUTO CALC — Social Media Marketing Co. / Daniel Champagne). Labels: Venue Production/AV + Production Bought In.
+
 ## Invoke on staging
 
 Signed in as admin/owner (session cookie) **or** `x-settlements-seed-token` when `SETTLEMENTS_SEED_TOKEN` is set on the staging env:
@@ -41,8 +45,9 @@ Canonical figures live in `lib/settlements-sample-fixtures.ts`.
 Prod is held. On staging, after SAMPLE seed:
 
 1. **BNZ-shaped** — open any completed SAMPLE (or TCOMP1) → **Load BNZ-shaped venue statement**. Confirm Hire / Staff / Marketing / Venue Production/AV / other buckets, insides **known** from the ticket block, and hire deposit applied **once** (printed Due to Hirer already nets $930 — do not add again). Unit fixture: `lib/settlements-v3-bnz.ts`.
-2. **SAMP01 Accurate / not settled** — Expected from Advancing only. No venue actuals. Nigel assessment should stay quiet on venue Δ. Chat + Harbour/Michael drafts are preview only (never auto-send).
-3. **SAMP02 Accurate / settled** — Col3 within ~1–2%. Soft flags only if any.
-4. **SAMP08 Completely wrong / remitted** — wild tickets, duplicate staff, missing AV → prominent red flags. Draft Harbour challenge / Michael fact-check from the assessment thread. `sent_at` stays null.
+2. **SAMP04 Northwharf (Advancing + Settlements)** — Settlements completed / not settled → open Advancing. Status must be BOOKED (`confirmed`), not `post_show`. Mix: flights / accommodation / Production Bought In **PAID**; venue hire / staff / Venue Production/AV + crew **confirmed unpaid**; Social Media Marketing Co. **AUTO CALC**. Re-seed must not regress this.
+3. **SAMP01 Accurate / not settled** — Expected from Advancing only. No venue actuals. Nigel assessment should stay quiet on venue Δ. Chat + Harbour/Michael drafts are preview only (never auto-send).
+4. **SAMP02 Accurate / settled** — Col3 within ~1–2%. Soft flags only if any.
+5. **SAMP08 Completely wrong / remitted** — wild tickets, duplicate staff, missing AV → prominent red flags. Draft Harbour challenge / Michael fact-check from the assessment thread. `sent_at` stays null.
 
 Honest residuals: GST quarantines $0 when not on the statement (no NZ 15% / AU 10% invented). If printed Due to Hirer matches neither with- nor without-deposit arithmetic, the page says so and does not double-count.

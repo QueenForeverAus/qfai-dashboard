@@ -17,7 +17,9 @@ import { SeedTargetError, seedSettlementsSamples } from '@/lib/settlements-sampl
  * GET  — inventory + invoke notes. Does not write.
  * POST — idempotent upsert. Body must include { "confirm": "SAMPLE_ONLY" }.
  *
- * Never touches R01, TRECV1, TCOMP1, R12. Hard-refuses prod Supabase URLs.
+ * SAMPLE runs stay BOOKED (`confirmed`) so Advancing stays open; Settlements
+ * uses past show_date. Never touches R01, TRECV1, TCOMP1, R12. Hard-refuses
+ * prod Supabase URLs.
  *
  * Invoke on staging (signed in as admin/owner, or SETTLEMENTS_SEED_TOKEN):
  *
