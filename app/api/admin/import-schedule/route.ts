@@ -1,9 +1,16 @@
+/**
+ * Harbour Import Schedule. Match-by-`show_date` today; apply allowlist + HARD
+ * preserve rule: `docs/import-schedule-harbour-fields-v1.md`
+ * (`lib/import-schedule-harbour-fields.ts`). Date-move same-`shows.id` UPDATE
+ * is reserved — PUT must not invent inserts or deletes.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
 import { explainRunRegion, type ShowLocationInput } from '@/lib/region-classify'
 import { reclassifyShowVenueLines } from '@/lib/venue-line-classifier'
+import { pickHarbourShowPatch } from '@/lib/import-schedule-harbour-fields'
 
 type SheetShow = {
   show_date: string
@@ -288,6 +295,7 @@ export async function POST(req: NextRequest) {
 
     const changes: ShowDiff['changes'] = {}
 
+    // Harbour-sourced show keys only — see HARBOUR_PATCHABLE_SHOW_KEYS.
     const shouldUpdateVenue =
       db.venue_name !== sheet.venue_name &&
       (db.venue_name === 'TBC' || sameVenue(db.venue_name, sheet.venue_name))
@@ -393,11 +401,12 @@ export async function PUT(req: NextRequest) {
   let showsUpdated = 0
   let runsUpdated = 0
 
-  for (const u of body.updates ?? []) {
-    const patch: Record<string, unknown> = {}
-    for (const [key, val] of Object.entries(u.changes)) {
-      patch[key] = val.to
-    }
+  // Allowlist only — never persist QF notes / advancing / worksheets / costs.
+  const harbourUpdates = (body.updates ?? [])
+    .map(u => ({ u, patch: pickHarbourShowPatch(u.changes) }))
+    .filter(({ patch }) => Object.keys(patch).length > 0)
+
+  for (const { u, patch } of harbourUpdates) {
     const { error } = await supabase.from('shows').update(patch).eq('id', u.show_id)
     if (!error) showsUpdated++
   }
@@ -427,7 +436,7 @@ export async function PUT(req: NextRequest) {
 
   // Reclassify region for every run touched by show patches (and status-change runs)
   const affectedCodes = new Set<string>()
-  for (const u of body.updates ?? []) affectedCodes.add(u.run_code)
+  for (const { u } of harbourUpdates) affectedCodes.add(u.run_code)
   for (const r of body.run_status_changes ?? []) affectedCodes.add(r.run_code)
 
   const regionResults: { code: string; old: string; new: string; reason: string }[] = []
@@ -458,7 +467,7 @@ export async function PUT(req: NextRequest) {
   // Import Schedule itself does not create cost_fields rows; this moves mis-filed entries
   // when Harbour schedule updates land on shows that already have venue cost lines.
   const venue_reclassify: { show_id: string; moved: number; flagged: number }[] = []
-  for (const u of body.updates ?? []) {
+  for (const { u } of harbourUpdates) {
     try {
       const result = await reclassifyShowVenueLines({
         adminClient: supabase,
