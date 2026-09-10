@@ -2,6 +2,7 @@
  * Persist a settlement / remittance email-scrape apply.
  * Writes settlement_actual_lines or remittance_lines. Never sends email.
  * Never writes cost_fields or PAID.
+ * Ticket count Actuals also update shows.tickets_sold (Settlements UI reads that column).
  */
 
 import { writeAuditLog } from '../audit-log.ts'
@@ -10,6 +11,7 @@ import type { createAdminClient } from '@/lib/supabase/server-admin'
 import {
   formatSettlementScrapeAuditCopy,
   planSettlementScrapeApply,
+  plannedTicketsSoldCount,
   SETTLEMENT_SCRAPE_APPLY_WRITES_COST_FIELDS,
   type SettlementScrapeApplyPlan,
 } from './apply-engine.ts'
@@ -21,6 +23,7 @@ export type SettlementScrapePersistResult = {
   applied: boolean
   actual_ids: string[]
   remittance_ids: string[]
+  shows_tickets_sold: number | null
   writes_cost_fields: false
   sent: false
 }
@@ -57,6 +60,7 @@ export async function persistSettlementScrapeApply(opts: {
       applied: false,
       actual_ids: [],
       remittance_ids: [],
+      shows_tickets_sold: null,
       writes_cost_fields: false,
       sent: false,
     }
@@ -136,6 +140,16 @@ export async function persistSettlementScrapeApply(opts: {
     if (result.data?.id) remittanceIds.push(String(result.data.id))
   }
 
+  const ticketsSold = plannedTicketsSoldCount(preview.actuals)
+  if (ticketsSold != null) {
+    const showUpdate = await opts.admin
+      .from('shows')
+      .update({ tickets_sold: ticketsSold, updated_by: opts.actorUserId })
+      .eq('id', opts.showId)
+      .eq('run_id', opts.runId)
+    if (showUpdate.error) throw new Error(showUpdate.error.message)
+  }
+
   const copy = formatSettlementScrapeAuditCopy({
     actorName: opts.actorName,
     runCode: opts.runCode,
@@ -158,6 +172,7 @@ export async function persistSettlementScrapeApply(opts: {
     applied: true,
     actual_ids: actualIds,
     remittance_ids: remittanceIds,
+    shows_tickets_sold: ticketsSold,
     writes_cost_fields: false,
     sent: false,
   }

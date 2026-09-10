@@ -28,6 +28,7 @@ POST /api/settlements/:runId/email-scrape/apply
 | `bnz-shaped-settlement` | settlement (classifier / deposit netting) |
 | `harbour-geelong-settlement` | settlement (former Harbour UI fixture) |
 | `samp04-northwharf-settlement` | settlement |
+| `laycock-tickets-settlement` | settlement (tickets sold count + gross $) |
 | `samp04-northwharf-remittance` | remittance |
 
 ## Removed

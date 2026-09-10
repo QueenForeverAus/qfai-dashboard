@@ -789,7 +789,9 @@ export function buildV3ShowModel(opts: {
     showId: grain === 'run' ? undefined : opts.showId,
   })
 
+  const storedGross = unsignedSettlementCost(lineAmount(lines, 'gross_ticket_sales', 'actual'))
   const expectedTickets = unsignedSettlementCost(lineAmount(lines, 'gross_ticket_sales', 'expected'))
+    ?? storedGross
   const expectedInsides = unsignedSettlementCost(lineAmount(lines, 'inside_pre_commission', 'expected'))
   const expectedHire = unsignedSettlementCost(lineAmount(lines, 'show:venue_hire', 'expected')) ?? 0
   const expectedStaff = unsignedSettlementCost(lineAmount(lines, 'show:venue_staff', 'expected')) ?? 0
@@ -797,8 +799,8 @@ export function buildV3ShowModel(opts: {
   const expectedProduction = unsignedSettlementCost(lineAmount(lines, 'show:production_costs', 'expected')) ?? 0
   const expectedBand = unsignedSettlementCost(groupAmount(runLines, 'run_costs', 'expected')) ?? 0
 
-  const actualTicketsStored = unsignedSettlementCost(lineAmount(lines, 'gross_ticket_sales', 'actual'))
-  const ticketsDisplay = buckets.tickets > 0 ? buckets.tickets : actualTicketsStored
+  const actualTicketsStored = storedGross
+  const ticketsDisplay = actualTicketsStored ?? (buckets.tickets > 0 ? buckets.tickets : null)
   const actualTickets = ticketsDisplay ?? expectedTickets
   const statementInside = resolveStatementInside({
     lines: classified,
@@ -895,6 +897,8 @@ export function buildV3ShowModel(opts: {
   })
 
   const ticketsSold = lines.find(l => l.key === 'tickets_sold')
+  const ticketsSoldActual = ticketsSold?.actual == null ? null : Math.round(Number(ticketsSold.actual))
+  const ticketsSoldExpected = ticketsSold?.expected == null ? ticketsSoldActual : Math.round(Number(ticketsSold.expected))
 
   const section1: V3RollupRow[] = [
     row({
@@ -902,15 +906,15 @@ export function buildV3ShowModel(opts: {
       section: 1,
       label: 'Tickets sold (actual count)',
       sign: '+',
-      expected: ticketsSold?.expected ?? null,
-      actual: ticketsSold?.actual ?? null,
+      expected: ticketsSoldExpected,
+      actual: ticketsSoldActual,
       kind: 'count',
       note: ticketsSold?.note,
       children: ticketsSold ? [{
         key: 'tickets_sold',
         label: ticketsSold.label,
-        expected: ticketsSold.expected,
-        actual: ticketsSold.actual,
+        expected: ticketsSoldExpected,
+        actual: ticketsSoldActual,
         note: ticketsSold.note,
         sheetLine: ticketsSold,
       }] : [],

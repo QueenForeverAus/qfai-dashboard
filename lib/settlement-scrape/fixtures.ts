@@ -10,6 +10,7 @@ import { SETTLEMENT_SCRAPE_SCHEMA_VERSION, type SettlementScrapePacket } from '.
 export const NORTHWHARF_SETTLEMENT_SCRAPE_ID = 'samp04-northwharf-settlement' as const
 export const BNZ_SETTLEMENT_SCRAPE_ID = 'bnz-shaped-settlement' as const
 export const HARBOUR_SETTLEMENT_SCRAPE_ID = 'harbour-geelong-settlement' as const
+export const LAYCOCK_TICKETS_SETTLEMENT_SCRAPE_ID = 'laycock-tickets-settlement' as const
 export const NORTHWHARF_REMITTANCE_SCRAPE_ID = 'samp04-northwharf-remittance' as const
 
 function email(partial: { subject: string; from: string; message_id: string }): SettlementScrapePacket['email'] {
@@ -103,6 +104,40 @@ export const NORTHWHARF_SETTLEMENT_SCRAPE_PACKET: SettlementScrapePacket = {
   }],
 }
 
+/** Laycock-like sheet: attendance count + box-office gross both present. */
+export const LAYCOCK_TICKETS_SETTLEMENT_SCRAPE_PACKET: SettlementScrapePacket = {
+  schema_version: SETTLEMENT_SCRAPE_SCHEMA_VERSION,
+  kind: 'settlement',
+  confidence: 'high',
+  money_action: 'none',
+  captured_at: '2026-09-10T00:00:00.000Z',
+  apply_env: 'staging',
+  email: email({
+    subject: 'Laycock St Theatre — settlement statement',
+    from: 'accounts@laycock.example',
+    message_id: 'laycock-tickets-1',
+  }),
+  run_match: { run_id: null, show_ids: [], match_notes: 'SOP: ticket count + gross from settlement sheet' },
+  attachments: [{
+    filename: 'laycock-settlement.txt',
+    mime: 'text/plain',
+    extracted_text: [
+      'Tickets sold\t318',
+      'Gross Ticket Sales\t22275.90',
+      'Booking Fees\t890',
+      'Credit Card Fees\t312',
+      'Venue Hire\t1900',
+    ].join('\n'),
+    lines: [
+      { description: 'Tickets sold', amount: 318, line_key: 'tickets_sold' },
+      { description: 'Gross Ticket Sales', amount: 22_275.90, line_key: 'gross_ticket_sales' },
+      { description: 'Booking Fees', amount: 890 },
+      { description: 'Credit Card Fees', amount: 312 },
+      { description: 'Venue Hire', amount: 1900 },
+    ],
+  }],
+}
+
 export const NORTHWHARF_REMITTANCE_SCRAPE_PACKET: SettlementScrapePacket = {
   schema_version: SETTLEMENT_SCRAPE_SCHEMA_VERSION,
   kind: 'remittance',
@@ -134,6 +169,7 @@ export const SETTLEMENT_SCRAPE_FIXTURES = [
   { id: BNZ_SETTLEMENT_SCRAPE_ID, packet: BNZ_SETTLEMENT_SCRAPE_PACKET },
   { id: HARBOUR_SETTLEMENT_SCRAPE_ID, packet: HARBOUR_SETTLEMENT_SCRAPE_PACKET },
   { id: NORTHWHARF_SETTLEMENT_SCRAPE_ID, packet: NORTHWHARF_SETTLEMENT_SCRAPE_PACKET },
+  { id: LAYCOCK_TICKETS_SETTLEMENT_SCRAPE_ID, packet: LAYCOCK_TICKETS_SETTLEMENT_SCRAPE_PACKET },
   { id: NORTHWHARF_REMITTANCE_SCRAPE_ID, packet: NORTHWHARF_REMITTANCE_SCRAPE_PACKET },
 ] as const
 

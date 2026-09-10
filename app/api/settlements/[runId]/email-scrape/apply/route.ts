@@ -168,6 +168,7 @@ export async function POST(
       sent: false,
       actual_ids: result.actual_ids,
       remittance_ids: result.remittance_ids,
+      shows_tickets_sold: result.shows_tickets_sold,
       writes_paid: false,
       writes_cost_fields: false,
       money_action: result.preview.money_action,

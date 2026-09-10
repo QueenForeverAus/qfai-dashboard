@@ -17,6 +17,7 @@ import {
   sheetBandPaidLockViolation,
   sheetLineToComparisonRow,
   sheetVarianceFlag,
+  ticketSheetExpected,
   type SettlementActualLine,
 } from '../../lib/settlements-sheet-actuals.ts'
 import { buildChallengeDraft } from '../../lib/remittance.ts'
@@ -276,6 +277,35 @@ test('signed venue actual is unsigned so Δ is not ±2X', () => {
   assert.equal(hire?.expected, 3200)
   assert.equal(hire?.actual, 3200)
   assert.equal(hire?.variance, 0)
+})
+
+test('ticket Actual with blank Expected mirrors Expected = Actual (Δ 0)', () => {
+  const blankShow = { ...pastShow, tickets_sold: null }
+  const lines = buildShowSheetLines({
+    show: blankShow,
+    fields: [field({ field_key: 'venue_hire', label: 'Venue Hire', show_id: blankShow.id, value: 1900 })],
+    tickets: null,
+    ticketsSource: 'missing',
+    includeRunCosts: false,
+  }).lines
+  const decorated = applyCol3Actuals({
+    lines,
+    actuals: [
+      actual({ line_key: 'tickets_sold', line_kind: 'venue_settlement', amount: 318, source: 'email_scrape' }),
+      actual({ line_key: 'gross_ticket_sales', line_kind: 'venue_settlement', amount: 22_275.9, source: 'email_scrape' }),
+    ],
+    showId: blankShow.id,
+  })
+  const sold = decorated.find(l => l.key === 'tickets_sold')
+  const gross = decorated.find(l => l.key === 'gross_ticket_sales')
+  assert.equal(sold?.actual, 318)
+  assert.equal(sold?.expected, 318)
+  assert.equal(sold?.variance, 0)
+  assert.equal(gross?.actual, 22_275.9)
+  assert.equal(gross?.expected, 22_275.9)
+  assert.equal(gross?.variance, 0)
+  assert.equal(ticketSheetExpected({ key: 'tickets_sold', kind: 'count', group: 'tickets', expected: null }, 318), 318)
+  assert.equal(ticketSheetExpected({ key: 'tickets_sold', kind: 'count', group: 'tickets', expected: 400 }, 318), 400)
 })
 
 test('count mismatch is a soft variance; exact $1+ is hard', () => {

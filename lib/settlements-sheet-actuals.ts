@@ -270,14 +270,27 @@ function emptyDecor(kind: SheetLineActualKind | null): SheetActualDecor {
   }
 }
 
+const TICKET_SHEET_KEYS = new Set(['tickets_sold', 'gross_ticket_sales'])
+
+/** SOP: Expected may mirror Actual for ticket lines when no separate Advancing forecast exists. */
+export function ticketSheetExpected(
+  line: Pick<SheetLine, 'key' | 'kind' | 'group' | 'expected'>,
+  actual: number | null,
+): number | null {
+  const base = line.kind === 'count' || line.group === 'pnl' || line.group === 'revenue'
+    ? (line.expected == null || !Number.isFinite(Number(line.expected)) ? null : Number(line.expected))
+    : unsignedCost(line.expected)
+  if (base != null) return line.kind === 'count' ? Math.round(base) : moneyOrNull(base)
+  if (actual == null || !TICKET_SHEET_KEYS.has(line.key)) return null
+  return actual
+}
+
 function fromStored(row: SettlementActualLine, line: SheetLine): SheetActualDecor {
   const raw = line.kind === 'count' ? Math.round(Number(row.amount) || 0) : moneyOrNull(row.amount)
   const actual = line.kind === 'count' || line.group === 'pnl' || line.group === 'revenue'
     ? raw
     : unsignedCost(raw)
-  const expected = line.kind === 'count' || line.group === 'pnl' || line.group === 'revenue'
-    ? line.expected
-    : unsignedCost(line.expected)
+  const expected = ticketSheetExpected(line, actual)
   const flag = sheetVarianceFlag({ expected, actual, kind: line.kind })
   return {
     actual,
@@ -305,7 +318,8 @@ function decorateLine(
     return { ...line, ...emptyDecor('derived') }
   }
   if (stored) {
-    return { ...line, ...fromStored(stored, line) }
+    const decor = fromStored(stored, line)
+    return { ...line, expected: ticketSheetExpected(line, decor.actual), ...decor }
   }
   if (kind === 'band_cost') {
     const actual = line.expected

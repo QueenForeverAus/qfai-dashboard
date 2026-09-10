@@ -5,6 +5,8 @@ import { computeHarbourCommission, computeOwnerSplits, roundMoney } from '../../
 import {
   classifySettlementLine,
   classifySettlementLines,
+  looksLikeTicketCount,
+  looksLikeTicketGross,
   pdfInsideKnown,
   pdfTicketBlockPresent,
   resolveDepositNetting,
@@ -116,6 +118,24 @@ test('§3 margin order is remittance − band − GST − 20% ex-GST reserve', (
   assert.notEqual(margin.gstQuarantine, roundMoney(15_000 / 11))
   assert.deepEqual(margin.ownerSplits, computeOwnerSplits(margin.preDistMargin ?? 0))
   assert.equal(margin.ownerSplits?.gareth, roundMoney((margin.preDistMargin ?? 0) * 0.4))
+})
+
+test('tickets_sold count is not money and does not inflate Ticket sales $', () => {
+  assert.equal(looksLikeTicketCount('Tickets sold'), true)
+  assert.equal(looksLikeTicketCount('Gross Ticket Sales'), false)
+  assert.equal(looksLikeTicketGross('Gross Ticket Sales'), true)
+  assert.equal(looksLikeTicketGross('Tickets sold'), false)
+  assert.equal(classifySettlementLine({ description: 'Tickets sold', amount: 318, lineKey: 'tickets_sold' }).kind, 'ticket_count')
+  assert.equal(classifySettlementLine({ description: 'Tickets sold', amount: 318, lineKey: 'tickets_sold' }).bucket, null)
+  assert.equal(classifySettlementLine({ description: 'Gross Ticket Sales', amount: 22_275.9, lineKey: 'gross_ticket_sales' }).kind, 'tickets')
+  const mixed = classifySettlementLines([
+    { description: 'Tickets sold', amount: 318, lineKey: 'tickets_sold' },
+    { description: 'Gross Ticket Sales', amount: 22_275.9, lineKey: 'gross_ticket_sales' },
+    { description: 'Booking Fees', amount: 890 },
+  ])
+  const buckets = sumBuckets(mixed)
+  assert.equal(buckets.tickets, 22_275.9)
+  assert.notEqual(buckets.tickets, 318 + 22_275.9)
 })
 
 test('classifier buckets Hire / Staff / Marketing / Venue Production/AV / other; LPA is other not inside', () => {
@@ -865,4 +885,65 @@ test('26R02 BNZ-shaped costing does not emit ± twin Δ on hire / staff / market
     ...model.section3,
     ...model.section4,
   ]), [])
+})
+
+test('§1 Expected mirrors sheet Actual for tickets when Advancing forecast is blank', () => {
+  const show = {
+    id: 'show-laycock',
+    venue_name: 'Laycock St Theatre',
+    venue_city: 'Gosford',
+    show_date: '2026-08-21',
+    show_order: 1,
+    capacity: 396,
+    capacity_bands: null,
+    ticket_price: 70.05,
+    tickets_sold: null,
+    booking_fee_per_payer: null,
+    cc_fee_pct: null,
+  }
+  const fields = [{
+    id: 'g-hire', run_id: '26r01', show_id: show.id, category: 'Venue Costs',
+    field_key: 'venue_hire', label: 'Venue Hire', value: 1900, state: 'known',
+    source: null, entries: [], line_items: [],
+  }]
+  const actuals = [
+    {
+      id: 'a-count', run_id: '26r01', show_id: show.id, line_key: 'tickets_sold',
+      line_kind: 'venue_settlement' as const, amount: 318, status: 'confirmed' as const,
+      source: 'email_scrape' as const, notes: 'Tickets sold', challenge_id: null, paid: false,
+      paid_at: null, quote_note: null, attachment_path: null, attachment_filename: null,
+      attachment_mime: null,
+    },
+    {
+      id: 'a-gross', run_id: '26r01', show_id: show.id, line_key: 'gross_ticket_sales',
+      line_kind: 'venue_settlement' as const, amount: 22_275.9, status: 'confirmed' as const,
+      source: 'email_scrape' as const, notes: 'Gross Ticket Sales', challenge_id: null, paid: false,
+      paid_at: null, quote_note: null, attachment_path: null, attachment_filename: null,
+      attachment_mime: null,
+    },
+  ]
+  const decorated = applyCol3Actuals({
+    lines: buildShowSheetLines({
+      show, fields, tickets: null, ticketsSource: 'missing', includeRunCosts: false,
+    }).lines,
+    actuals,
+    showId: show.id,
+  })
+  const model = buildV3ShowModel({
+    showId: show.id,
+    venueLabel: 'Laycock St Theatre',
+    lines: decorated,
+    fields,
+    actuals,
+  })
+  const count = model.section1.find(r => r.key === 'tickets_sold')
+  const sales = model.section1.find(r => r.key === 'tickets' || r.testId === 'sheet-row-gross_ticket_sales')
+  assert.equal(count?.expected, 318)
+  assert.equal(count?.actual, 318)
+  assert.equal(count?.delta, 0)
+  assert.equal(sales?.expected, 22_275.9)
+  assert.equal(sales?.actual, 22_275.9)
+  assert.equal(sales?.delta, 0)
+  assert.equal(model.expected.tickets, 22_275.9)
+  assert.equal(model.actual.tickets, 22_275.9)
 })

@@ -5,7 +5,11 @@
  */
 
 import { isBookedBookingStatus } from '../booked-cost-freeze.ts'
-import { classifySettlementLine, type V3RawLine } from '../settlements-v3-buckets.ts'
+import {
+  classifySettlementLine,
+  parentFieldKey,
+  type V3RawLine,
+} from '../settlements-v3-buckets.ts'
 import { showHasOccurred } from '../settlements-sheet.ts'
 import { isTravelScrapeMoneyConfirmed } from '../travel-scrape/apply-engine.ts'
 import { linesFromAttachments } from './attachments.ts'
@@ -85,26 +89,46 @@ export function settlementScrapeBlockedReason(opts: {
   return null
 }
 
+/** Count vs $: never put attendance qty on gross_ticket_sales. */
+export function settlementTicketActualKey(line: V3RawLine): 'tickets_sold' | 'gross_ticket_sales' | null {
+  const classified = classifySettlementLine(line, 'venue_statement')
+  if (classified.kind === 'ticket_count') return 'tickets_sold'
+  if (classified.kind === 'tickets') return 'gross_ticket_sales'
+  const key = parentFieldKey(line.lineKey)
+  if (key === 'tickets_sold') return 'tickets_sold'
+  if (key === 'gross_ticket_sales' || key === 'gross_box_office') return 'gross_ticket_sales'
+  return null
+}
+
+export function unsignedScrapeAmount(value: number): number {
+  return Math.abs(Number(value) || 0)
+}
+
+/** Rounded integer count from a planned tickets_sold Actual, or null when absent. */
+export function plannedTicketsSoldCount(actuals: PlannedActual[]): number | null {
+  const row = actuals.find(a => a.line_key === 'tickets_sold')
+  if (!row) return null
+  const n = Math.round(unsignedScrapeAmount(row.amount))
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+function plannedVenueActual(line_key: string, line: V3RawLine): PlannedActual {
+  return {
+    line_key,
+    line_kind: 'venue_settlement',
+    amount: unsignedScrapeAmount(line.amount),
+    notes: line.description,
+    paid: false,
+  }
+}
+
 export function lineKeyForClassified(line: V3RawLine, indexByParent: Map<string, number>): PlannedActual | null {
   const classified = classifySettlementLine(line, 'venue_statement')
   if (classified.kind === 'due_to_hirer') {
-    return {
-      line_key: 'show:due_to_hirer',
-      line_kind: 'venue_settlement',
-      amount: line.amount,
-      notes: line.description,
-      paid: false,
-    }
+    return plannedVenueActual('show:due_to_hirer', line)
   }
-  if (classified.kind === 'tickets') {
-    return {
-      line_key: 'gross_ticket_sales',
-      line_kind: 'venue_settlement',
-      amount: line.amount,
-      notes: line.description,
-      paid: false,
-    }
-  }
+  const ticketKey = settlementTicketActualKey(line)
+  if (ticketKey) return plannedVenueActual(ticketKey, line)
   if (classified.kind === 'inside') {
     const n = (indexByParent.get('inside') ?? 0) + 1
     indexByParent.set('inside', n)
