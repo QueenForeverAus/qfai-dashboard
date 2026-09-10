@@ -110,6 +110,107 @@ export type SettlementsSampleFixture = {
   remittanceAmount: number | null
 }
 
+type SampleLineMix = {
+  notes?: string
+  state?: CostFieldState
+  confirmed?: boolean
+  paid?: boolean
+}
+
+type SampleLineExtras = string | SampleLineMix
+
+const PAID: SampleLineMix = { confirmed: true, paid: true }
+const CONFIRMED: SampleLineMix = { confirmed: true, paid: false }
+
+function parseLineExtras(extras?: SampleLineExtras): SampleLineMix {
+  if (extras == null) return {}
+  if (typeof extras === 'string') return { notes: extras }
+  return extras
+}
+
+function withMix(base: SampleCostLine, extras?: SampleLineExtras): SampleCostLine {
+  const mix = parseLineExtras(extras)
+  return {
+    ...base,
+    notes: mix.notes ?? base.notes,
+    state: mix.state ?? base.state,
+    entryConfirmed: mix.confirmed === true || mix.paid === true,
+    entryPaid: mix.paid === true,
+  }
+}
+
+function showLine(field_key: string, label: string, amount: number, extras?: SampleLineExtras): SampleCostLine {
+  return withMix({ field_key, category: 'Venue Costs', label, amount, scope: 'show' }, extras)
+}
+
+function runLine(field_key: string, label: string, amount: number, extras?: SampleLineExtras): SampleCostLine {
+  const category = field_key === 'crew_fees_total' ? 'Crew & Operations'
+    : field_key === 'lighting_hire' ? 'Production'
+      : field_key === 'social_ads_var' ? 'Marketing'
+        : 'Travel & Accommodation'
+  return withMix({ field_key, category, label, amount, scope: 'run' }, extras)
+}
+
+function socialAdsLine(ticketsSold: number): SampleCostLine {
+  const amount = Math.round(ticketsSold * SOCIAL_ADS_PER_TICKET * 100) / 100
+  return runLine('social_ads_var', SAMPLE_SOCIAL_ADS_LABEL, amount, {
+    state: 'auto_calc',
+    notes: SAMPLE_SOCIAL_ADS_NOTES,
+  })
+}
+
+/** Realistic Advancing mix used by every SAMPLE fixture (SAMP04 Northwharf is the test vehicle). */
+function sampleAdvancingLines(
+  amounts: {
+    venue_hire: number
+    venue_staff: number
+    venue_marketing: number
+    production_costs: number
+    flights: number
+    accommodation: number
+    crew_fees_total: number
+    lighting_hire: number
+    tickets_sold: number
+  },
+  notes?: Partial<Record<keyof typeof amounts | 'social_ads_var', string>>,
+): SampleCostLine[] {
+  return [
+    showLine('venue_hire', 'Venue Hire', amounts.venue_hire, {
+      ...CONFIRMED,
+      notes: notes?.venue_hire,
+    }),
+    showLine('venue_staff', 'Venue Staff / On-costs', amounts.venue_staff, {
+      ...CONFIRMED,
+      notes: notes?.venue_staff,
+    }),
+    showLine('venue_marketing', 'Venue Marketing', amounts.venue_marketing, notes?.venue_marketing),
+    showLine('production_costs', VENUE_PRODUCTION_AV_LABEL, amounts.production_costs, {
+      ...CONFIRMED,
+      notes: notes?.production_costs,
+    }),
+    runLine('flights', 'Flights', amounts.flights, { ...PAID, notes: notes?.flights }),
+    runLine('accommodation', 'Accommodation', amounts.accommodation, {
+      ...PAID,
+      notes: notes?.accommodation,
+    }),
+    runLine('crew_fees_total', 'Crew Fees (all shows)', amounts.crew_fees_total, CONFIRMED),
+    runLine('lighting_hire', PRODUCTION_BOUGHT_IN_LABEL, amounts.lighting_hire, PAID),
+    socialAdsLine(amounts.tickets_sold),
+  ]
+}
+
+export function sampleAdvancingMixCounts(advancing: SampleCostLine[]): {
+  paid: number
+  confirmedUnpaid: number
+  autoCalc: number
+} {
+  return {
+    paid: advancing.filter(l => l.entryPaid === true).length,
+    confirmedUnpaid: advancing.filter(l => l.entryConfirmed === true && l.entryPaid !== true).length,
+    autoCalc: advancing.filter(l => l.state === 'auto_calc' || l.field_key === 'social_ads_var').length,
+  }
+}
+
 export const SETTLEMENTS_SAMPLE_FIXTURES: SettlementsSampleFixture[] = [
   {
     code: 'SAMP01',
@@ -430,105 +531,4 @@ export function sampleFixtureInventory(): Array<{
     show_date: f.show.show_date,
     run_status: SAMPLE_RUN_BOOKING_STATUS,
   }))
-}
-
-type SampleLineMix = {
-  notes?: string
-  state?: CostFieldState
-  confirmed?: boolean
-  paid?: boolean
-}
-
-type SampleLineExtras = string | SampleLineMix
-
-const PAID: SampleLineMix = { confirmed: true, paid: true }
-const CONFIRMED: SampleLineMix = { confirmed: true, paid: false }
-
-function parseLineExtras(extras?: SampleLineExtras): SampleLineMix {
-  if (extras == null) return {}
-  if (typeof extras === 'string') return { notes: extras }
-  return extras
-}
-
-function withMix(base: SampleCostLine, extras?: SampleLineExtras): SampleCostLine {
-  const mix = parseLineExtras(extras)
-  return {
-    ...base,
-    notes: mix.notes ?? base.notes,
-    state: mix.state ?? base.state,
-    entryConfirmed: mix.confirmed === true || mix.paid === true,
-    entryPaid: mix.paid === true,
-  }
-}
-
-function showLine(field_key: string, label: string, amount: number, extras?: SampleLineExtras): SampleCostLine {
-  return withMix({ field_key, category: 'Venue Costs', label, amount, scope: 'show' }, extras)
-}
-
-function runLine(field_key: string, label: string, amount: number, extras?: SampleLineExtras): SampleCostLine {
-  const category = field_key === 'crew_fees_total' ? 'Crew & Operations'
-    : field_key === 'lighting_hire' ? 'Production'
-      : field_key === 'social_ads_var' ? 'Marketing'
-        : 'Travel & Accommodation'
-  return withMix({ field_key, category, label, amount, scope: 'run' }, extras)
-}
-
-function socialAdsLine(ticketsSold: number): SampleCostLine {
-  const amount = Math.round(ticketsSold * SOCIAL_ADS_PER_TICKET * 100) / 100
-  return runLine('social_ads_var', SAMPLE_SOCIAL_ADS_LABEL, amount, {
-    state: 'auto_calc',
-    notes: SAMPLE_SOCIAL_ADS_NOTES,
-  })
-}
-
-/** Realistic Advancing mix used by every SAMPLE fixture (SAMP04 Northwharf is the test vehicle). */
-function sampleAdvancingLines(
-  amounts: {
-    venue_hire: number
-    venue_staff: number
-    venue_marketing: number
-    production_costs: number
-    flights: number
-    accommodation: number
-    crew_fees_total: number
-    lighting_hire: number
-    tickets_sold: number
-  },
-  notes?: Partial<Record<keyof typeof amounts | 'social_ads_var', string>>,
-): SampleCostLine[] {
-  return [
-    showLine('venue_hire', 'Venue Hire', amounts.venue_hire, {
-      ...CONFIRMED,
-      notes: notes?.venue_hire,
-    }),
-    showLine('venue_staff', 'Venue Staff / On-costs', amounts.venue_staff, {
-      ...CONFIRMED,
-      notes: notes?.venue_staff,
-    }),
-    showLine('venue_marketing', 'Venue Marketing', amounts.venue_marketing, notes?.venue_marketing),
-    showLine('production_costs', VENUE_PRODUCTION_AV_LABEL, amounts.production_costs, {
-      ...CONFIRMED,
-      notes: notes?.production_costs,
-    }),
-    runLine('flights', 'Flights', amounts.flights, { ...PAID, notes: notes?.flights }),
-    runLine('accommodation', 'Accommodation', amounts.accommodation, {
-      ...PAID,
-      notes: notes?.accommodation,
-    }),
-    runLine('crew_fees_total', 'Crew Fees (all shows)', amounts.crew_fees_total, CONFIRMED),
-    runLine('lighting_hire', PRODUCTION_BOUGHT_IN_LABEL, amounts.lighting_hire, PAID),
-    socialAdsLine(amounts.tickets_sold),
-  ]
-}
-
-export function sampleAdvancingMixCounts(advancing: SampleCostLine[]): {
-  paid: number
-  confirmedUnpaid: number
-  autoCalc: number
-} {
-  return {
-    paid: advancing.filter(l => l.entryPaid === true).length,
-    confirmedUnpaid: advancing.filter(l => l.entryConfirmed === true && l.entryPaid !== true).length,
-    autoCalc: advancing.filter(l => l.state === 'auto_calc' || l.field_key === 'social_ads_var').length,
-  }
 }
