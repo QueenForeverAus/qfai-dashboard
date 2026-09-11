@@ -21,6 +21,8 @@ export {
   planTravelScrapeMoney,
   findAccomNightMoneyEntry,
   normalizeAccomMoneyCity,
+  formatTravelScrapeCityNightKey,
+  formatTravelScrapeApplyMoneyResponse,
   travelScrapeBlockedReason,
   assertTravelScrapeApplyTable,
   isTravelScrapeMoneyConfirmed,
@@ -29,6 +31,7 @@ export {
   TRAVEL_SCRAPE_PROPOSED_ERROR,
   LINE_HINT_TO_FIELD_KEY,
   type TravelScrapeApplyPlan,
+  type TravelScrapeApplyMoneyResponse,
 } from './apply-engine.ts'
 export { persistTravelScrapeApply } from './apply-persist.ts'
 export {
