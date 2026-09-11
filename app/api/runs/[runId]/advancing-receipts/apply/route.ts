@@ -8,6 +8,7 @@ import { loadActiveAdvancingWorkspace } from '@/lib/run-advancing-persist'
 import { persistReceiptApply } from '@/lib/receipts/apply-persist'
 import { hotelReceiptFixtureById } from '@/lib/receipts/hotel-fixtures'
 import { parseReceiptExtractPacket } from '@/lib/receipts/packet'
+import { formatTravelScrapeApplyMoneyResponse } from '@/lib/travel-scrape/apply-engine'
 import { persistTravelScrapeApply } from '@/lib/travel-scrape/apply-persist'
 import { travelScrapeFixtureById } from '@/lib/travel-scrape/fixtures'
 import { resolveTravelScrapeApplyAuth } from '@/lib/travel-scrape/machine-auth'
@@ -242,6 +243,10 @@ async function handleTravelScrapeApply(opts: {
         schema_version: 'travel-scrape-packet-v1',
         applied: false,
         preview: result.preview,
+        money: formatTravelScrapeApplyMoneyResponse({
+          plan: result.preview.money,
+          moneyFieldId: result.money_field_id,
+        }),
         writes_cost_fields: false,
       }, { status })
     }
@@ -257,14 +262,10 @@ async function handleTravelScrapeApply(opts: {
         source_note: result.preview.checklist.source_note,
         skipped_keys: result.preview.checklist.skipped_keys,
       },
-      money: {
-        action: result.preview.money.action,
-        reason: result.preview.money.reason,
-        field_key: result.preview.money.field_key,
-        amount: result.preview.money.amount,
-        writes_paid: result.preview.money.writes_paid,
-        field_id: result.money_field_id,
-      },
+      money: formatTravelScrapeApplyMoneyResponse({
+        plan: result.preview.money,
+        moneyFieldId: result.money_field_id,
+      }),
       travel_blocks: result.preview.next_travel_blocks,
       preview: result.preview,
       writes_cost_fields: false,

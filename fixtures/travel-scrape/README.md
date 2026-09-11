@@ -26,9 +26,15 @@ Car merge is covered in unit tests (`trecv1-avis-car`). W2 hotel receipt-extract
 
 ## Money field (`money_field_id` is shared)
 
-`accom_night` maps to the single run-level **Accommodation** Advancing field (`field_key: accommodation`). Hotel POSTs reuse the same `money_field_id` — that is expected, not a last-write-wins collision. Stay nights live as JSON `entries[]` on that field: **one charge per `night_date`**.
+`accom_night` maps to the single run-level **Accommodation** Advancing field (`field_key: accommodation`). Hotel POSTs reuse the same `money_field_id` — that is expected, not a last-write-wins collision. Stay nights live as JSON `entries[]` on that field. PAID is **per-entry**.
 
-Re-applying the same night (demo fixture + glance packet, Thornton vs Maitland, `Port Macquarie` vs `PortMacquarie` from `city_night_key`, or a new `confirmation` / `supersedes.prior_conf_id`) **updates** that night’s charge. It does not add a second row or a second field. Refunds (`receipt_kind=refund`) stay beside the charge.
+The apply `money` object identifies the night:
+
+- `money_field_id` — shared accommodation row (also aliased as `field_id`)
+- `money_entry_id` — this night’s entry uuid
+- `city_night_key` — hotel confirmation when present, else `city:night_date` (e.g. `maitland:2026-09-17`)
+
+Re-applying the same night (same `confirmation_id`, or else same city+night) **updates** that entry only. It does not replace `entries[]` with a single night or add a second field. Refunds (`receipt_kind=refund`) stay beside the charge.
 
 ## Apply route
 

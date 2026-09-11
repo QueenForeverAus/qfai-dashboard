@@ -8,6 +8,8 @@ import {
 import {
   assertTravelScrapeApplyTable,
   findAccomNightMoneyEntry,
+  formatTravelScrapeApplyMoneyResponse,
+  formatTravelScrapeCityNightKey,
   isTravelScrapeMoneyConfirmed,
   LINE_HINT_TO_FIELD_KEY,
   normalizeAccomMoneyCity,
@@ -320,6 +322,8 @@ describe('money confirm hook', () => {
     assert.equal(plan.money.field_key, 'accommodation')
     assert.equal(plan.money.amount, 214)
     assert.equal(plan.money.next_entries.length, 0)
+    assert.equal(plan.money.money_entry_id, null)
+    assert.equal(plan.money.city_night_key, 'TE-91718')
     assert.equal(isTravelScrapeMoneyConfirmed({}), false)
   })
 
@@ -634,6 +638,177 @@ describe('accom_night money: one field, one charge per night', () => {
       })?.id,
       'c1',
     )
+  })
+})
+
+describe('accom_night money: per-night identity', () => {
+  const confirm = { confirmMoney: true, moneyConfirmedBy: 'Gareth' } as const
+
+  it('formats city_night_key as confirmation, else city:night', () => {
+    assert.equal(
+      formatTravelScrapeCityNightKey({ confirmation: 'TE-91718', city: 'Maitland', night: '2026-09-17' }),
+      'TE-91718',
+    )
+    assert.equal(
+      formatTravelScrapeCityNightKey({ confirmation: '', city: 'Maitland', night: '2026-09-17' }),
+      'maitland:2026-09-17',
+    )
+    assert.equal(
+      formatTravelScrapeCityNightKey({ city: 'Port Macquarie', night: '2026-09-19' }),
+      'portmacquarie:2026-09-19',
+    )
+  })
+
+  it('three sequential accom_night confirms: one field, three distinct entry ids, totals sum', () => {
+    const first = planTravelScrapeMoney({
+      packet: THORNTON_SCRAPE_PACKET,
+      existingEntries: [],
+      confirm,
+    })
+    const second = planTravelScrapeMoney({
+      packet: TAMWORTH_SCRAPE_PACKET,
+      existingEntries: first.next_entries,
+      confirm,
+    })
+    const third = planTravelScrapeMoney({
+      packet: PORT_MACQUARIE_PACKET,
+      existingEntries: second.next_entries,
+      confirm,
+    })
+
+    assert.equal(first.field_key, 'accommodation')
+    assert.equal(second.field_key, 'accommodation')
+    assert.equal(third.field_key, 'accommodation')
+    assert.equal(LINE_HINT_TO_FIELD_KEY.accom_night, 'accommodation')
+    assert.equal(third.next_entries.length, 3)
+
+    const entryIds = [first.money_entry_id, second.money_entry_id, third.money_entry_id]
+    assert.ok(entryIds.every(id => typeof id === 'string' && id.length > 0))
+    assert.equal(new Set(entryIds).size, 3)
+    assert.deepEqual(
+      third.next_entries.map(e => e.id).sort(),
+      [...entryIds].sort(),
+    )
+    assert.equal(third.field_value, 214 + 189 + 245)
+    assert.equal(third.next_entries.reduce((sum, e) => sum + e.amount, 0), 214 + 189 + 245)
+    assert.deepEqual(
+      third.next_entries.map(e => e.confirmation_id).sort(),
+      ['POC-1920', 'TE-91718', 'TH-1819'],
+    )
+    assert.equal(first.city_night_key, 'TE-91718')
+    assert.equal(second.city_night_key, 'TH-1819')
+    assert.equal(third.city_night_key, 'POC-1920')
+
+    const applyMoney = formatTravelScrapeApplyMoneyResponse({
+      plan: third,
+      moneyFieldId: 'shared-accommodation-row',
+    })
+    assert.equal(applyMoney.money_field_id, 'shared-accommodation-row')
+    assert.equal(applyMoney.field_id, applyMoney.money_field_id)
+    assert.equal(applyMoney.money_entry_id, third.money_entry_id)
+    assert.equal(applyMoney.city_night_key, 'POC-1920')
+    assert.notEqual(applyMoney.money_entry_id, first.money_entry_id)
+    assert.notEqual(applyMoney.money_entry_id, second.money_entry_id)
+  })
+
+  it('second POST same confirmation updates that entry only', () => {
+    const first = planTravelScrapeMoney({
+      packet: THORNTON_SCRAPE_PACKET,
+      existingEntries: [],
+      confirm,
+    })
+    const second = planTravelScrapeMoney({
+      packet: TAMWORTH_SCRAPE_PACKET,
+      existingEntries: first.next_entries,
+      confirm,
+    })
+    const third = planTravelScrapeMoney({
+      packet: PORT_MACQUARIE_PACKET,
+      existingEntries: second.next_entries,
+      confirm,
+    })
+    const updated = planTravelScrapeMoney({
+      packet: {
+        ...THORNTON_SCRAPE_PACKET,
+        money: { ...THORNTON_SCRAPE_PACKET.money, amount: 250 },
+      },
+      existingEntries: third.next_entries,
+      confirm,
+    })
+
+    assert.equal(updated.next_entries.length, 3)
+    assert.equal(updated.money_entry_id, first.money_entry_id)
+    assert.equal(updated.city_night_key, 'TE-91718')
+    const thornton = updated.next_entries.find(e => e.id === first.money_entry_id)
+    const tamworth = updated.next_entries.find(e => e.id === second.money_entry_id)
+    const port = updated.next_entries.find(e => e.id === third.money_entry_id)
+    assert.equal(thornton?.amount, 250)
+    assert.equal(tamworth?.amount, 189)
+    assert.equal(port?.amount, 245)
+    assert.equal(updated.field_value, 250 + 189 + 245)
+  })
+
+  it('PAID on one entry does not clear others', () => {
+    const confirmed = {
+      ...THORNTON_SCRAPE_PACKET.money,
+      status_if_applied: 'CONFIRMED' as const,
+    }
+    const first = planTravelScrapeMoney({
+      packet: { ...THORNTON_SCRAPE_PACKET, money: confirmed },
+      existingEntries: [],
+      confirm,
+    })
+    const second = planTravelScrapeMoney({
+      packet: {
+        ...TAMWORTH_SCRAPE_PACKET,
+        money: { ...TAMWORTH_SCRAPE_PACKET.money, status_if_applied: 'CONFIRMED' },
+      },
+      existingEntries: first.next_entries,
+      confirm,
+    })
+    const third = planTravelScrapeMoney({
+      packet: {
+        ...PORT_MACQUARIE_PACKET,
+        money: { ...PORT_MACQUARIE_PACKET.money, status_if_applied: 'CONFIRMED' },
+      },
+      existingEntries: second.next_entries,
+      confirm,
+    })
+    assert.equal(third.next_entries.every(e => e.paid === false), true)
+    assert.equal(third.next_entries.every(e => e.confirmed === true), true)
+
+    const paidSecond = planTravelScrapeMoney({
+      packet: TAMWORTH_SCRAPE_PACKET,
+      existingEntries: third.next_entries,
+      confirm,
+    })
+    assert.equal(paidSecond.next_entries.length, 3)
+    assert.equal(paidSecond.money_entry_id, second.money_entry_id)
+    const thornton = paidSecond.next_entries.find(e => e.id === first.money_entry_id)
+    const tamworth = paidSecond.next_entries.find(e => e.id === second.money_entry_id)
+    const port = paidSecond.next_entries.find(e => e.id === third.money_entry_id)
+    assert.equal(thornton?.paid, false)
+    assert.equal(thornton?.confirmed, true)
+    assert.equal(tamworth?.paid, true)
+    assert.equal(tamworth?.confirmed, true)
+    assert.equal(port?.paid, false)
+    assert.equal(port?.confirmed, true)
+    assert.equal(paidSecond.field_value, 214 + 189 + 245)
+  })
+
+  it('falls back to city:night when confirmation is absent', () => {
+    const packet = {
+      ...THORNTON_SCRAPE_PACKET,
+      worksheet: { ...THORNTON_SCRAPE_PACKET.worksheet, confirmation: '', city: 'Maitland' },
+      supersedes: { prior_conf_id: null, prior_message_id: null },
+    }
+    const plan = planTravelScrapeMoney({
+      packet,
+      existingEntries: [],
+      confirm,
+    })
+    assert.equal(plan.city_night_key, 'maitland:2026-09-17')
+    assert.ok(plan.money_entry_id)
   })
 })
 

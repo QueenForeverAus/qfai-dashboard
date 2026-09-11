@@ -4,8 +4,15 @@
  * Money/PAID on Advancing never auto — explicit Gareth confirm only.
  * Never writes locked Run Costings.
  *
- * `accom_night` → one run-level `accommodation` field. Hotel POSTs share
- * `money_field_id`; nights are JSON entries (one charge per `night_date`).
+ * Shared `money_field_id` is intentional: CostFieldsTab keeps one defined
+ * run field `accommodation` with expandable `entries[]`. Do not invent
+ * extra DEFINED_RUN_COST_FIELDS keys. Hotel nights are entry lines on that
+ * row (upsert by confirmation_id, else city+night_date) — never replace the
+ * whole entries array with a single night. PAID is per-entry.
+ *
+ * Apply responses identify the night with `money_field_id` (the shared
+ * accommodation row) + `money_entry_id` (this night’s entry uuid) +
+ * `city_night_key` (`maitland:2026-09-17` or the hotel confirmation).
  */
 
 import { KNOWN_ITEM_KEYS } from '../advancement-checklist.ts'
@@ -113,6 +120,26 @@ export type TravelScrapeMoneyPlan = {
   writes_confirmed: boolean
   next_entries: CostEntry[]
   field_value: number
+  /** Entry uuid for this night / charge. Distinct per hotel night. */
+  money_entry_id: string | null
+  /**
+   * Stable night identity for Comms/Lead: hotel confirmation when present,
+   * else `normalizedCity:YYYY-MM-DD` (e.g. maitland:2026-09-17).
+   */
+  city_night_key: string | null
+}
+
+/** Apply JSON `money` object — shared field id plus per-night identity. */
+export type TravelScrapeApplyMoneyResponse = {
+  action: TravelScrapeMoneyPlan['action']
+  reason: string
+  field_key: string | null
+  amount: number | null
+  writes_paid: boolean
+  field_id: string | null
+  money_field_id: string | null
+  money_entry_id: string | null
+  city_night_key: string | null
 }
 
 export type TravelScrapeApplyPlan = {
@@ -171,7 +198,10 @@ function emptyChecklist(): TravelScrapeChecklistPlan {
   return { will_apply: false, item_keys: [], skipped_keys: [], source_note: '' }
 }
 
-function emptyMoney(existingEntries: unknown): TravelScrapeMoneyPlan {
+function emptyMoney(
+  existingEntries: unknown,
+  identity?: { money_entry_id?: string | null; city_night_key?: string | null },
+): TravelScrapeMoneyPlan {
   const next = normalizeEntries(existingEntries) ?? []
   return {
     will_write: false,
@@ -184,6 +214,8 @@ function emptyMoney(existingEntries: unknown): TravelScrapeMoneyPlan {
     writes_confirmed: false,
     next_entries: next,
     field_value: entriesSum(next),
+    money_entry_id: identity?.money_entry_id ?? null,
+    city_night_key: identity?.city_night_key ?? null,
   }
 }
 
@@ -263,6 +295,40 @@ export function normalizeAccomMoneyCity(value: string | null | undefined): strin
   return String(value ?? '').toLowerCase().replace(/[\s_]+/g, '')
 }
 
+/**
+ * Stable night identity for the apply response.
+ * Prefer hotel confirmation; else `city:night_date` (maitland:2026-09-17).
+ */
+export function formatTravelScrapeCityNightKey(opts: {
+  confirmation?: string | null
+  city?: string | null
+  night?: string | null
+}): string | null {
+  const confirmation = String(opts.confirmation ?? '').trim()
+  if (confirmation) return confirmation
+  const city = normalizeAccomMoneyCity(opts.city)
+  const night = String(opts.night ?? '').trim()
+  if (city && /^\d{4}-\d{2}-\d{2}$/.test(night)) return `${city}:${night}`
+  return null
+}
+
+export function formatTravelScrapeApplyMoneyResponse(opts: {
+  plan: TravelScrapeMoneyPlan
+  moneyFieldId: string | null
+}): TravelScrapeApplyMoneyResponse {
+  return {
+    action: opts.plan.action,
+    reason: opts.plan.reason,
+    field_key: opts.plan.field_key,
+    amount: opts.plan.amount,
+    writes_paid: opts.plan.writes_paid,
+    field_id: opts.moneyFieldId,
+    money_field_id: opts.moneyFieldId,
+    money_entry_id: opts.plan.money_entry_id,
+    city_night_key: opts.plan.city_night_key,
+  }
+}
+
 function accomCitiesSoftEqual(
   left: string | null | undefined,
   right: string | null | undefined,
@@ -325,6 +391,7 @@ function nextMoneyEntries(opts: {
   hint: TravelScrapeLineHint
   night: string | null
 }): CostEntry[] {
+  // Upsert one night — keep every other entry. Never replace entries[] with [this night].
   const next = opts.found
     ? opts.existing.map(row => row.id === opts.found!.id ? opts.entry : row)
     : [...opts.existing, opts.entry]
@@ -339,6 +406,36 @@ function nextMoneyEntries(opts: {
   )
 }
 
+function moneyNightIdentity(opts: {
+  packet: TravelScrapePacket
+  existing: CostEntry[]
+  written?: CostEntry | null
+}): { money_entry_id: string | null; city_night_key: string | null } {
+  const confirmation = packetConfirmation(opts.packet)
+  const night = moneyNightDate(opts.packet)
+  const city = moneyCity(opts.packet)
+  const hint = opts.packet.money.advancing_line_hint
+  const cityNightKey = hint === 'accom_night'
+    ? formatTravelScrapeCityNightKey({ confirmation, city, night })
+    : (confirmation || null)
+
+  if (opts.written) {
+    return { money_entry_id: opts.written.id, city_night_key: cityNightKey }
+  }
+
+  const found = hint === 'accom_night'
+    ? findAccomNightMoneyEntry({
+      existing: opts.existing,
+      confirmation,
+      priorConfId: opts.packet.supersedes.prior_conf_id,
+      night,
+      city,
+    })
+    : findNonAccomMoneyEntry(opts.existing, confirmation)
+
+  return { money_entry_id: found?.id ?? null, city_night_key: cityNightKey }
+}
+
 export function planTravelScrapeMoney(opts: {
   packet: TravelScrapePacket
   existingEntries?: unknown
@@ -349,10 +446,11 @@ export function planTravelScrapeMoney(opts: {
   const hint = opts.packet.money.advancing_line_hint
   const fieldKey = LINE_HINT_TO_FIELD_KEY[hint]
   const def = fieldKey ? fieldDef(fieldKey) : null
+  const pendingIdentity = moneyNightIdentity({ packet: opts.packet, existing })
 
   if (opts.packet.money_action === 'none') {
     return {
-      ...emptyMoney(existing),
+      ...emptyMoney(existing, pendingIdentity),
       action: 'none',
       reason: 'money_action is none — Advancing amount/PAID left untouched.',
     }
@@ -360,7 +458,7 @@ export function planTravelScrapeMoney(opts: {
 
   if (amount == null) {
     return {
-      ...emptyMoney(existing),
+      ...emptyMoney(existing, pendingIdentity),
       action: 'skipped',
       reason: 'Packet money.amount is empty — nothing to write on Advancing.',
     }
@@ -368,7 +466,7 @@ export function planTravelScrapeMoney(opts: {
 
   if (!fieldKey || !def) {
     return {
-      ...emptyMoney(existing),
+      ...emptyMoney(existing, pendingIdentity),
       action: 'skipped',
       amount,
       reason: `advancing_line_hint ${hint} is not mapped to a Run Advancing field (month-one).`,
@@ -388,6 +486,8 @@ export function planTravelScrapeMoney(opts: {
         || opts.packet.money.status_if_applied === 'CONFIRMED',
       next_entries: existing,
       field_value: entriesSum(existing),
+      money_entry_id: pendingIdentity.money_entry_id,
+      city_night_key: pendingIdentity.city_night_key,
     }
   }
 
@@ -428,6 +528,7 @@ export function planTravelScrapeMoney(opts: {
   }
 
   const next = nextMoneyEntries({ existing, found, entry, hint, night })
+  const identity = moneyNightIdentity({ packet: opts.packet, existing, written: entry })
 
   return {
     will_write: true,
@@ -442,6 +543,8 @@ export function planTravelScrapeMoney(opts: {
     writes_confirmed: writesConfirmed,
     next_entries: next,
     field_value: entriesSum(next),
+    money_entry_id: identity.money_entry_id,
+    city_night_key: identity.city_night_key,
   }
 }
 
