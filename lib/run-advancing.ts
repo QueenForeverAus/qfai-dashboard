@@ -166,6 +166,19 @@ export function shouldCopyRunIntoAdvancing(opts: {
   return !isBookedBookingStatus(opts.prevStatus) || opts.hasActiveWorkspace !== true
 }
 
+/**
+ * Catch-up copy for an already-BOOKED run that has no active Advancing workspace.
+ * Idempotent: never recopies over an active workspace (does not wipe advancing_cost_fields).
+ * Archived workspaces do not count as active — create a new active row, leave the archive.
+ */
+export function shouldEnsureAdvancingWorkspaceForBookedRun(opts: {
+  status: string | null | undefined
+  hasActiveWorkspace?: boolean
+}): boolean {
+  if (!isBookedBookingStatus(opts.status)) return false
+  return opts.hasActiveWorkspace !== true
+}
+
 /** Soft-archive Advancing when leaving BOOKED (UNBOOKED / Unconfirm). */
 export function shouldArchiveAdvancingWorkspace(opts: {
   nextStatus: string | null | undefined

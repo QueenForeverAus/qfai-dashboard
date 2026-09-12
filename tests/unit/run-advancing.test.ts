@@ -22,6 +22,7 @@ import {
   RUN_ADVANCING_TAB_LABEL,
   shouldArchiveAdvancingWorkspace,
   shouldCopyRunIntoAdvancing,
+  shouldEnsureAdvancingWorkspaceForBookedRun,
   TOUR_DESK_V2_SETTINGS_LOCK_ON,
   WORKSHEET_TAB_LABEL,
 } from '../../lib/run-advancing.ts'
@@ -81,6 +82,30 @@ describe('Tour Desk v2 Phase 1 — Run Advancing', () => {
     assert.equal(shouldCopyRunIntoAdvancing({
       nextStatus: 'confirmed',
       prevStatus: 'proposed',
+      hasActiveWorkspace: false,
+    }), true)
+  })
+
+  it('catch-up copies a BOOKED run with no active workspace and is otherwise a no-op', () => {
+    assert.equal(shouldEnsureAdvancingWorkspaceForBookedRun({
+      status: 'confirmed',
+      hasActiveWorkspace: false,
+    }), true)
+    assert.equal(shouldEnsureAdvancingWorkspaceForBookedRun({
+      status: 'confirmed',
+      hasActiveWorkspace: true,
+    }), false)
+    assert.equal(shouldEnsureAdvancingWorkspaceForBookedRun({
+      status: 'proposed',
+      hasActiveWorkspace: false,
+    }), false)
+    assert.equal(shouldEnsureAdvancingWorkspaceForBookedRun({
+      status: 'proposed',
+      hasActiveWorkspace: true,
+    }), false)
+    // Archived workspace is not active — create a new active row, do not revive/wipe the archive.
+    assert.equal(shouldEnsureAdvancingWorkspaceForBookedRun({
+      status: 'confirmed',
       hasActiveWorkspace: false,
     }), true)
   })

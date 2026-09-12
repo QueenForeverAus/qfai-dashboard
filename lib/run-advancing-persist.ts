@@ -17,6 +17,7 @@ import {
   isAdvancingWorkspaceActive,
   shouldArchiveAdvancingWorkspace,
   shouldCopyRunIntoAdvancing,
+  shouldEnsureAdvancingWorkspaceForBookedRun,
   type AdvancingShowChrome,
   type CostFieldCopySource,
   type ShowChromeSource,
@@ -79,26 +80,13 @@ export async function loadAdvancingCostFields(
   return (data ?? []) as CostFieldCopySource[]
 }
 
-export async function copyRunIntoAdvancingIfNeeded(opts: {
+async function insertAdvancingWorkspaceCopy(opts: {
   admin: AdminClient
   runId: string
   runCode: string
-  nextStatus: string
-  prevStatus?: string | null
   actorId?: string | null
   actorName?: string | null
 }): Promise<{ copied: boolean; workspace: RunAdvancingWorkspaceRow | null }> {
-  assertNoAdvancingWriteBack()
-  const existing = await loadActiveAdvancingWorkspace(opts.admin, opts.runId)
-  const hasActiveWorkspace = isAdvancingWorkspaceActive(existing)
-  if (!shouldCopyRunIntoAdvancing({
-    nextStatus: opts.nextStatus,
-    prevStatus: opts.prevStatus ?? null,
-    hasActiveWorkspace,
-  })) {
-    return { copied: false, workspace: existing }
-  }
-
   const [{ data: fields }, { data: shows }] = await Promise.all([
     opts.admin.from('cost_fields').select('*').eq('run_id', opts.runId),
     opts.admin.from('shows').select('id, ticket_price, capacity, capacity_bands, booking_fee_per_payer, cc_fee_pct').eq('run_id', opts.runId),
@@ -121,7 +109,9 @@ export async function copyRunIntoAdvancingIfNeeded(opts: {
 
   if (wsError || !workspace) {
     console.error('Run Advancing workspace insert failed:', wsError?.message)
-    return { copied: false, workspace: null }
+    // Concurrent catch-up may have created the active row — reuse it, never wipe.
+    const raced = await loadActiveAdvancingWorkspace(opts.admin, opts.runId)
+    return { copied: false, workspace: raced }
   }
 
   // Deduped in buildAdvancingFieldCopies — duplicate (show_id, field_key)
@@ -160,6 +150,55 @@ export async function copyRunIntoAdvancingIfNeeded(opts: {
   }
 
   return { copied: true, workspace: workspace as RunAdvancingWorkspaceRow }
+}
+
+export async function copyRunIntoAdvancingIfNeeded(opts: {
+  admin: AdminClient
+  runId: string
+  runCode: string
+  nextStatus: string
+  prevStatus?: string | null
+  actorId?: string | null
+  actorName?: string | null
+}): Promise<{ copied: boolean; workspace: RunAdvancingWorkspaceRow | null }> {
+  assertNoAdvancingWriteBack()
+  const existing = await loadActiveAdvancingWorkspace(opts.admin, opts.runId)
+  const hasActiveWorkspace = isAdvancingWorkspaceActive(existing)
+  if (!shouldCopyRunIntoAdvancing({
+    nextStatus: opts.nextStatus,
+    prevStatus: opts.prevStatus ?? null,
+    hasActiveWorkspace,
+  })) {
+    return { copied: false, workspace: existing }
+  }
+
+  return insertAdvancingWorkspaceCopy(opts)
+}
+
+/**
+ * Self-heal: already-BOOKED runs that missed the BOOKED-transition copy.
+ * Copies Costings → Advancing only when status is confirmed and no active workspace.
+ * Never overwrites an active workspace or wipes existing advancing_cost_fields.
+ */
+export async function ensureAdvancingWorkspaceForBookedRun(opts: {
+  admin: AdminClient
+  runId: string
+  runCode: string
+  status: string
+  actorId?: string | null
+  actorName?: string | null
+}): Promise<{ copied: boolean; workspace: RunAdvancingWorkspaceRow | null }> {
+  assertNoAdvancingWriteBack()
+  const existing = await loadActiveAdvancingWorkspace(opts.admin, opts.runId)
+  const hasActiveWorkspace = isAdvancingWorkspaceActive(existing)
+  if (!shouldEnsureAdvancingWorkspaceForBookedRun({
+    status: opts.status,
+    hasActiveWorkspace,
+  })) {
+    return { copied: false, workspace: existing }
+  }
+
+  return insertAdvancingWorkspaceCopy(opts)
 }
 
 export async function archiveAdvancingWorkspaceIfNeeded(opts: {
