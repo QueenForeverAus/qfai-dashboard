@@ -1,5 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/server-admin'
+import { isBookedBookingStatus } from '@/lib/booked-cost-freeze'
 import { RUN_LIST_SHOW_SELECT } from '@/lib/run-list-cancelled'
+import { ensureAdvancingWorkspaceForBookedRun } from '@/lib/run-advancing-persist'
 import RunsPageClient, { type Run } from '../runs/RunsPageClient'
 import { buildRunsListPageModel } from '../runs/runs-list-data'
 import { filterAdvancingShowsList } from '@/lib/tour-desk-nav'
@@ -24,6 +26,26 @@ export default async function AdvancingShowsPage() {
   const activeWorkspaceByRunId = new Map(
     (workspaces ?? []).map(row => [row.run_id as string, { archived_at: row.archived_at as string | null }]),
   )
+  const bookedMissingWorkspace = ((runs ?? []) as Run[]).filter(run => (
+    isBookedBookingStatus(run.status) && !activeWorkspaceByRunId.has(run.id)
+  ))
+  if (bookedMissingWorkspace.length > 0) {
+    const catchUps = await Promise.all(bookedMissingWorkspace.map(run => (
+      ensureAdvancingWorkspaceForBookedRun({
+        admin: supabase,
+        runId: run.id,
+        runCode: run.code,
+        status: run.status,
+      })
+    )))
+    for (const result of catchUps) {
+      if (result.workspace && !activeWorkspaceByRunId.has(result.workspace.run_id)) {
+        activeWorkspaceByRunId.set(result.workspace.run_id, {
+          archived_at: result.workspace.archived_at,
+        })
+      }
+    }
+  }
   const advancingRuns = filterAdvancingShowsList(
     (runs ?? []) as Run[],
     run => activeWorkspaceByRunId.get(run.id) ?? null,

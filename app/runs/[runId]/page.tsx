@@ -18,11 +18,12 @@ import { isBookedBookingStatus, isRunCostSheetFrozen } from '@/lib/booked-cost-f
 import { captureBookedCostSnapshotIfNeeded } from '@/lib/booked-cost-freeze-persist'
 import { loadPortalSettings } from '@/lib/portal-settings'
 import {
-  copyRunIntoAdvancingIfNeeded,
+  ensureAdvancingWorkspaceForBookedRun,
   loadActiveAdvancingWorkspace,
   loadAdvancingCostFields,
 } from '@/lib/run-advancing-persist'
 import type { AdvancingShowChrome } from '@/lib/run-advancing'
+import { isAdvancingDeskTab, parseRunDetailTab } from '@/lib/tour-desk-nav'
 
 type Show = {
   id: string
@@ -88,8 +89,20 @@ const REGION_LABELS: Record<string, string> = {
   group3: 'Group 3 · Fly + Local Backline',
 }
 
-export default async function RunDetailPage({ params }: { params: Promise<{ runId: string }> }) {
+export const dynamic = 'force-dynamic'
+
+export default async function RunDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ runId: string }>
+  searchParams?: Promise<{ tab?: string | string[] }>
+}) {
   const { runId } = await params
+  const query = (await searchParams) ?? {}
+  const tabValue = Array.isArray(query.tab) ? query.tab[0] : query.tab
+  const tab = parseRunDetailTab(tabValue)
+  const onAdvancingTabLoad = isAdvancingDeskTab(tab)
   const code = runId.toUpperCase()
   const supabase = createAdminClient()
 
@@ -161,12 +174,16 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
         prevStatus: run.status,
       })
     }
-    await copyRunIntoAdvancingIfNeeded({
+    // Catch-up for already-BOOKED runs that missed the BOOKED-transition copy
+    // (prod schema landed after those runs were confirmed). ?tab=run_advancing
+    // (onAdvancingTabLoad) is the critical self-heal; costing load also copies
+    // so a client tab switch is not stuck on the empty banner.
+    void onAdvancingTabLoad
+    await ensureAdvancingWorkspaceForBookedRun({
       admin: supabase,
       runId: run.id,
       runCode: run.code,
-      nextStatus: run.status,
-      prevStatus: run.status,
+      status: run.status,
     })
   }
 
