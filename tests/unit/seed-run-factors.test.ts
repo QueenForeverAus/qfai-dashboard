@@ -7,6 +7,7 @@ import {
   estimateRunFromFactors,
   estimateRunNights,
   fbAdsBracketForCapacity,
+  G3_LIGHTING_HIRE_SOURCE,
   parseFactorMap,
   PER_DIEM_PEOPLE,
   resolveSeedRegion,
@@ -267,11 +268,43 @@ describe('missing RUN_DEFAULTS uses Factors for cost lines', () => {
     assert.match(fromPortal.lightingSource, /portal_settings/)
   })
 
-  it('Group 3 seeds backline + crew travel from Factors', () => {
+  it('Group 1 still seeds standing lighting hire $330 from Factors', () => {
+    const g1Shows = weekendShows([{ state_territory: 'VIC', capacity: 500, venue_city: 'Geelong' }])
+    const est = estimateRunFromFactors({
+      shows: g1Shows, factors: FACTORS, region: 'group1', lightingHireFallback: 999,
+    })
+    assert.equal(est.lightingHire, 330)
+    assert.match(est.lightingSource, /Factors lighting_hire_per_run/)
+    const rows = buildSeedCostFieldRows({
+      runId: 'run-26r-g1',
+      runCode: '26RG1',
+      shows: g1Shows,
+      lightingHire: 999,
+      factors: FACTORS,
+      region: 'group1',
+    })
+    const lighting = runRow(rows, 'lighting_hire')
+    assert.equal(lighting?.value, 330)
+    assert.match(String(lighting?.source), /Factors lighting_hire_per_run/)
+  })
+
+  it('Group 3 does not seed standing lighting hire $330', () => {
     const qldShows = weekendShows([
       { state_territory: 'QLD', capacity: 1600, venue_city: 'Brisbane' },
       { state_territory: 'QLD', capacity: 900, venue_city: 'Sunshine Coast' },
     ])
+    const est = estimateRunFromFactors({
+      shows: qldShows, factors: FACTORS, region: 'group3', lightingHireFallback: 330,
+    })
+    assert.ok(est.lightingHire === 0 || est.lightingHire == null)
+    assert.equal(est.lightingSource, G3_LIGHTING_HIRE_SOURCE)
+    const { lighting_hire_per_run: _drop, ...noLighting } = FACTORS
+    const noFactor = estimateRunFromFactors({
+      shows: qldShows, factors: noLighting, region: 'group3', lightingHireFallback: 330,
+    })
+    assert.ok(noFactor.lightingHire === 0 || noFactor.lightingHire == null)
+    assert.equal(noFactor.lightingSource, G3_LIGHTING_HIRE_SOURCE)
+
     const rows = buildSeedCostFieldRows({
       runId: 'run-26r05',
       runCode: '26R05',
@@ -280,6 +313,10 @@ describe('missing RUN_DEFAULTS uses Factors for cost lines', () => {
       factors: FACTORS,
       region: 'group3',
     })
+    const lighting = runRow(rows, 'lighting_hire')
+    assert.ok(lighting?.value === 0 || lighting?.value == null)
+    assert.equal(lighting?.source, G3_LIGHTING_HIRE_SOURCE)
+    assert.doesNotMatch(String(lighting?.source), /\$330/)
     assert.equal(runRow(rows, 'flights')?.value, 3000)
     assert.equal(runRow(rows, 'backline_hire')?.value, 3800)
     assert.equal(runRow(rows, 'crew_travel_day')?.value, 500)

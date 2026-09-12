@@ -21,6 +21,8 @@
  * - Group 3 flights = `flights_group3_wa` if any show is WA, else
  *   `flights_group3_qld_nt` if any show is QLD/NT. NZ/other G3 has no
  *   flights Factor. Local ground = Kia + uber + parking (no van).
+ * - Group 3 lighting hire is not the standing $330 shell — gear travels;
+ *   seed $0 and let Michael confirm if local hire is needed.
  * - FB ads = per-venue capacity bracket (Factors are per venue), then sum.
  *   Null capacity uses the small bracket.
  */
@@ -36,6 +38,10 @@ import {
 
 /** Darryn + Danny only — matches `generate-entries` and `/api/factors`. */
 export const PER_DIEM_PEOPLE = 2
+
+/** Group 3 Factor seed — no standing lighting hire (gear travels). */
+export const G3_LIGHTING_HIRE_SOURCE =
+  'G3 — no standing lighting hire; Michael confirms if needed / gear travels'
 
 export const CREW_FEE_FACTOR_KEYS = [
   'crew_fee_adam_sound',
@@ -315,9 +321,11 @@ export function estimateRunFromFactors(opts: {
   const foodPerShow = factors.food_basics_per_show ?? FOOD_PER_SHOW
   const foodFromFactors = factors.food_basics_per_show != null
   const lightingFromFactors = factors.lighting_hire_per_run != null
-  const lightingHire = factors.lighting_hire_per_run
-    ?? opts.lightingHireFallback
-    ?? LIGHTING_HIRE_PER_RUN
+  const lightingHire = region === 'group3'
+    ? 0
+    : factors.lighting_hire_per_run
+      ?? opts.lightingHireFallback
+      ?? LIGHTING_HIRE_PER_RUN
   const accomPerNight = factors.accom_per_night ?? 1400
   const accommodation = accomPerNight * nights
   const perDiemRate = factors.per_diem_per_person_per_day ?? 40
@@ -358,9 +366,11 @@ export function estimateRunFromFactors(opts: {
       }
     : null
 
-  const lightingSource = lightingFromFactors
-    ? `Factors lighting_hire_per_run $${lightingHire} — standard per run.`
-    : `$${lightingHire} per run — portal_settings lighting_hire_default (Factors lighting_hire_per_run missing).`
+  const lightingSource = region === 'group3'
+    ? G3_LIGHTING_HIRE_SOURCE
+    : lightingFromFactors
+      ? `Factors lighting_hire_per_run $${lightingHire} — standard per run.`
+      : `$${lightingHire} per run — portal_settings lighting_hire_default (Factors lighting_hire_per_run missing).`
 
   return {
     region,
