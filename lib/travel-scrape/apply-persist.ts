@@ -91,8 +91,9 @@ export async function persistTravelScrapeApply(opts: {
   let moneyField: { id?: string; entries?: unknown } | null = null
   // Shared money_field_id is intentional: one Advancing row per field_key
   // (CostFieldsTab expandable entries). Hotel nights upsert into entries[]
-  // by confirmation_id, else city+night_date. PAID is per-entry. Never
-  // replace the stored entries array with a single night.
+  // by confirmation_id, else city+night_date. Non-accom upserts by
+  // confirmation_id only (blank confirmation refuses the money write).
+  // PAID is per-entry. Never replace the stored entries array with a single night.
   if (hintPlan.money.field_key) {
     const { data } = await from('advancing_cost_fields')
       .select('id, entries')

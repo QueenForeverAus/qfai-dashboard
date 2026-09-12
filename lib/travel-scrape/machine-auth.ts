@@ -1,11 +1,12 @@
 /**
- * Staging machine auth for Comms travel-scrape apply.
+ * Machine auth for Comms travel-scrape apply (staging and production).
  * Session cookie path stays the human owner/admin door.
  *
- * Secret lives in TRAVEL_SCRAPE_APPLY_SECRET (qfai-staging only).
+ * Secret lives in TRAVEL_SCRAPE_APPLY_SECRET on the target Vercel project.
  * Unset / blank → Bearer / x-qfai-travel-scrape-key attempts are 401.
- * Prod kill switch is: do not set the secret on the production project.
- * Packet apply_env=production is refused by the apply engine (all actors).
+ * That unset secret is the kill switch. apply_env=production is accepted
+ * by the apply engine when the host has the secret (real prod included).
+ * Money/PAID still needs confirm_money / money_confirmed_by.
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto'
@@ -72,9 +73,10 @@ export function travelScrapeMachineTokenMatches(token: string, secret: string): 
 }
 
 /**
- * Preview / local / named staging are allowed.
- * VERCEL_ENV=production is also allowed: the qfai-staging Vercel project uses
- * its Production environment for staging. Real prod must not set the secret.
+ * Preview / local / named staging / production are allowed when the secret
+ * is set. qfai-staging's Vercel Production env and tours.queenforever.com.au
+ * both report VERCEL_ENV=production — set the secret on whichever host
+ * should accept Comms machine apply.
  */
 export function travelScrapeMachineDeployAllowed(vercelEnv?: string | null): boolean {
   const env = String(vercelEnv ?? '').trim().toLowerCase()

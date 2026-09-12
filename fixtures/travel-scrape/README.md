@@ -1,4 +1,4 @@
-# Travel scrape apply (W3, staging)
+# Travel scrape apply
 
 Accept Comms `travel-scrape-packet-v1` packets and apply them to a **BOOKED** run’s Run Advancing twin.
 
@@ -36,6 +36,8 @@ The apply `money` object identifies the night:
 
 Re-applying the same night (same `confirmation_id`, or else same city+night) **updates** that entry only. It does not replace `entries[]` with a single night or add a second field. Refunds (`receipt_kind=refund`) stay beside the charge.
 
+Non-accommodation lines (flights, car, ferry, …) upsert **once per `confirmation_id`** on the shared field. A missing / blank confirmation **refuses the money write** (`skipped`) so a second `confirm_money` cannot invent a `confirmation_id=null` duplicate beside an existing PNR total. Hotel / accom night matching is unchanged.
+
 ## Apply route
 
 `POST /api/runs/:runId/advancing-receipts/apply`
@@ -43,9 +45,9 @@ Re-applying the same night (same `confirmation_id`, or else same city+night) **u
 Auth (either):
 
 - Owner/admin session cookie (humans)
-- Staging machine token: `Authorization: Bearer $TRAVEL_SCRAPE_APPLY_SECRET` **or** `x-qfai-travel-scrape-key: $TRAVEL_SCRAPE_APPLY_SECRET`
+- Machine token: `Authorization: Bearer $TRAVEL_SCRAPE_APPLY_SECRET` **or** `x-qfai-travel-scrape-key: $TRAVEL_SCRAPE_APPLY_SECRET`
 
-If `TRAVEL_SCRAPE_APPLY_SECRET` is unset, Bearer / header attempts are 401. Set the secret on Vercel **qfai-staging only** — never commit a real value.
+If `TRAVEL_SCRAPE_APPLY_SECRET` is unset, Bearer / header attempts are 401. Set the secret on the target Vercel project (staging **and** production). Never commit a real value. `apply_env=production` is accepted on the real prod deploy; `apply_env=staging` still works on staging. Money/PAID still never auto.
 
 `:runId` may be the run UUID or code (`TRECV1`, `R01`).
 
