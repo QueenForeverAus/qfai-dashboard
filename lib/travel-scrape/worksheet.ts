@@ -379,6 +379,29 @@ function confirmationOf(block: TravelBlockDraft['block']): string {
   return ''
 }
 
+function blockKind(block: TravelBlockDraft['block']): string | null {
+  if (!('kind' in block)) return null
+  const kind = String(block.kind ?? '').trim()
+  return kind || null
+}
+
+/** Packet kind when the category (or worksheet) carries one. Hotels/cars have none. */
+function packetBlockKind(packet: TravelScrapePacket): string | null {
+  if (packet.category === 'flight') return worksheetFlightKind(packet.worksheet)
+  const raw = firstWorksheetString(packet.worksheet, 'kind', 'leg').toLowerCase()
+  return raw || null
+}
+
+/** Never treat confirmation as a match across different kinds (dep vs ret, same PNR). */
+function confirmationKindCompatible(
+  row: TravelBlockDraft['block'],
+  incomingKind: string | null,
+): boolean {
+  const existingKind = blockKind(row)
+  if (incomingKind && existingKind && incomingKind !== existingKind) return false
+  return true
+}
+
 export function findExistingTravelBlock(
   blocks: WorksheetTravelBlocks,
   packet: TravelScrapePacket,
@@ -388,12 +411,23 @@ export function findExistingTravelBlock(
   const list = blocks[collection] as TravelBlockDraft['block'][]
   const prior = packet.supersedes.prior_conf_id?.trim()
   const conf = packetConfirmation(packet)
+  const incomingKind = packetBlockKind(packet)
+
+  const byConfirmation = (value: string) =>
+    list.find(row =>
+      confirmationOf(row) === value && confirmationKindCompatible(row, incomingKind),
+    )
+
   if (prior) {
-    const hit = list.find(row => confirmationOf(row) === prior)
+    const byId = list.find(row =>
+      row.id === prior && confirmationKindCompatible(row, incomingKind),
+    )
+    if (byId) return byId
+    const hit = byConfirmation(prior)
     if (hit) return hit
   }
   if (conf) {
-    const hit = list.find(row => confirmationOf(row) === conf)
+    const hit = byConfirmation(conf)
     if (hit) return hit
   }
   if (packet.category === 'flight') {
@@ -401,12 +435,24 @@ export function findExistingTravelBlock(
     const kind = flight.kind
     const number = flight.flight_number
     const date = flight.date
+    const from = readWorksheetString(packet.worksheet, 'from')
+    const to = readWorksheetString(packet.worksheet, 'to')
     if (number && date) {
       const hit = list.find(row =>
         'kind' in row
         && row.kind === kind
         && row.flight_number === number
         && row.date === date,
+      )
+      if (hit) return hit
+    }
+    if (date && from && to) {
+      const hit = list.find(row =>
+        'kind' in row
+        && row.kind === kind
+        && row.date === date
+        && row.from === from
+        && row.to === to,
       )
       if (hit) return hit
     }

@@ -29,6 +29,7 @@ import {
 import { parseTravelScrapePacket } from '../../lib/travel-scrape/packet.ts'
 import {
   draftTravelBlock,
+  findExistingTravelBlock,
   formatTravelScrapeSourceNote,
   mergeTravelBlocksFromPacket,
   packetConfirmation,
@@ -46,6 +47,55 @@ const bookedGate = {
   bookingStatus: 'confirmed',
   hasActiveWorkspace: true,
   targetRunId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+}
+
+/** Staging 26R03 — two Virgin legs, one PNR. Details only; no money invent. */
+const DWEOOK_DEP_PACKET = {
+  ...R01_DEP_FLIGHT_PACKET,
+  email: {
+    ...R01_DEP_FLIGHT_PACKET.email,
+    thread_id: 'va-dweook',
+    message_id: 'msg-va1595-dweook',
+    subject: 'Virgin Australia itinerary — VA1595 MEL to NTL',
+    from: 'noreply@virginaustralia.com',
+    vendor_domain: 'virginaustralia.com',
+  },
+  worksheet: {
+    kind: 'dep',
+    flight_number: 'VA1595',
+    date: '2026-09-16',
+    airline: 'Virgin Australia',
+    from: 'MEL',
+    to: 'NTL',
+    dep_time: '09:10',
+    arr_time: '10:35',
+    confirmation: 'DWEOOK',
+  },
+  checklist: {
+    items_to_tick: ['flights_complete'],
+    source_note: 'from Virgin Australia email · conf DWEOOK',
+    partial_names: false,
+  },
+}
+
+const DWEOOK_RET_PACKET = {
+  ...DWEOOK_DEP_PACKET,
+  email: {
+    ...DWEOOK_DEP_PACKET.email,
+    message_id: 'msg-va1592-dweook',
+    subject: 'Virgin Australia itinerary — VA1592 NTL to MEL',
+  },
+  worksheet: {
+    kind: 'ret',
+    flight_number: 'VA1592',
+    date: '2026-09-21',
+    airline: 'Virgin Australia',
+    from: 'NTL',
+    to: 'MEL',
+    dep_time: '18:00',
+    arr_time: '19:25',
+    confirmation: 'DWEOOK',
+  },
 }
 
 describe('travel-scrape-packet-v1 schema', () => {
@@ -269,6 +319,189 @@ describe('travel_blocks merge', () => {
     assert.equal(tamworth?.room_type, 'Twin')
     assert.equal(tamworth?.phone, '02 0000 0000')
     assert.equal(tamworth?.name, 'Tamworth Hotel')
+  })
+
+  it('keeps two flights when they share a PNR but have different kinds', () => {
+    const dep = mergeTravelBlocksFromPacket({
+      existing: EMPTY_TRAVEL_BLOCKS,
+      packet: DWEOOK_DEP_PACKET,
+      profiles,
+    })
+    const ret = mergeTravelBlocksFromPacket({
+      existing: dep.next,
+      packet: DWEOOK_RET_PACKET,
+      profiles,
+    })
+    assert.equal(dep.action, 'create')
+    assert.equal(ret.action, 'create')
+    assert.equal(ret.next.flights.length, 2)
+    const depBlock = ret.next.flights.find(f => f.kind === 'dep')
+    const retBlock = ret.next.flights.find(f => f.kind === 'ret')
+    assert.equal(depBlock?.confirmation, 'DWEOOK')
+    assert.equal(retBlock?.confirmation, 'DWEOOK')
+    assert.equal(depBlock?.flight_number, 'VA1595')
+    assert.equal(retBlock?.flight_number, 'VA1592')
+    assert.equal(depBlock?.from, 'MEL')
+    assert.equal(depBlock?.to, 'NTL')
+    assert.equal(retBlock?.from, 'NTL')
+    assert.equal(retBlock?.to, 'MEL')
+    assert.notEqual(depBlock?.id, retBlock?.id)
+    assert.equal(
+      findExistingTravelBlock(dep.next, DWEOOK_RET_PACKET)?.id ?? null,
+      null,
+    )
+    assert.equal(
+      findExistingTravelBlock(ret.next, DWEOOK_RET_PACKET)?.id,
+      retBlock?.id,
+    )
+  })
+
+  it('updates only the matching kind when the same PNR is re-applied', () => {
+    const dep = mergeTravelBlocksFromPacket({
+      existing: EMPTY_TRAVEL_BLOCKS,
+      packet: DWEOOK_DEP_PACKET,
+      profiles,
+    })
+    const both = mergeTravelBlocksFromPacket({
+      existing: dep.next,
+      packet: DWEOOK_RET_PACKET,
+      profiles,
+    })
+    const updatedRet = mergeTravelBlocksFromPacket({
+      existing: both.next,
+      packet: {
+        ...DWEOOK_RET_PACKET,
+        worksheet: { ...DWEOOK_RET_PACKET.worksheet, dep_time: '18:45', arr_time: '20:10' },
+      },
+      profiles,
+    })
+    assert.equal(updatedRet.action, 'update')
+    assert.equal(updatedRet.next.flights.length, 2)
+    const depBlock = updatedRet.next.flights.find(f => f.kind === 'dep')
+    const retBlock = updatedRet.next.flights.find(f => f.kind === 'ret')
+    assert.equal(depBlock?.id, both.next.flights.find(f => f.kind === 'dep')?.id)
+    assert.equal(retBlock?.id, both.next.flights.find(f => f.kind === 'ret')?.id)
+    assert.equal(depBlock?.flight_number, 'VA1595')
+    assert.equal(depBlock?.dep_time, '09:10')
+    assert.equal(retBlock?.flight_number, 'VA1592')
+    assert.equal(retBlock?.dep_time, '18:45')
+    assert.equal(retBlock?.arr_time, '20:10')
+    assert.equal(retBlock?.confirmation, 'DWEOOK')
+  })
+
+  it('updates in place when confirmation and kind both match', () => {
+    const first = mergeTravelBlocksFromPacket({
+      existing: EMPTY_TRAVEL_BLOCKS,
+      packet: DWEOOK_DEP_PACKET,
+      profiles,
+    })
+    const second = mergeTravelBlocksFromPacket({
+      existing: first.next,
+      packet: {
+        ...DWEOOK_DEP_PACKET,
+        worksheet: { ...DWEOOK_DEP_PACKET.worksheet, dep_time: '09:25', arr_terminal: 'T2' },
+      },
+      profiles,
+    })
+    assert.equal(second.action, 'update')
+    assert.equal(second.next.flights.length, 1)
+    assert.equal(second.block_id, first.block_id)
+    assert.equal(second.next.flights[0]?.kind, 'dep')
+    assert.equal(second.next.flights[0]?.confirmation, 'DWEOOK')
+    assert.equal(second.next.flights[0]?.dep_time, '09:25')
+    assert.equal(second.next.flights[0]?.arr_terminal, 'T2')
+    assert.equal(second.next.flights[0]?.flight_number, 'VA1595')
+  })
+
+  it('matches a prior block id without crossing kinds', () => {
+    const dep = mergeTravelBlocksFromPacket({
+      existing: EMPTY_TRAVEL_BLOCKS,
+      packet: DWEOOK_DEP_PACKET,
+      profiles,
+    })
+    const both = mergeTravelBlocksFromPacket({
+      existing: dep.next,
+      packet: DWEOOK_RET_PACKET,
+      profiles,
+    })
+    const retId = both.next.flights.find(f => f.kind === 'ret')?.id
+    assert.ok(retId)
+    const updated = mergeTravelBlocksFromPacket({
+      existing: both.next,
+      packet: {
+        ...DWEOOK_RET_PACKET,
+        worksheet: { ...DWEOOK_RET_PACKET.worksheet, dep_time: '17:50' },
+        supersedes: { prior_conf_id: retId!, prior_message_id: 'msg-va1592-dweook' },
+      },
+      profiles,
+    })
+    assert.equal(updated.action, 'update')
+    assert.equal(updated.block_id, retId)
+    assert.equal(updated.next.flights.length, 2)
+    assert.equal(updated.next.flights.find(f => f.kind === 'dep')?.dep_time, '09:10')
+    assert.equal(updated.next.flights.find(f => f.kind === 'ret')?.dep_time, '17:50')
+  })
+
+  it('matches date+route+kind when confirmation and flight number are absent', () => {
+    const first = mergeTravelBlocksFromPacket({
+      existing: EMPTY_TRAVEL_BLOCKS,
+      packet: DWEOOK_DEP_PACKET,
+      profiles,
+    })
+    const second = mergeTravelBlocksFromPacket({
+      existing: first.next,
+      packet: {
+        ...DWEOOK_DEP_PACKET,
+        worksheet: {
+          kind: 'dep',
+          date: '2026-09-16',
+          from: 'MEL',
+          to: 'NTL',
+          dep_time: '09:40',
+        },
+        supersedes: { prior_conf_id: null, prior_message_id: null },
+      },
+      profiles,
+    })
+    assert.equal(second.action, 'update')
+    assert.equal(second.next.flights.length, 1)
+    assert.equal(second.block_id, first.block_id)
+    assert.equal(second.next.flights[0]?.dep_time, '09:40')
+    assert.equal(second.next.flights[0]?.confirmation, 'DWEOOK')
+    assert.equal(second.next.flights[0]?.flight_number, 'VA1595')
+  })
+
+  it('fills a blank-conf return via date/route/number+kind, not the dep card', () => {
+    const dep = mergeTravelBlocksFromPacket({
+      existing: EMPTY_TRAVEL_BLOCKS,
+      packet: DWEOOK_DEP_PACKET,
+      profiles,
+    })
+    const retBlank = mergeTravelBlocksFromPacket({
+      existing: dep.next,
+      packet: {
+        ...DWEOOK_RET_PACKET,
+        worksheet: { ...DWEOOK_RET_PACKET.worksheet, confirmation: '' },
+        supersedes: { prior_conf_id: null, prior_message_id: null },
+      },
+      profiles,
+    })
+    assert.equal(retBlank.next.flights.length, 2)
+    assert.equal(retBlank.next.flights.find(f => f.kind === 'ret')?.confirmation, '')
+
+    const retFilled = mergeTravelBlocksFromPacket({
+      existing: retBlank.next,
+      packet: DWEOOK_RET_PACKET,
+      profiles,
+    })
+    assert.equal(retFilled.action, 'update')
+    assert.equal(retFilled.next.flights.length, 2)
+    const depBlock = retFilled.next.flights.find(f => f.kind === 'dep')
+    const retBlock = retFilled.next.flights.find(f => f.kind === 'ret')
+    assert.equal(retBlock?.id, retBlank.next.flights.find(f => f.kind === 'ret')?.id)
+    assert.equal(retBlock?.confirmation, 'DWEOOK')
+    assert.equal(depBlock?.confirmation, 'DWEOOK')
+    assert.equal(depBlock?.flight_number, 'VA1595')
   })
 })
 
