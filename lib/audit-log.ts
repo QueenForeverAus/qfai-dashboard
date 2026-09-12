@@ -29,6 +29,7 @@ export type AuditEntryLike = {
   description?: string | null
   notes?: string | null
   amount?: number | null
+  invoice_amount?: number | null
   gst_included?: boolean | null
   confirmed?: boolean | null
   paid?: boolean | null
@@ -38,6 +39,7 @@ export type AuditEntryLike = {
 
 const ENTRY_AUDIT_KEYS = [
   'amount',
+  'invoice_amount',
   'description',
   'notes',
   'gst_included',

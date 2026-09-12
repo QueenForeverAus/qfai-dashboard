@@ -27,6 +27,11 @@ export type CostEntry = PayableLine & {
   description: string
   notes: string
   amount: number
+  /**
+   * Invoice amount on this line. Distinct from `amount` (Expected).
+   * Set when marking invoiced / applying invoice. Never overwrites Expected.
+   */
+  invoice_amount?: number | null
   gst_included: boolean
   /** W1.5 stub store id/path. Optional — does not lock or close-gate. */
   attachment_path?: string | null
@@ -57,6 +62,8 @@ export type StaffLineItem = PayableLine & {
   hours: number
   headcount: number
   source?: string
+  /** Invoice amount for this planned role. Distinct from rate×hours×headcount (Expected). */
+  invoice_amount?: number | null
 }
 
 /**
@@ -96,7 +103,15 @@ export type PaidLockedLineItemField = (typeof PAID_LOCKED_LINE_ITEM_FIELDS)[numb
 /** Section badge CONFIRMED — existing cost_fields.state value, not a parallel status. */
 export const CONFIRMED_FIELD_STATE = 'known' as const
 
-export const COST_FIELD_STATES = ['known', 'estimated', 'guess', 'pending', 'auto_calc'] as const
+/**
+ * Invoice received — figure-source state between Confirmed and PAID.
+ * PAID ≠ draft-known; invoiced ≠ paid.
+ * PAID is entries[].paid / paid_at chrome — never a cost_fields.state string.
+ * invoiced means the invoice is on the line; it does not imply receipt/payment.
+ */
+export const INVOICED_FIELD_STATE = 'invoiced' as const
+
+export const COST_FIELD_STATES = ['known', 'estimated', 'guess', 'pending', 'auto_calc', 'invoiced'] as const
 export type CostFieldState = (typeof COST_FIELD_STATES)[number]
 
 /**
@@ -105,6 +120,24 @@ export type CostFieldState = (typeof COST_FIELD_STATES)[number]
  */
 export const SECTION_BULK_PAID_VALUE = 'bulk_paid' as const
 export type SectionEditValue = CostFieldState | typeof SECTION_BULK_PAID_VALUE
+
+/**
+ * Section Edit dropdown figure-source options (ladder chrome).
+ * Invoiced sits immediately before PAID. PAID is SECTION_BULK_PAID_VALUE, not a state.
+ */
+export const COST_FIELD_EDIT_OPTIONS: ReadonlyArray<{ value: CostFieldState; label: string }> = [
+  { value: 'known', label: 'Confirmed' },
+  { value: 'estimated', label: 'Estimate' },
+  { value: 'guess', label: 'Guess' },
+  { value: 'pending', label: 'Figures Needed' },
+  { value: 'auto_calc', label: 'Auto Calc' },
+  { value: 'invoiced', label: 'Invoiced' },
+]
+
+/** Combined Edit dropdown values: figure-source options then MARK ALL AS PAID. */
+export function costFieldEditDropdownValues(): string[] {
+  return [...COST_FIELD_EDIT_OPTIONS.map(o => o.value), SECTION_BULK_PAID_VALUE]
+}
 
 /** PATCH /api/cost-fields/[id] `section_payment` values. */
 export const SECTION_PAYMENT_PAID = 'paid' as const
@@ -117,8 +150,8 @@ export function isCostFieldState(value: string | null | undefined): value is Cos
 
 export function isNonConfirmedFieldState(
   value: string | null | undefined,
-): value is Exclude<CostFieldState, 'known'> {
-  return isCostFieldState(value) && value !== CONFIRMED_FIELD_STATE
+): value is Exclude<CostFieldState, 'known' | 'invoiced'> {
+  return isCostFieldState(value) && value !== CONFIRMED_FIELD_STATE && value !== INVOICED_FIELD_STATE
 }
 
 export type CostFieldDef = {
@@ -254,6 +287,23 @@ export function allEntriesPaid(entries: PayableLine[] | null | undefined): boole
   return Array.isArray(entries) && entries.length > 0 && entries.every(e => e.paid)
 }
 
+/** True when at least one line is PAID. Used for invoiced + partial-PAID dual badge. */
+export function someEntriesPaid(entries: PayableLine[] | null | undefined): boolean {
+  return Array.isArray(entries) && entries.some(e => e.paid)
+}
+
+/**
+ * Section PAID badge: all-PAID (existing), or invoiced with some lines paid (dual badge).
+ * Never treats invoiced as paid.
+ */
+export function showSectionPaidBadge(
+  storedState: string | null | undefined,
+  entries: PayableLine[] | null | undefined,
+): boolean {
+  if (allEntriesPaid(entries)) return true
+  return storedState === INVOICED_FIELD_STATE && someEntriesPaid(entries)
+}
+
 /**
  * Venue Staff chrome / MARK ALL / all-PAID overlay uses planned roles when
  * present; otherwise cost entries (actuals). Other fields always use entries.
@@ -299,12 +349,13 @@ export const ALL_PAID_SECTION_CHIP_LABEL = 'CONFIRMED' as const
 
 /**
  * Card chrome key for STATE_STYLES. All-PAID overlays `known` (green) without
- * changing stored figure-source state.
+ * changing stored figure-source state. Invoiced is not overlaid — dual badge OK.
  */
 export function displayCostFieldChromeState(
   storedState: string | null | undefined,
   entries: PayableLine[] | null | undefined,
 ): string {
+  if (storedState === INVOICED_FIELD_STATE) return INVOICED_FIELD_STATE
   if (allEntriesPaid(entries)) return CONFIRMED_FIELD_STATE
   return storedState ?? 'pending'
 }
@@ -315,6 +366,7 @@ export function displayCostFieldChipLabel(
   entries: PayableLine[] | null | undefined,
   storedLabel: string,
 ): string {
+  if (storedState === INVOICED_FIELD_STATE) return storedLabel
   if (allEntriesPaid(entries)) return ALL_PAID_SECTION_CHIP_LABEL
   return storedLabel
 }
@@ -353,6 +405,74 @@ export function entryIsPaidLocked(entry: Pick<CostEntry, 'paid'> | null | undefi
  */
 export function canMarkEntryPaid(entry: Pick<CostEntry, 'confirmed' | 'paid'>): boolean {
   return entry.confirmed === true
+}
+
+export function parseInvoiceAmount(raw: unknown): number | null {
+  if (raw == null || raw === '') return null
+  const n = typeof raw === 'number' ? raw : Number(raw)
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * When marking invoiced, stamp invoice_amount from Expected if the line has none.
+ * Never overwrites a stored invoice amount or the Expected figure.
+ */
+export function applyInvoiceAmountsIfMissing<T extends { invoice_amount?: number | null }>(
+  rows: T[],
+  expectedOf: (row: T) => number,
+): T[] {
+  return rows.map((row) => {
+    if (parseInvoiceAmount(row.invoice_amount) != null) return row
+    return { ...row, invoice_amount: expectedOf(row) }
+  })
+}
+
+export function invoiceAmountsChanged<T extends { invoice_amount?: number | null }>(
+  prev: T[],
+  next: T[],
+): boolean {
+  if (prev.length !== next.length) return true
+  return next.some((row, i) => parseInvoiceAmount(prev[i]?.invoice_amount) !== parseInvoiceAmount(row.invoice_amount))
+}
+
+export type InvoiceVariance = {
+  expected: number
+  invoiced: number
+  hasVariance: boolean
+}
+
+/** Compare Expected vs Invoice. Null invoice → no variance row (not yet applied). */
+export function invoiceVariance(
+  expected: number | null | undefined,
+  invoiced: number | null | undefined,
+): InvoiceVariance | null {
+  const inv = parseInvoiceAmount(invoiced)
+  if (inv == null) return null
+  const exp = Number(expected) || 0
+  return { expected: exp, invoiced: inv, hasVariance: exp !== inv }
+}
+
+export function entryInvoiceVariance(
+  entry: Pick<CostEntry, 'amount' | 'invoice_amount'>,
+): InvoiceVariance | null {
+  return invoiceVariance(entry.amount, entry.invoice_amount)
+}
+
+/** Section Expected vs sum of line invoice amounts. Missing invoice_amount uses that line's Expected. */
+export function sectionInvoiceVariance(
+  expected: number | null | undefined,
+  entries: Array<Pick<CostEntry, 'amount' | 'invoice_amount'>> | null | undefined,
+): InvoiceVariance | null {
+  if (!entries?.length) return null
+  if (!entries.some(e => parseInvoiceAmount(e.invoice_amount) != null)) return null
+  const invoiced = entries.reduce((sum, e) => {
+    const inv = parseInvoiceAmount(e.invoice_amount)
+    return sum + (inv ?? (Number(e.amount) || 0))
+  }, 0)
+  const exp = expected != null && Number.isFinite(Number(expected))
+    ? Number(expected)
+    : entries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+  return invoiceVariance(exp, invoiced)
 }
 
 export function parsePaidAt(raw: unknown): string | null {
@@ -762,8 +882,8 @@ export function isUnconfirmedEntriesSeed(
   return nextEntries.every(e => !e.confirmed)
 }
 
-/** Default non-confirmed state for a defined field — never `known`. */
-export function fallbackNonConfirmedState(fieldKey: string): Exclude<CostFieldState, 'known'> {
+/** Default non-confirmed state for a defined field — never `known` or `invoiced`. */
+export function fallbackNonConfirmedState(fieldKey: string): Exclude<CostFieldState, 'known' | 'invoiced'> {
   const def = definedCostField(fieldKey)
   const raw = def?.defaultState
   if (raw && raw !== CONFIRMED_FIELD_STATE && raw !== 'auto_calc') return raw
@@ -790,6 +910,7 @@ export function pickPriorStateFromAuditRows(
  * Roll line-item ticks up to cost_fields.state (`known` = CONFIRMED attestation).
  * Unticking any line restores priorNonConfirmedState, else the field default.
  * PAID is not a cost_fields.state — do not write `paid` here (figure accuracy stays).
+ * invoiced is past Confirmed on the ladder — confirm ticks must not downgrade it.
  */
 export function rolledUpCostFieldState(opts: {
   entries: PayableLine[] | null | undefined
@@ -799,7 +920,9 @@ export function rolledUpCostFieldState(opts: {
 }): string {
   const { entries, currentState, priorNonConfirmedState, fieldKey } = opts
   if (!Array.isArray(entries) || entries.length === 0) return currentState
-  if (allEntriesConfirmed(entries)) return CONFIRMED_FIELD_STATE
+  if (allEntriesConfirmed(entries)) {
+    return currentState === INVOICED_FIELD_STATE ? INVOICED_FIELD_STATE : CONFIRMED_FIELD_STATE
+  }
   if (currentState !== CONFIRMED_FIELD_STATE) return currentState
   if (isNonConfirmedFieldState(priorNonConfirmedState)) return priorNonConfirmedState
   return fieldKey ? fallbackNonConfirmedState(fieldKey) : 'estimated'
@@ -866,6 +989,7 @@ export function normalizeLineItems(raw: unknown): StaffLineItem[] | null {
       hours: Number(row.hours) || 0,
       headcount: Number(row.headcount) || 0,
       source: row.source != null ? String(row.source) : '',
+      invoice_amount: parseInvoiceAmount(row.invoice_amount),
     }
   })
 }
@@ -882,6 +1006,7 @@ export function normalizeEntries(raw: unknown): CostEntry[] | null {
       description: String(row.description ?? ''),
       notes: String(row.notes ?? ''),
       amount: Number(row.amount) || 0,
+      invoice_amount: parseInvoiceAmount(row.invoice_amount),
       gst_included: Boolean(row.gst_included),
       confirmed: Boolean(row.confirmed),
       paid,

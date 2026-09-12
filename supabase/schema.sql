@@ -107,7 +107,7 @@ create table if not exists cost_fields (
   field_key text not null,
   label text not null,
   value decimal(12,2),
-  state text not null default 'guess' check (state in ('known','estimated','guess','pending')),
+  state text not null default 'guess' check (state in ('known','estimated','guess','pending','auto_calc','figures_needed','invoiced')),
   source text,
   verified_by uuid references profiles,
   verified_at timestamptz,

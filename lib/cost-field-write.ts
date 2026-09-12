@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server'
 import {
   allEntriesConfirmed,
   applyBulkMarkAllPaid,
+  applyInvoiceAmountsIfMissing,
   CONFIRMED_FIELD_STATE,
   ensureMinimumEntry,
   ensurePaidLinesConfirmed,
@@ -18,6 +19,9 @@ import {
   formatSectionConfirmedAuditCopy,
   AUDIT_FIELD_PAID_ALSO_CONFIRMED,
   hasBulkPaidSnapshot,
+  INVOICED_FIELD_STATE,
+  invoiceAmountsChanged,
+  isCostFieldState,
   isNonConfirmedFieldState,
   isUnconfirmedEntriesSeed,
   lineItemsSum,
@@ -90,8 +94,7 @@ export async function executeCostFieldPatch(opts: {
   }
 
   if (body.state !== undefined) {
-    const allowed = ['known', 'estimated', 'guess', 'pending', 'auto_calc']
-    if (!allowed.includes(String(body.state))) {
+    if (!isCostFieldState(String(body.state))) {
       return NextResponse.json({ error: 'Invalid state' }, { status: 400 })
     }
     updates.state = body.state
@@ -282,6 +285,27 @@ export async function executeCostFieldPatch(opts: {
     if (!entriesProvided) {
       const total = lineItemsSum(items)
       updates.value = total === 0 ? null : total
+    }
+  }
+
+  const invoicedState = String(updates.state ?? existing.state ?? '') === INVOICED_FIELD_STATE
+  if (invoicedState && !ENTRY_EXEMPT_FIELD_KEYS.has(String(existing.field_key))) {
+    const baseEntries = (updates.entries as CostEntry[] | undefined)
+      ?? normalizeEntries(existing.entries)
+      ?? []
+    const stampedEntries = applyInvoiceAmountsIfMissing(baseEntries, e => Number(e.amount) || 0)
+    if (invoiceAmountsChanged(baseEntries, stampedEntries)) {
+      updates.entries = stampedEntries
+    }
+    if (existing.field_key === 'venue_staff') {
+      const baseItems = (updates.line_items as StaffLineItem[] | undefined) ?? existingLineItems
+      const stampedItems = applyInvoiceAmountsIfMissing(
+        baseItems,
+        item => (Number(item.rate) || 0) * (Number(item.hours) || 0) * (Number(item.headcount) || 0),
+      )
+      if (invoiceAmountsChanged(baseItems, stampedItems)) {
+        updates.line_items = stampedItems
+      }
     }
   }
 

@@ -35,10 +35,12 @@ import {
   allEntriesPaid,
   canMarkEntryPaid,
   CONFIRMED_FIELD_STATE,
+  COST_FIELD_EDIT_OPTIONS,
   displayCostFieldChipLabel,
   displayCostFieldChromeState,
   entriesSum as sumEntries,
   ensureMinimumEntry,
+  entryInvoiceVariance,
   entryIsAttested,
   entryIsPaidLocked,
   ENTRY_EXEMPT_FIELD_KEYS,
@@ -48,14 +50,17 @@ import {
   findMissingDefinedCostFields,
   buildCreateCostFieldBody,
   hasBulkPaidSnapshot,
+  INVOICED_FIELD_STATE,
   lineItemsSum,
   normalizeLineItems,
   roleCanSeeCostField,
   canEditCostFields,
   productionCanEditFieldKey,
   sectionEditSelectValue,
+  sectionInvoiceVariance,
   sectionPayableLines,
   SECTION_BULK_PAID_VALUE,
+  showSectionPaidBadge,
   type CostEntry,
   type CostFieldState,
   type PayableLine,
@@ -139,6 +144,7 @@ const STATE_STYLES: Record<string, { bg: string; text: string; border: string; l
   guess:     { bg: 'bg-red-900/30',    text: 'text-red-400',    border: 'border-red-800',    label: 'GUESS' },
   pending:   { bg: 'bg-red-900/20',    text: 'text-red-400',    border: 'border-red-900',    label: 'FIGURES NEEDED' },
   figures_needed: { bg: 'bg-red-900/20', text: 'text-red-400', border: 'border-red-900', label: 'FIGURES NEEDED' },
+  invoiced:  { bg: 'bg-sky-900/30',    text: 'text-sky-300',    border: 'border-sky-800',    label: 'INVOICED' },
   auto_calc: { bg: 'bg-slate-800/60',  text: 'text-slate-400',  border: 'border-slate-700',  label: 'AUTO CALC' },
 }
 
@@ -156,6 +162,7 @@ function sectionChrome(figureState: string, lines: PayableLine[]) {
     styles,
     chipLabel,
     allPaid: allEntriesPaid(lines),
+    showPaid: showSectionPaidBadge(figureState, lines),
     chromeAttr: chromeState === CONFIRMED_FIELD_STATE ? 'confirmed' : chromeState,
   }
 }
@@ -184,11 +191,9 @@ function SectionEditSelect({
       disabled={disabled}
       className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-amber-400 disabled:opacity-40 disabled:cursor-not-allowed"
     >
-      <option value="known">Confirmed</option>
-      <option value="estimated">Estimate</option>
-      <option value="guess">Guess</option>
-      <option value="pending">Figures Needed</option>
-      <option value="auto_calc">Auto Calc</option>
+      {COST_FIELD_EDIT_OPTIONS.map(opt => (
+        <option key={opt.value} value={opt.value}>{opt.label}</option>
+      ))}
       <option
         value={SECTION_BULK_PAID_VALUE}
         disabled={!bulkEnabled}
@@ -348,15 +353,27 @@ function EntryRow({
   const [desc, setDesc] = useState(entry.description)
   const [notes, setNotes] = useState(entry.notes)
   const [amount, setAmount] = useState(entry.amount.toString())
+  const [invoiceAmount, setInvoiceAmount] = useState(
+    entry.invoice_amount != null ? String(entry.invoice_amount) : '',
+  )
   const [gst, setGst] = useState(entry.gst_included)
 
   const locked = entryIsPaidLocked(entry) || costSheetFrozen
   const attested = entryIsAttested(entry)
   const showPaidControl = canMarkEntryPaid(entry) || entry.paid
+  const variance = entryInvoiceVariance(entry)
 
   function save() {
     if (locked) return
-    onUpdate({ ...entry, description: desc, notes, amount: parseFloat(amount) || 0, gst_included: gst })
+    const parsedInvoice = invoiceAmount.trim() === '' ? null : parseFloat(invoiceAmount)
+    onUpdate({
+      ...entry,
+      description: desc,
+      notes,
+      amount: parseFloat(amount) || 0,
+      invoice_amount: parsedInvoice != null && Number.isFinite(parsedInvoice) ? parsedInvoice : null,
+      gst_included: gst,
+    })
     setEditing(false)
   }
 
@@ -392,9 +409,15 @@ function EntryRow({
           placeholder={NOTES_INPUT_LABEL}
           aria-label={NOTES_INPUT_LABEL}
           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
+            aria-label="Expected amount"
             className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+          <input type="number" value={invoiceAmount} onChange={e => setInvoiceAmount(e.target.value)}
+            placeholder="Invoice $"
+            aria-label="Invoice amount"
+            data-testid="entry-invoice-amount"
+            className="w-24 bg-slate-900 border border-sky-800/60 rounded px-2 py-1 text-sky-100 text-xs focus:outline-none focus:border-sky-400" />
           <label className="flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap cursor-pointer select-none">
             <input type="checkbox" checked={gst} onChange={e => setGst(e.target.checked)} className="accent-amber-400" /> GST
           </label>
@@ -472,6 +495,11 @@ function EntryRow({
         </span>
         <span className={`flex-shrink-0 w-20 text-right text-xs font-medium tabular-nums ${attested ? 'text-white' : 'text-slate-400'}`}>
           {fmt(entry.amount)}
+          {variance?.hasVariance && (
+            <span data-testid="entry-invoice-variance" className="block text-[10px] font-medium text-sky-300">
+              Inv {fmt(variance.invoiced)}
+            </span>
+          )}
         </span>
         <span
           title={entry.gst_included ? 'GST included in amount' : 'GST excluded — ex-GST figure'}
@@ -521,6 +549,11 @@ function EntryRow({
           </span>
           <span className={`flex-shrink-0 text-xs font-medium tabular-nums ${attested ? 'text-white' : 'text-slate-400'}`}>
             {fmt(entry.amount)}
+            {variance?.hasVariance && (
+              <span data-testid="entry-invoice-variance-mobile" className="block text-[10px] font-medium text-sky-300">
+                Inv {fmt(variance.invoiced)}
+              </span>
+            )}
           </span>
           <span
             title={entry.gst_included ? 'GST included in amount' : 'GST excluded — ex-GST figure'}
@@ -625,6 +658,7 @@ function EntryPanel({
   const total = entries.reduce((sum, e) => sum + e.amount, 0)
   const confirmed = entries.filter(e => e.confirmed).reduce((sum, e) => sum + e.amount, 0)
   const gstContent = entries.filter(e => e.gst_included).reduce((sum, e) => sum + e.amount / 11, 0)
+  const panelInvoiceVar = sectionInvoiceVariance(total, entries)
 
   async function persist(updated: Entry[]) {
     if (costSheetFrozen) {
@@ -757,6 +791,11 @@ function EntryPanel({
           <div className="flex items-center justify-between pt-1.5 border-t border-slate-700/40 mb-2">
             <div className="flex items-center gap-3 text-xs">
               <span className="text-slate-500">Total: <span className="text-slate-300 font-medium">{fmt(total)}</span></span>
+              {panelInvoiceVar?.hasVariance && (
+                <span data-testid="entry-panel-invoice-variance" className="text-sky-300">
+                  Invoice: <span className="font-medium">{fmt(panelInvoiceVar.invoiced)}</span>
+                </span>
+              )}
               {confirmed > 0 && confirmed < total && (
                 <span className="text-green-600">Confirmed: <span className="text-green-400 font-medium">{fmt(confirmed)}</span></span>
               )}
@@ -828,8 +867,9 @@ function FieldRow({
   const [error, setError] = useState<string | null>(null)
 
   const state = figureStateFromSelect(isEditing ? draftSelect : persistedSelect, persistedState)
-  const { styles, chipLabel, chromeAttr, allPaid: sectionPaid } = sectionChrome(state, entries)
+  const { styles, chipLabel, chromeAttr, allPaid: sectionPaid, showPaid } = sectionChrome(state, entries)
   const displayTotal = entries.length > 0 ? entriesSum(entries) : (existing?.value ?? null)
+  const invoiceVar = sectionInvoiceVariance(displayTotal, entries)
   const canBulkPaid = Boolean(existing?.id) && entries.length > 0 && !ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
 
   async function handleSaveState() {
@@ -909,7 +949,14 @@ function FieldRow({
                 canBulkPaid={canBulkPaid}
                 disabled={costSheetFrozen}
               />
-              <span className={`text-sm font-medium ${styles.text}`}>{fmt(displayTotal)}</span>
+              <span className={`text-sm font-medium ${styles.text}`}>
+                {fmt(displayTotal)}
+                {invoiceVar?.hasVariance && (
+                  <span data-testid="cost-field-invoice-variance" className="block text-[10px] font-medium text-sky-300">
+                    Invoice {fmt(invoiceVar.invoiced)}
+                  </span>
+                )}
+              </span>
               <button
                 data-testid="cost-field-edit-save"
                 onClick={handleSaveState}
@@ -929,18 +976,27 @@ function FieldRow({
             <>
               <span className={`text-sm font-medium ${styles.text}`}>
                 {displayTotal != null ? fmt(displayTotal) : '—'}
+                {invoiceVar?.hasVariance && (
+                  <span data-testid="cost-field-invoice-variance" className="block text-[10px] font-medium text-sky-300">
+                    Invoice {fmt(invoiceVar.invoiced)}
+                  </span>
+                )}
               </span>
               <span
                 data-testid="cost-field-state"
-                title={sectionPaid
-                  ? 'All lines PAID — shown as CONFIRMED. Figure-source accuracy is unchanged.'
-                  : undefined}
+                title={
+                  state === INVOICED_FIELD_STATE
+                    ? 'Invoice received. PAID is per-line receipt chrome — invoiced ≠ paid.'
+                    : sectionPaid
+                      ? 'All lines PAID — shown as CONFIRMED. Figure-source accuracy is unchanged.'
+                      : undefined
+                }
                 className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}
               >{chipLabel}</span>
-              {sectionPaid && (
+              {showPaid && (
                 <span
                   data-testid="cost-field-paid"
-                  title="Payment/receipt status — lines locked. Distinct from CONFIRMED (operator attestation)."
+                  title="Payment/receipt status — lines locked. Distinct from CONFIRMED (operator attestation) and INVOICED."
                   className={`text-xs px-1.5 py-0.5 rounded border ${PAID_BADGE.bg} ${PAID_BADGE.text} ${PAID_BADGE.border} whitespace-nowrap`}
                 >
                   {PAID_BADGE.label}
@@ -1018,9 +1074,16 @@ function VenueStaffRow({
   const [error, setError] = useState<string | null>(null)
 
   const state = figureStateFromSelect(draftSelect, persistedState)
-  const { styles, chipLabel, chromeAttr, allPaid: sectionPaid } = sectionChrome(state, payableLines)
+  const { styles, chipLabel, chromeAttr, allPaid: sectionPaid, showPaid } = sectionChrome(state, payableLines)
   const total = lineItemsSum(items)
   const enteredTotal = entries.reduce((s, e) => s + e.amount, 0)
+  const staffInvoiceRows = entries.some(e => e.invoice_amount != null)
+    ? entries
+    : items.map(item => ({
+      amount: (item.rate || 0) * (item.hours || 0) * (item.headcount || 0),
+      invoice_amount: item.invoice_amount,
+    }))
+  const invoiceVar = sectionInvoiceVariance(total > 0 ? total : enteredTotal, staffInvoiceRows)
   const canBulkPaid = Boolean(existing?.id) && items.length > 0
 
   function updateItem(idx: number, field: keyof LineItem, raw: string) {
@@ -1213,20 +1276,31 @@ function VenueStaffRow({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <span className={`text-sm font-medium ${styles.text}`}>{total > 0 ? fmt(total) : '—'}</span>
+          <span className={`text-sm font-medium ${styles.text}`}>
+            {total > 0 ? fmt(total) : '—'}
+            {invoiceVar?.hasVariance && (
+              <span data-testid="cost-field-invoice-variance" className="block text-[10px] font-medium text-sky-300">
+                Invoice {fmt(invoiceVar.invoiced)}
+              </span>
+            )}
+          </span>
           <span
             data-testid="cost-field-state"
-            title={sectionPaid
-              ? (items.length > 0
-                ? 'All planned roles PAID — shown as CONFIRMED. Figure-source accuracy is unchanged.'
-                : 'All lines PAID — shown as CONFIRMED. Figure-source accuracy is unchanged.')
-              : undefined}
+            title={
+              state === INVOICED_FIELD_STATE
+                ? 'Invoice received. PAID is per-line receipt chrome — invoiced ≠ paid.'
+                : sectionPaid
+                  ? (items.length > 0
+                    ? 'All planned roles PAID — shown as CONFIRMED. Figure-source accuracy is unchanged.'
+                    : 'All lines PAID — shown as CONFIRMED. Figure-source accuracy is unchanged.')
+                  : undefined
+            }
             className={`text-xs px-1.5 py-0.5 rounded ${styles.text} opacity-70 whitespace-nowrap`}
           >{chipLabel}</span>
-          {sectionPaid && (
+          {showPaid && (
             <span
               data-testid="cost-field-paid"
-              title="Payment/receipt status — lines locked. Distinct from CONFIRMED (operator attestation)."
+              title="Payment/receipt status — lines locked. Distinct from CONFIRMED (operator attestation) and INVOICED."
               className={`text-xs px-1.5 py-0.5 rounded border ${PAID_BADGE.bg} ${PAID_BADGE.text} ${PAID_BADGE.border} whitespace-nowrap`}
             >
               {PAID_BADGE.label}
@@ -2168,6 +2242,7 @@ export default function CostFieldsTab({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs mb-1">
             {([
               { key: 'known',     desc: 'CONFIRMED — figure accuracy / lines attested. Not payment.' },
+              { key: 'invoiced',  desc: 'INVOICED — invoice received on the line. Not PAID (receipt chrome stays per-entry).' },
               { key: 'estimated', desc: 'Rough figure known; update to CONFIRMED when ready' },
               { key: 'pending',   desc: 'Income-dependent: box office, Harbour commission, per-ticket fees' },
               { key: 'guess',     desc: 'External data still needed before run go/no-go decision' },

@@ -87,8 +87,10 @@ test('formatFigureState uses plain caps and keeps KNOWN distinct from PAID', () 
   assert.equal(formatFigureState('known'), 'KNOWN')
   assert.equal(formatFigureState('estimated'), 'ESTIMATE')
   assert.equal(formatFigureState('guess'), 'GUESS')
+  assert.equal(formatFigureState('invoiced'), 'INVOICED')
   assert.notEqual(formatFigureState('known'), 'PAID')
   assert.notEqual(formatFigureState('known'), 'CONFIRMED')
+  assert.notEqual(formatFigureState('invoiced'), 'PAID')
 })
 
 test('truncateAuditText shortens long source / notes', () => {
