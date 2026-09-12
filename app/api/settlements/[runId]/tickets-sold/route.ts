@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server-admin'
 import { writeAuditLog, auditFieldDiffs, setAuditActor } from '@/lib/audit-log'
 import { getSettlementsActor, resolveSettlementsRun } from '@/lib/settlements-access'
+import {
+  SOURCE_NOTE_REQUIRED,
+  normalizeSourceNote,
+  sourceNoteRequiredError,
+} from '@/lib/settlements-advancing-sync'
 import { showHasOccurred } from '@/lib/settlements-sheet'
 
 export async function PATCH(
@@ -16,7 +21,12 @@ export async function PATCH(
   const run = await resolveSettlementsRun(admin, runId)
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
 
-  const body = await req.json().catch(() => ({})) as { show_id?: string; tickets_sold?: number | null }
+  const body = await req.json().catch(() => ({})) as {
+    show_id?: string
+    tickets_sold?: number | null
+    source_note?: string | null
+    notes?: string | null
+  }
   const showId = String(body.show_id ?? '')
   if (!showId) return NextResponse.json({ error: 'show_id is required' }, { status: 400 })
 
@@ -44,6 +54,11 @@ export async function PATCH(
     }, { status: 409 })
   }
 
+  const sourceNote = normalizeSourceNote(body.source_note ?? body.notes)
+  if (tickets != null && sourceNoteRequiredError(sourceNote)) {
+    return NextResponse.json({ error: SOURCE_NOTE_REQUIRED }, { status: 400 })
+  }
+
   await setAuditActor(admin, actor.userId)
   const { data, error } = await admin
     .from('shows')
@@ -52,6 +67,35 @@ export async function PATCH(
     .select('id, tickets_sold')
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  if (tickets != null) {
+    const now = new Date().toISOString()
+    const existing = (await admin
+      .from('settlement_actual_lines')
+      .select('id')
+      .eq('run_id', run.id)
+      .eq('show_id', showId)
+      .eq('line_key', 'tickets_sold')
+      .maybeSingle()).data
+    const ticketActual = {
+      run_id: run.id,
+      show_id: showId,
+      line_key: 'tickets_sold',
+      line_kind: 'venue_settlement',
+      amount: tickets,
+      status: 'confirmed',
+      source: 'manual',
+      notes: sourceNote,
+      paid: false,
+      paid_at: null,
+      updated_at: now,
+      created_by: actor.userId,
+    }
+    const ticketWrite = existing
+      ? await admin.from('settlement_actual_lines').update(ticketActual).eq('id', existing.id)
+      : await admin.from('settlement_actual_lines').insert(ticketActual)
+    if (ticketWrite.error) return NextResponse.json({ error: ticketWrite.error.message }, { status: 500 })
+  }
 
   await writeAuditLog(
     admin,
@@ -66,5 +110,9 @@ export async function PATCH(
     ),
   )
 
-  return NextResponse.json(data)
+  return NextResponse.json({
+    ...data,
+    source_note: sourceNote || null,
+    tickets_locked: tickets != null,
+  })
 }

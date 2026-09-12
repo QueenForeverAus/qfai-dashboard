@@ -12,6 +12,11 @@ import {
 } from '../settlements-v3-buckets.ts'
 import { showHasOccurred } from '../settlements-sheet.ts'
 import { isTravelScrapeMoneyConfirmed } from '../travel-scrape/apply-engine.ts'
+import { formatDdMmYy } from '../receipts/dates.ts'
+import {
+  normalizeSourceNote,
+  sourceNoteRequiredError,
+} from '../settlements-advancing-sync.ts'
 import { linesFromAttachments } from './attachments.ts'
 import {
   parseSettlementScrapePacket,
@@ -70,6 +75,7 @@ export type SettlementScrapeApplyPlan = {
   sends_email: false
   money_action: 'none' | 'confirm_needed'
   money_reason: string
+  source_note: string
 }
 
 export function settlementScrapeBlockedReason(opts: {
@@ -112,42 +118,43 @@ export function plannedTicketsSoldCount(actuals: PlannedActual[]): number | null
   return Number.isFinite(n) && n >= 0 ? n : null
 }
 
-function plannedVenueActual(line_key: string, line: V3RawLine): PlannedActual {
+export function formatSettlementScrapeSourceNote(packet: SettlementScrapePacket): string {
+  const from = packet.email.from.trim() || 'settlement email'
+  const dateIso = (packet.email.date || packet.captured_at).slice(0, 10)
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(dateIso) ? formatDdMmYy(dateIso) : dateIso
+  const filename = packet.attachments[0]?.filename.trim() || 'attachment'
+  return `from ${from} ${date} · ${filename}`
+}
+
+function plannedVenueActual(line_key: string, line: V3RawLine, sourceNote: string): PlannedActual {
+  const notes = [line.description, sourceNote].filter(Boolean).join(' — ')
   return {
     line_key,
     line_kind: 'venue_settlement',
     amount: unsignedScrapeAmount(line.amount),
-    notes: line.description,
+    notes,
     paid: false,
   }
 }
 
-export function lineKeyForClassified(line: V3RawLine, indexByParent: Map<string, number>): PlannedActual | null {
+export function lineKeyForClassified(
+  line: V3RawLine,
+  indexByParent: Map<string, number>,
+  sourceNote = '',
+): PlannedActual | null {
   const classified = classifySettlementLine(line, 'venue_statement')
   if (classified.kind === 'due_to_hirer') {
-    return plannedVenueActual('show:due_to_hirer', line)
+    return plannedVenueActual('show:due_to_hirer', line, sourceNote)
   }
   const ticketKey = settlementTicketActualKey(line)
-  if (ticketKey) return plannedVenueActual(ticketKey, line)
+  if (ticketKey) return plannedVenueActual(ticketKey, line, sourceNote)
   if (classified.kind === 'inside') {
     const n = (indexByParent.get('inside') ?? 0) + 1
     indexByParent.set('inside', n)
-    return {
-      line_key: `inside_pre_commission::${n}`,
-      line_kind: 'venue_settlement',
-      amount: line.amount,
-      notes: line.description,
-      paid: false,
-    }
+    return plannedVenueActual(`inside_pre_commission::${n}`, line, sourceNote)
   }
   if (classified.kind === 'deposit') {
-    return {
-      line_key: 'show:hire_deposit',
-      line_kind: 'venue_settlement',
-      amount: line.amount,
-      notes: line.description,
-      paid: false,
-    }
+    return plannedVenueActual('show:hire_deposit', line, sourceNote)
   }
   const parent =
     classified.kind === 'hire' ? 'show:venue_hire'
@@ -163,19 +170,14 @@ export function lineKeyForClassified(line: V3RawLine, indexByParent: Map<string,
   const line_key = n === 1 && classified.kind !== 'marketing' && classified.kind !== 'other'
     ? parent
     : `${parent}::${slug}`
-  return {
-    line_key,
-    line_kind: 'venue_settlement',
-    amount: line.amount,
-    notes: line.description,
-    paid: false,
-  }
+  return plannedVenueActual(line_key, line, sourceNote)
 }
 
 export function remittanceRowForLine(
   line: V3RawLine,
   reference: string,
   filename: string,
+  sourceNote = '',
 ): PlannedRemittance {
   const classified = classifySettlementLine({
     ...line,
@@ -191,7 +193,7 @@ export function remittanceRowForLine(
     description: line.description,
     amount: line.amount,
     line_type,
-    notes: `email-scrape ${filename}`.trim(),
+    notes: [sourceNote, `email-scrape ${filename}`].filter(Boolean).join(' — '),
     reference,
   }
 }
@@ -223,10 +225,15 @@ export function planSettlementScrapeApply(opts: {
     sends_email: false,
     money_action: 'none',
     money_reason: SETTLEMENT_SCRAPE_PAID_CONFIRM_NOTE,
+    source_note: packet ? formatSettlementScrapeSourceNote(packet) : '',
   })
   if (!parsed.ok) return empty(parsed.error)
 
   const packet = parsed.packet
+  const sourceNote = formatSettlementScrapeSourceNote(packet)
+  const sourceErr = sourceNoteRequiredError(sourceNote)
+  if (sourceErr) return empty(sourceErr, packet)
+
   const env = opts.applyEnv ?? packet.apply_env ?? 'staging'
   const hasOccurredShow = opts.showDates.some(d => showHasOccurred(d))
   const blocked = settlementScrapeBlockedReason({
@@ -251,11 +258,11 @@ export function planSettlementScrapeApply(opts: {
 
   const indexByParent = new Map<string, number>()
   const actuals = packet.kind === 'settlement'
-    ? lines.map(line => lineKeyForClassified(line, indexByParent)).filter((row): row is PlannedActual => row != null)
+    ? lines.map(line => lineKeyForClassified(line, indexByParent, sourceNote)).filter((row): row is PlannedActual => row != null)
     : []
   const filename = packet.attachments[0]?.filename || 'attachment'
   const remittance = packet.kind === 'remittance'
-    ? lines.map(line => remittanceRowForLine(line, packet.email.message_id, filename))
+    ? lines.map(line => remittanceRowForLine(line, packet.email.message_id, filename, sourceNote))
     : []
 
   return {
@@ -274,6 +281,7 @@ export function planSettlementScrapeApply(opts: {
     money_reason: moneyAction === 'confirm_needed'
       ? SETTLEMENT_SCRAPE_PAID_CONFIRM_NOTE
       : 'Scrape writes confirmed venue / remittance figures only. PAID stays false.',
+    source_note: normalizeSourceNote(sourceNote),
   }
 }
 

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { formatDateShortAU } from '@/lib/dates'
+import { TICKETS_LOCKED_NOTE } from '@/lib/settlements-advancing-sync'
 import BandedSellSlider from '@/components/BandedSellSlider'
 import {
   normalizeCapacityBands,
@@ -20,6 +21,12 @@ import {
   type PnlSummary,
   type PnlVenueWaterfall,
 } from '@/lib/pnl-run-costing'
+
+export type AdvancingTicketLock = {
+  locked: boolean
+  tickets: number
+  sourceNote: string | null
+}
 
 export type PnlShow = {
   id: string
@@ -63,9 +70,14 @@ export function venuePnl(opts: {
   pct: number
   factors: InsideFactorValues
   remittanceLines: KnownInsideLine[]
+  actualTickets?: number | null
 }): { gbo: number; tickets: number; waterfall: PnlVenueWaterfall; insideLabel: string } {
-  const gbo = projectedBoxOffice(opts.show, opts.pct) ?? 0
-  const tickets = modelledTickets(opts.show, opts.pct) ?? 0
+  const tickets = opts.actualTickets != null
+    ? Math.max(0, Math.round(Number(opts.actualTickets) || 0))
+    : (modelledTickets(opts.show, opts.pct) ?? 0)
+  const gbo = opts.actualTickets != null
+    ? Math.round(tickets * (Number(opts.show.ticket_price) || 0))
+    : (projectedBoxOffice(opts.show, opts.pct) ?? 0)
   const known = knownInsideForShow(opts.remittanceLines, opts.show.id)
   const inside = resolveInsideCosts({
     grossTicketSales: gbo,
@@ -95,6 +107,7 @@ export function PnlRevenueBlock({
   onShowUpdated,
   chromeReadOnly = false,
   onChromeSave,
+  ticketLocks,
 }: {
   shows: Show[]
   sellThrough: Record<string, number>
@@ -107,10 +120,23 @@ export function PnlRevenueBlock({
   onShowUpdated: (updated: PnlShow) => void
   chromeReadOnly?: boolean
   onChromeSave?: (show: PnlShow, patch: { booking_fee_per_payer?: number | null; cc_fee_pct?: number | null }) => Promise<PnlShow>
+  ticketLocks?: Record<string, AdvancingTicketLock>
 }) {
   const perVenue = shows.map(show => {
+    const lock = ticketLocks?.[show.id]
     const pct = sellThrough[show.id] ?? 75
-    return { show, pct, ...venuePnl({ show, pct, factors, remittanceLines }) }
+    return {
+      show,
+      pct,
+      lock,
+      ...venuePnl({
+        show,
+        pct,
+        factors,
+        remittanceLines,
+        actualTickets: lock?.locked ? lock.tickets : null,
+      }),
+    }
   })
   const totalGross = perVenue.reduce((s, v) => s + v.waterfall.grossTicketSales, 0)
   const totalInside = perVenue.reduce((s, v) => s + v.waterfall.inside.total, 0)
@@ -148,9 +174,10 @@ export function PnlRevenueBlock({
       <div>
         <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">Revenue — per venue</h3>
         <div className="space-y-3">
-          {perVenue.map(({ show, pct, tickets, waterfall }) => {
+          {perVenue.map(({ show, pct, tickets, waterfall, lock }) => {
             const cap = modelCapacity(show)
             const bands = normalizeCapacityBands(show.capacity_bands)
+            const ticketsLocked = Boolean(lock?.locked)
             return (
               <div key={show.id} className="bg-slate-800 rounded-xl border border-slate-700 p-3 sm:p-4" data-testid={`pnl-venue-${show.id}`}>
                 <div className="flex items-center justify-between gap-3 mb-3">
@@ -164,7 +191,7 @@ export function PnlRevenueBlock({
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <div className="text-amber-400 font-bold">{pct}%</div>
+                    <div className="text-amber-400 font-bold">{ticketsLocked ? 'ACTUAL' : `${pct}%`}</div>
                     <div className="text-slate-500 text-xs">{tickets != null ? `${tickets.toLocaleString()} tix` : '—'}</div>
                   </div>
                 </div>
@@ -173,10 +200,16 @@ export function PnlRevenueBlock({
                   onChange={v => onSellThrough(show.id, v)}
                   capacity={cap}
                   capacityBands={show.capacity_bands}
-                  disabled={!slidersUnlocked}
+                  disabled={!slidersUnlocked || ticketsLocked}
                   className="mb-3"
                 />
-                {!slidersUnlocked && (
+                {ticketsLocked && (
+                  <p className="text-teal-300/90 text-xs mb-2" data-testid={`advancing-tickets-locked-${show.id}`}>
+                    {TICKETS_LOCKED_NOTE}
+                    {lock?.sourceNote ? ` Source: ${lock.sourceNote}` : ''}
+                  </p>
+                )}
+                {!slidersUnlocked && !ticketsLocked && (
                   <p className="text-slate-600 text-xs mb-2">Slider locked until no cost lines are Figures Needed.</p>
                 )}
                 <VenueOverrideRow

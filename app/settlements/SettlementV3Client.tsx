@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatDateAU } from '@/lib/dates'
+import { NOTES_SOURCE_OF_DATA_LABEL } from '@/lib/cost-entry-source'
 import { SETTLEMENTS_MODULE_LABEL, formatSettlementsMoney, type BandCostLine } from '@/lib/settlements'
 import type { CostingSnapshotField } from '@/lib/settlements'
 import type { SettlementShow } from '@/lib/settlements-load'
@@ -152,57 +153,85 @@ function ChildActions({
   line: DecoratedSheetLine
   showId: string | null
   busy: boolean
-  onConfirmVenue: (line: DecoratedSheetLine, amount: number, showId: string | null) => void
+  onConfirmVenue: (line: DecoratedSheetLine, amount: number, showId: string | null, sourceNote: string) => void
   onChallenge: (line: DecoratedSheetLine, showId: string | null) => void
-  onSaveBand: (line: DecoratedSheetLine, amount: number, showId: string | null) => void
-  onTogglePaid: (line: DecoratedSheetLine, paid: boolean, showId: string | null) => void
+  onSaveBand: (line: DecoratedSheetLine, amount: number, showId: string | null, sourceNote: string) => void
+  onTogglePaid: (line: DecoratedSheetLine, paid: boolean, showId: string | null, sourceNote: string) => void
   onQuoteNote: (line: DecoratedSheetLine, note: string, showId: string | null) => void
 }) {
   const [draft, setDraft] = useState(line.actual == null ? '' : String(line.actual))
   const [note, setNote] = useState(line.quoteNote ?? '')
-  const locked = isBandCostLine(line) && !canEditSheetBandActual(line.actualPaid)
+  const [sourceNote, setSourceNote] = useState(line.quoteNote ?? '')
+  const locked = !canEditSheetBandActual(line.actualPaid)
 
   if (isVenueSettlementLine(line) && line.group === 'venue_costs') {
     return (
-      <div className="flex flex-wrap justify-end items-center gap-1" data-testid={`sheet-actual-${line.key}`}>
-        {line.actual == null ? (
-          <>
-            <input
-              type="number"
-              step={0.01}
-              min={0}
-              value={draft}
-              disabled={busy}
-              onChange={e => setDraft(e.target.value)}
-              data-testid={`sheet-actual-input-${line.key}`}
-              className="w-24 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-xs text-right"
-            />
+      <div className="space-y-1 text-right" data-testid={`sheet-actual-${line.key}`}>
+        <div className="flex flex-wrap justify-end items-center gap-1">
+          {line.actual == null ? (
+            <>
+              <input
+                type="number"
+                step={0.01}
+                min={0}
+                value={draft}
+                disabled={busy}
+                onChange={e => setDraft(e.target.value)}
+                data-testid={`sheet-actual-input-${line.key}`}
+                className="w-24 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-xs text-right"
+              />
+              <button
+                type="button"
+                disabled={busy || draft === '' || !sourceNote.trim()}
+                data-testid={`sheet-actual-confirm-${line.key}`}
+                onClick={() => onConfirmVenue(line, Number(draft), showId, sourceNote)}
+                className="text-[10px] font-semibold px-2 py-1 rounded bg-teal-900/50 text-teal-300 border border-teal-800 disabled:opacity-40"
+              >
+                Confirm
+              </button>
+            </>
+          ) : (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-teal-900/40 text-teal-300 border-teal-800" data-testid={`sheet-actual-status-${line.key}`}>
+              {line.actualStatus === 'challenged' ? VENUE_CHALLENGED_LABEL : VENUE_CONFIRMED_LABEL}
+            </span>
+          )}
+          {line.actual != null && (
             <button
               type="button"
-              disabled={busy || draft === ''}
-              data-testid={`sheet-actual-confirm-${line.key}`}
-              onClick={() => onConfirmVenue(line, Number(draft), showId)}
-              className="text-[10px] font-semibold px-2 py-1 rounded bg-teal-900/50 text-teal-300 border border-teal-800 disabled:opacity-40"
+              disabled={busy}
+              data-testid={`sheet-challenge-${line.key}`}
+              onClick={() => onChallenge(line, showId)}
+              className="text-[10px] font-semibold px-2 py-1 rounded border border-slate-600 text-slate-400 hover:text-amber-300"
             >
-              Confirm
+              {CHALLENGE_BUTTON_LABEL} line
             </button>
-          </>
-        ) : (
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-teal-900/40 text-teal-300 border-teal-800" data-testid={`sheet-actual-status-${line.key}`}>
-            {line.actualStatus === 'challenged' ? VENUE_CHALLENGED_LABEL : VENUE_CONFIRMED_LABEL}
-          </span>
-        )}
-        {line.actual != null && (
-          <button
-            type="button"
-            disabled={busy}
-            data-testid={`sheet-challenge-${line.key}`}
-            onClick={() => onChallenge(line, showId)}
-            className="text-[10px] font-semibold px-2 py-1 rounded border border-slate-600 text-slate-400 hover:text-amber-300"
-          >
-            {CHALLENGE_BUTTON_LABEL} line
-          </button>
-        )}
+          )}
+          {line.actual != null && !line.actualPaid ? (
+            <button
+              type="button"
+              disabled={busy || !sourceNote.trim()}
+              data-testid={`sheet-venue-paid-btn-${line.key}`}
+              onClick={() => onTogglePaid(line, true, showId, sourceNote)}
+              className="text-[10px] font-semibold text-teal-300"
+            >
+              Mark PAID
+            </button>
+          ) : null}
+          {line.actualPaid ? (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-teal-900/40 text-teal-300 border-teal-800" data-testid={`sheet-venue-paid-${line.key}`}>
+              PAID
+            </span>
+          ) : null}
+        </div>
+        <input
+          type="text"
+          value={sourceNote}
+          disabled={busy || locked}
+          data-testid={`sheet-actual-source-${line.key}`}
+          onChange={e => setSourceNote(e.target.value)}
+          placeholder={NOTES_SOURCE_OF_DATA_LABEL}
+          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-300 disabled:opacity-50"
+        />
       </div>
     )
   }
@@ -224,7 +253,7 @@ function ChildActions({
             type="button"
             disabled={busy || locked || draft === ''}
             data-testid={`sheet-band-save-${line.key}`}
-            onClick={() => onSaveBand(line, Number(draft), showId)}
+            onClick={() => onSaveBand(line, Number(draft), showId, note)}
             className="text-[10px] font-semibold px-2 py-1 rounded bg-slate-700 text-slate-200 disabled:opacity-40"
           >
             Save
@@ -240,11 +269,11 @@ function ChildActions({
             {line.actualPaid ? 'PAID' : 'OPEN'}
           </span>
           {line.actualPaid ? (
-            <button type="button" disabled={busy} data-testid={`sheet-band-reopen-${line.key}`} onClick={() => onTogglePaid(line, false, showId)} className="text-[10px] text-slate-500">
+            <button type="button" disabled={busy} data-testid={`sheet-band-reopen-${line.key}`} onClick={() => onTogglePaid(line, false, showId, note)} className="text-[10px] text-slate-500">
               Reopen
             </button>
           ) : (
-            <button type="button" disabled={busy} data-testid={`sheet-band-paid-btn-${line.key}`} onClick={() => onTogglePaid(line, true, showId)} className="text-[10px] font-semibold text-teal-300">
+            <button type="button" disabled={busy || !note.trim()} data-testid={`sheet-band-paid-btn-${line.key}`} onClick={() => onTogglePaid(line, true, showId, note)} className="text-[10px] font-semibold text-teal-300">
               Mark PAID
             </button>
           )}
@@ -281,10 +310,10 @@ function RollupTable({
   busy: boolean
   compareChrome?: boolean
   childHandlers: {
-    onConfirmVenue: (line: DecoratedSheetLine, amount: number, showId: string | null) => void
+    onConfirmVenue: (line: DecoratedSheetLine, amount: number, showId: string | null, sourceNote: string) => void
     onChallenge: (line: DecoratedSheetLine, showId: string | null) => void
-    onSaveBand: (line: DecoratedSheetLine, amount: number, showId: string | null) => void
-    onTogglePaid: (line: DecoratedSheetLine, paid: boolean, showId: string | null) => void
+    onSaveBand: (line: DecoratedSheetLine, amount: number, showId: string | null, sourceNote: string) => void
+    onTogglePaid: (line: DecoratedSheetLine, paid: boolean, showId: string | null, sourceNote: string) => void
     onQuoteNote: (line: DecoratedSheetLine, note: string, showId: string | null) => void
   }
 }) {
@@ -480,6 +509,15 @@ export default function SettlementV3Client({
     }
     return initial
   })
+  const [draftTicketNotes, setDraftTicketNotes] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {}
+    for (const actual of actuals) {
+      if (actual.line_key === 'tickets_sold' && actual.show_id && actual.notes) {
+        initial[actual.show_id] = actual.notes
+      }
+    }
+    return initial
+  })
   const [challengeLine, setChallengeLine] = useState<{ line: DecoratedSheetLine; showId: string | null } | null>(null)
   const [challengeReason, setChallengeReason] = useState('')
   const [draftPreview, setDraftPreview] = useState<RemittanceChallenge | null>(null)
@@ -557,13 +595,14 @@ export default function SettlementV3Client({
   async function saveTickets(showId: string) {
     const raw = draftTickets[showId]
     const tickets = raw === '' || raw == null ? null : Number(raw)
+    const sourceNote = (draftTicketNotes[showId] ?? '').trim()
     setBusy(true)
     setError(null)
     try {
       const res = await fetch(`/api/settlements/${run.id}/tickets-sold`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ show_id: showId, tickets_sold: tickets }),
+        body: JSON.stringify({ show_id: showId, tickets_sold: tickets, source_note: sourceNote }),
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body.error || 'Could not save tickets sold')
@@ -581,6 +620,7 @@ export default function SettlementV3Client({
     amount: number
     paid?: boolean
     quote_note?: string | null
+    source_note?: string | null
     source?: 'manual' | 'advancing_copy'
   }) {
     setBusy(true)
@@ -596,6 +636,7 @@ export default function SettlementV3Client({
           amount: opts.amount,
           paid: opts.paid,
           quote_note: opts.quote_note,
+          source_note: opts.source_note ?? opts.quote_note,
           source: opts.source ?? 'manual',
           label: opts.line.label,
         }),
@@ -691,23 +732,37 @@ export default function SettlementV3Client({
   }
 
   const childHandlers = {
-    onConfirmVenue: (line: DecoratedSheetLine, amount: number, showId: string | null) => {
-      void upsertActual({ line, showId: line.key.startsWith('run:') ? null : showId, amount })
+    onConfirmVenue: (line: DecoratedSheetLine, amount: number, showId: string | null, sourceNote: string) => {
+      void upsertActual({
+        line,
+        showId: line.key.startsWith('run:') ? null : showId,
+        amount,
+        source_note: sourceNote,
+      })
     },
     onChallenge: (line: DecoratedSheetLine, showId: string | null) => {
       setDraftPreview(null)
       setChallengeLine({ line, showId: line.key.startsWith('run:') ? null : showId })
     },
-    onSaveBand: (line: DecoratedSheetLine, amount: number, showId: string | null) => {
-      void upsertActual({ line, showId: line.key.startsWith('run:') ? null : showId, amount, source: 'manual' })
+    onSaveBand: (line: DecoratedSheetLine, amount: number, showId: string | null, sourceNote: string) => {
+      void upsertActual({
+        line,
+        showId: line.key.startsWith('run:') ? null : showId,
+        amount,
+        source: 'manual',
+        source_note: sourceNote,
+        quote_note: sourceNote,
+      })
     },
-    onTogglePaid: (line: DecoratedSheetLine, paid: boolean, showId: string | null) => {
+    onTogglePaid: (line: DecoratedSheetLine, paid: boolean, showId: string | null, sourceNote: string) => {
       void upsertActual({
         line,
         showId: line.key.startsWith('run:') ? null : showId,
         amount: line.actual ?? line.expected ?? 0,
         paid,
         source: line.actualSource === 'advancing_copy' ? 'advancing_copy' : 'manual',
+        source_note: sourceNote,
+        quote_note: sourceNote,
       })
     },
     onQuoteNote: (line: DecoratedSheetLine, note: string, showId: string | null) => {
@@ -859,7 +914,9 @@ export default function SettlementV3Client({
             model={model}
             initialVenueId={focusedShowId}
             draftTickets={draftTickets}
+            draftTicketNotes={draftTicketNotes}
             onTickets={(showId, v) => setDraftTickets(prev => ({ ...prev, [showId]: v }))}
+            onTicketNotes={(showId, v) => setDraftTicketNotes(prev => ({ ...prev, [showId]: v }))}
             onSaveTickets={showId => void saveTickets(showId)}
             busy={busy}
             expanded={expanded}
@@ -943,7 +1000,9 @@ function RunV3Blocks({
   model,
   initialVenueId,
   draftTickets,
+  draftTicketNotes,
   onTickets,
+  onTicketNotes,
   onSaveTickets,
   busy,
   expanded,
@@ -958,7 +1017,9 @@ function RunV3Blocks({
   model: V3RunModel
   initialVenueId: string | null
   draftTickets: Record<string, string>
+  draftTicketNotes: Record<string, string>
   onTickets: (showId: string, v: string) => void
+  onTicketNotes: (showId: string, v: string) => void
   onSaveTickets: (showId: string) => void
   busy: boolean
   expanded: Set<string>
@@ -1069,7 +1130,18 @@ function RunV3Blocks({
                   className="mt-1 block w-28 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm"
                 />
               </label>
-              <button type="submit" disabled={busy} data-testid={`sheet-tickets-save-${show.id}`} className="bg-amber-400 text-slate-900 text-xs font-semibold px-3 py-1.5 rounded disabled:opacity-50">
+              <label className="text-[10px] uppercase tracking-wide text-slate-500">
+                {NOTES_SOURCE_OF_DATA_LABEL}
+                <input
+                  type="text"
+                  value={draftTicketNotes[show.id] ?? ''}
+                  onChange={e => onTicketNotes(show.id, e.target.value)}
+                  data-testid={`sheet-tickets-source-${show.id}`}
+                  placeholder="Settlement sheet / email scrape"
+                  className="mt-1 block w-56 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm"
+                />
+              </label>
+              <button type="submit" disabled={busy || !(draftTicketNotes[show.id] ?? '').trim()} data-testid={`sheet-tickets-save-${show.id}`} className="bg-amber-400 text-slate-900 text-xs font-semibold px-3 py-1.5 rounded disabled:opacity-50">
                 {busy ? 'Saving…' : 'Save count'}
               </button>
             </form>

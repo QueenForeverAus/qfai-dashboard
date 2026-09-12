@@ -61,6 +61,8 @@ test('staging apply reads BNZ-shaped attachment lines and never marks PAID or se
   assert.ok(plan.actuals.some(l => l.line_key === 'show:venue_hire' && l.amount === 3_100))
   assert.ok(plan.actuals.every(l => l.paid === false))
   assert.equal(plan.remittance.length, 0)
+  assert.match(plan.source_note, /accounts@harbour\.example/)
+  assert.ok(plan.actuals.every(l => /accounts@harbour\.example/.test(l.notes)))
 })
 
 test('remittance email attachments become remittance lines, not PAID', () => {
@@ -204,6 +206,8 @@ test('persist apply upserts both ticket Actuals and updates shows.tickets_sold',
   assert.ok(actualInserts.every(w => w.payload?.source === 'email_scrape'))
   assert.ok(actualInserts.every(w => w.payload?.status === 'confirmed'))
   assert.ok(actualInserts.every(w => w.payload?.paid === false))
+  assert.ok(actualInserts.every(w => String(w.payload?.notes ?? '').includes(result.preview.source_note)))
+  assert.ok(result.preview.source_note.length > 0)
   const showUpdate = writes.find(w => w.table === 'shows' && w.op === 'update')
   assert.ok(showUpdate)
   assert.equal(showUpdate.payload?.tickets_sold, 318)
