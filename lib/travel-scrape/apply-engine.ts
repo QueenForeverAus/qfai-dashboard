@@ -1,14 +1,22 @@
 /**
- * Pure travel-scrape apply planner (staging).
+ * Pure travel-scrape apply planner.
  * Worksheet cards + checklist follow details policy.
  * Money/PAID on Advancing never auto — explicit Gareth confirm only.
  * Never writes locked Run Costings.
+ *
+ * apply_env=production is accepted on the real prod deploy (and staging
+ * packets stay valid). Unset TRAVEL_SCRAPE_APPLY_SECRET is the machine-auth
+ * kill switch — this planner does not refuse production packets.
  *
  * Shared `money_field_id` is intentional: CostFieldsTab keeps one defined
  * run field `accommodation` with expandable `entries[]`. Do not invent
  * extra DEFINED_RUN_COST_FIELDS keys. Hotel nights are entry lines on that
  * row (upsert by confirmation_id, else city+night_date) — never replace the
  * whole entries array with a single night. PAID is per-entry.
+ *
+ * Non-accom (flights, car, etc.) upserts once per confirmation_id on the
+ * shared field. A blank confirmation refuses the money write so a second
+ * confirm cannot invent a confirmation_id=null duplicate beside the PNR total.
  *
  * Apply responses identify the night with `money_field_id` (the shared
  * accommodation row) + `money_entry_id` (this night’s entry uuid) +
@@ -69,8 +77,8 @@ export const TRAVEL_SCRAPE_NOT_BOOKED_ERROR =
 export const TRAVEL_SCRAPE_NO_WORKSPACE_ERROR =
   'No active Run Advancing workspace. BOOK the run to copy the cost sheet, then apply here.'
 
-export const TRAVEL_SCRAPE_PRODUCTION_ERROR =
-  'Travel scrape apply is staging-only. Refusing apply_env=production.'
+export const TRAVEL_SCRAPE_NON_ACCOM_CONFIRMATION_ERROR =
+  'Non-accommodation money requires confirmation_id (PNR / booking ref). Refusing write so a blank confirmation cannot create a second full-fare charge.'
 
 export const LINE_HINT_TO_FIELD_KEY: Record<TravelScrapeLineHint, string | null> = {
   accom_night: 'accommodation',
@@ -170,8 +178,8 @@ export function assertTravelScrapeApplyTable(table: string): asserts table is Tr
 }
 
 export function travelScrapeBlockedReason(opts: TravelScrapeApplyGate & { applyEnv?: string }): string | null {
-  const env = String(opts.applyEnv ?? 'staging').trim().toLowerCase()
-  if (env === 'production') return TRAVEL_SCRAPE_PRODUCTION_ERROR
+  // apply_env is packet metadata (staging | production). It is not a host
+  // kill switch — production packets are accepted on the real prod deploy.
   const status = String(opts.bookingStatus ?? '').trim().toLowerCase()
   if (status === 'proposed') return TRAVEL_SCRAPE_PROPOSED_ERROR
   if (!isBookedBookingStatus(opts.bookingStatus)) return TRAVEL_SCRAPE_NOT_BOOKED_ERROR
@@ -377,6 +385,7 @@ export function findAccomNightMoneyEntry(opts: {
   return sameNight[0] ?? null
 }
 
+/** Upsert key for flights/car/etc. — one charge per confirmation_id on the shared field. */
 function findNonAccomMoneyEntry(existing: CostEntry[], confirmation: string): CostEntry | null {
   if (!confirmation) return null
   return existing.find(entry =>
@@ -473,6 +482,18 @@ export function planTravelScrapeMoney(opts: {
     }
   }
 
+  const confirmation = packetConfirmation(opts.packet)
+  if (hint !== 'accom_night' && !confirmation) {
+    return {
+      ...emptyMoney(existing, pendingIdentity),
+      action: 'skipped',
+      field_key: fieldKey,
+      field_label: def.label,
+      amount,
+      reason: TRAVEL_SCRAPE_NON_ACCOM_CONFIRMATION_ERROR,
+    }
+  }
+
   if (!isTravelScrapeMoneyConfirmed(opts.confirm)) {
     return {
       will_write: false,
@@ -493,7 +514,6 @@ export function planTravelScrapeMoney(opts: {
 
   const writesPaid = opts.packet.money.status_if_applied === 'PAID'
   const writesConfirmed = writesPaid || opts.packet.money.status_if_applied === 'CONFIRMED'
-  const confirmation = packetConfirmation(opts.packet)
   const night = moneyNightDate(opts.packet)
   const city = moneyCity(opts.packet)
   const sourceNote = formatTravelScrapeSourceNote(opts.packet)

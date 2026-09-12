@@ -32,10 +32,11 @@ async function resolveRun(
 
 /**
  * POST /api/runs/[runId]/advancing-receipts/apply
- * Owner/admin session, or staging machine token (travel-scrape-packet-v1):
+ * Owner/admin session, or machine token (travel-scrape-packet-v1):
  *   Authorization: Bearer $TRAVEL_SCRAPE_APPLY_SECRET
  *   or x-qfai-travel-scrape-key: $TRAVEL_SCRAPE_APPLY_SECRET
- * Money/PAID still needs confirm_money / money_confirmed_by. Never writes Costings.
+ * apply_env=production is accepted on the real prod deploy. Money/PAID still
+ * needs confirm_money / money_confirmed_by. Never writes Costings.
  */
 export async function POST(
   req: NextRequest,
@@ -235,7 +236,7 @@ async function handleTravelScrapeApply(opts: {
     })
 
     if (!result.preview.ok) {
-      const status = /proposed|BOOKED|workspace|production/i.test(result.preview.error ?? '')
+      const status = /proposed|BOOKED|workspace/i.test(result.preview.error ?? '')
         ? 409
         : 422
       return NextResponse.json({

@@ -17,6 +17,7 @@ import {
   planTravelScrapeMoney,
   TRAVEL_SCRAPE_APPLY_TABLES,
   TRAVEL_SCRAPE_APPLY_WRITES_COST_FIELDS,
+  TRAVEL_SCRAPE_NON_ACCOM_CONFIRMATION_ERROR,
   TRAVEL_SCRAPE_PROPOSED_ERROR,
   travelScrapeBlockedReason,
 } from '../../lib/travel-scrape/apply-engine.ts'
@@ -610,6 +611,112 @@ describe('money confirm hook', () => {
   })
 })
 
+describe('non-accom money: confirmation required + upsert by PNR', () => {
+  const confirm = { confirmMoney: true, moneyConfirmedBy: 'Gareth' } as const
+
+  function blankFlightConfirmation() {
+    return {
+      ...R01_DEP_FLIGHT_PACKET,
+      worksheet: { ...R01_DEP_FLIGHT_PACKET.worksheet, confirmation: '' },
+      supersedes: { prior_conf_id: null, prior_message_id: null },
+    }
+  }
+
+  it('refuses money write when confirmation is empty, even with confirm_money', () => {
+    const plan = planTravelScrapeMoney({
+      packet: blankFlightConfirmation(),
+      existingEntries: [],
+      confirm,
+    })
+    assert.equal(plan.will_write, false)
+    assert.equal(plan.action, 'skipped')
+    assert.equal(plan.reason, TRAVEL_SCRAPE_NON_ACCOM_CONFIRMATION_ERROR)
+    assert.equal(plan.field_key, 'flights')
+    assert.equal(plan.next_entries.length, 0)
+    assert.match(plan.reason, /confirmation_id|PNR/)
+  })
+
+  it('does not invent a null-confirmation charge beside an existing PNR total', () => {
+    const first = planTravelScrapeMoney({
+      packet: R01_DEP_FLIGHT_PACKET,
+      existingEntries: [],
+      confirm,
+    })
+    assert.equal(first.next_entries[0]?.confirmation_id, 'QFR01DEP')
+    assert.equal(first.next_entries[0]?.amount, 428)
+
+    const blank = planTravelScrapeMoney({
+      packet: blankFlightConfirmation(),
+      existingEntries: first.next_entries,
+      confirm,
+    })
+    assert.equal(blank.will_write, false)
+    assert.equal(blank.action, 'skipped')
+    assert.equal(blank.reason, TRAVEL_SCRAPE_NON_ACCOM_CONFIRMATION_ERROR)
+    assert.equal(blank.next_entries.length, 1)
+    assert.equal(blank.next_entries[0]?.id, first.next_entries[0]?.id)
+    assert.equal(blank.next_entries[0]?.confirmation_id, 'QFR01DEP')
+    assert.equal(blank.next_entries[0]?.amount, 428)
+  })
+
+  it('upserts the same confirmation once on the shared field', () => {
+    const first = planTravelScrapeMoney({
+      packet: R01_DEP_FLIGHT_PACKET,
+      existingEntries: [],
+      confirm,
+    })
+    const retSamePnr = {
+      ...DWEOOK_RET_PACKET,
+      money: { ...R01_DEP_FLIGHT_PACKET.money, amount: 450 },
+      worksheet: { ...DWEOOK_RET_PACKET.worksheet, confirmation: 'QFR01DEP' },
+    }
+    const second = planTravelScrapeMoney({
+      packet: retSamePnr,
+      existingEntries: first.next_entries,
+      confirm,
+    })
+    assert.equal(second.will_write, true)
+    assert.equal(second.action, 'written')
+    assert.equal(second.field_key, 'flights')
+    assert.equal(second.next_entries.length, 1)
+    assert.equal(second.next_entries[0]?.id, first.next_entries[0]?.id)
+    assert.equal(second.next_entries[0]?.confirmation_id, 'QFR01DEP')
+    assert.equal(second.next_entries[0]?.amount, 450)
+    assert.equal(second.field_value, 450)
+    assert.equal(second.money_entry_id, first.money_entry_id)
+  })
+
+  it('still needs confirm_money when apply_env=production and confirmation is present', () => {
+    const plan = planTravelScrapeApply({
+      ...bookedGate,
+      packet: { ...R01_DEP_FLIGHT_PACKET, apply_env: 'production' },
+      existingEntries: [],
+      profiles,
+    })
+    assert.equal(plan.ok, true, plan.error ?? '')
+    assert.equal(plan.packet?.apply_env, 'production')
+    assert.equal(plan.money.will_write, false)
+    assert.equal(plan.money.action, 'confirm_needed')
+    assert.equal(plan.money.field_key, 'flights')
+  })
+
+  it('refuses a blank car confirmation the same way', () => {
+    const plan = planTravelScrapeMoney({
+      packet: {
+        ...TRECV1_CAR_PACKET,
+        worksheet: { ...TRECV1_CAR_PACKET.worksheet, confirmation: '' },
+        supersedes: { prior_conf_id: null, prior_message_id: null },
+      },
+      existingEntries: [],
+      confirm,
+    })
+    assert.equal(plan.will_write, false)
+    assert.equal(plan.action, 'skipped')
+    assert.equal(plan.reason, TRAVEL_SCRAPE_NON_ACCOM_CONFIRMATION_ERROR)
+    assert.equal(plan.field_key, 'ground_transport')
+  })
+})
+
 const PORT_MACQUARIE_PACKET = {
   ...THORNTON_SCRAPE_PACKET,
   worksheet: {
@@ -1073,14 +1180,32 @@ describe('apply gates + costing isolation', () => {
     assert.match(noWs.error ?? '', /workspace/)
   })
 
-  it('refuses apply_env=production', () => {
+  it('allows apply_env=production and still requires money confirm', () => {
+    assert.equal(travelScrapeBlockedReason({
+      bookingStatus: 'confirmed',
+      hasActiveWorkspace: true,
+      applyEnv: 'production',
+    }), null)
+
     const plan = planTravelScrapeApply({
       ...bookedGate,
       packet: { ...THORNTON_SCRAPE_PACKET, apply_env: 'production' },
       profiles,
     })
-    assert.equal(plan.ok, false)
-    assert.match(plan.error ?? '', /staging-only|production/)
+    assert.equal(plan.ok, true, plan.error ?? '')
+    assert.equal(plan.details.will_apply, true)
+    assert.equal(plan.money.will_write, false)
+    assert.equal(plan.money.action, 'confirm_needed')
+    assert.match(plan.money.reason, /confirm_money|money_confirmed_by/)
+
+    const staging = planTravelScrapeApply({
+      ...bookedGate,
+      packet: THORNTON_SCRAPE_PACKET,
+      profiles,
+    })
+    assert.equal(staging.ok, true, staging.error ?? '')
+    assert.equal(staging.packet?.apply_env, 'staging')
+    assert.equal(staging.money.action, 'confirm_needed')
   })
 
   it('holds details on medium confidence, watch, and blocking flags', () => {

@@ -7,6 +7,7 @@ import {
   extractTravelScrapeMachineToken,
   resolveTravelScrapeApplyAuth,
   travelScrapeMachineAllowsPacket,
+  travelScrapeMachineDeployAllowed,
   travelScrapeMachineTokenMatches,
   TRAVEL_SCRAPE_MACHINE_ACTOR_NAME,
 } from '../../lib/travel-scrape/machine-auth.ts'
@@ -61,6 +62,17 @@ describe('travel-scrape machine auth', () => {
     })
     assert.equal(auth.ok, false)
     if (!auth.ok) assert.equal(auth.status, 401)
+  })
+
+  it('allows machine auth on VERCEL_ENV=production when the secret is set', () => {
+    assert.equal(travelScrapeMachineDeployAllowed('production'), true)
+    const auth = resolveTravelScrapeApplyAuth({
+      authorizationHeader: `Bearer ${secret}`,
+      secret,
+      vercelEnv: 'production',
+    })
+    assert.equal(auth.ok, true)
+    if (auth.ok) assert.equal(auth.actor.kind, 'machine')
   })
 
   it('rejects missing auth', () => {
