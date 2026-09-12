@@ -3,9 +3,12 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import {
   canEditCostFields,
+  applyInvoiceAmountsIfMissing,
   ensureMinimumEntry,
   entriesSum,
   ENTRY_EXEMPT_FIELD_KEYS,
+  INVOICED_FIELD_STATE,
+  isCostFieldState,
   lineItemsSum,
   normalizeEntries,
   normalizeLineItems,
@@ -62,8 +65,7 @@ export async function POST(req: NextRequest) {
   }
 
   const state = body.state ?? 'guess'
-  const allowed = ['known', 'estimated', 'guess', 'pending', 'auto_calc']
-  if (!allowed.includes(state)) {
+  if (!isCostFieldState(String(state))) {
     return NextResponse.json({ error: 'Invalid state' }, { status: 400 })
   }
 
@@ -87,6 +89,16 @@ export async function POST(req: NextRequest) {
     const roleLock = paidLineItemLockViolation([], lineItems)
     if (roleLock) {
       return NextResponse.json({ error: roleLock }, { status: 400 })
+    }
+  }
+
+  if (state === INVOICED_FIELD_STATE && !ENTRY_EXEMPT_FIELD_KEYS.has(fieldKey)) {
+    entries = applyInvoiceAmountsIfMissing(entries, e => Number(e.amount) || 0)
+    if (Array.isArray(lineItems) && fieldKey === 'venue_staff') {
+      lineItems = applyInvoiceAmountsIfMissing(
+        lineItems,
+        item => (Number(item.rate) || 0) * (Number(item.hours) || 0) * (Number(item.headcount) || 0),
+      )
     }
   }
 

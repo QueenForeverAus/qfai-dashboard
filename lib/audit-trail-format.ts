@@ -102,6 +102,7 @@ const FIGURE_STATE: Record<string, string> = {
   guess: 'GUESS',
   pending: 'FIGURES NEEDED',
   figures_needed: 'FIGURES NEEDED',
+  invoiced: 'INVOICED',
   auto_calc: 'AUTO CALC',
 }
 
@@ -838,6 +839,13 @@ export function formatAuditEvent(
         id: row.id, changed_at: row.changed_at, changed_by_name: actor,
         sentence: finish(sentence(actor, `edited ${line} from ${formatAuditMoney(row.old_value)} to ${formatAuditMoney(row.new_value)}`)),
         kind: 'entry-amount', record_id: recordId,
+      }
+    }
+    if (entryField === 'invoice_amount') {
+      return {
+        id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+        sentence: finish(sentence(actor, `set invoice amount on ${line} from ${formatAuditMoney(row.old_value)} to ${formatAuditMoney(row.new_value)}`)),
+        kind: 'entry-invoice-amount', record_id: recordId,
       }
     }
     if (entryField === 'description') {

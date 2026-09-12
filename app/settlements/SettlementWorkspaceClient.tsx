@@ -54,6 +54,7 @@ const STATE_STYLES: Record<string, string> = {
   guess: 'bg-red-900/30 text-red-400 border-red-800',
   pending: 'bg-red-900/20 text-red-400 border-red-900',
   figures_needed: 'bg-red-900/20 text-red-400 border-red-900',
+  invoiced: 'bg-sky-900/30 text-sky-300 border-sky-800',
   auto_calc: 'bg-slate-800/60 text-slate-400 border-slate-700',
 }
 
@@ -63,6 +64,7 @@ const STATE_LABEL: Record<string, string> = {
   guess: 'GUESS',
   pending: 'FIGURES NEEDED',
   figures_needed: 'FIGURES NEEDED',
+  invoiced: 'INVOICED',
   auto_calc: 'AUTO CALC',
 }
 
