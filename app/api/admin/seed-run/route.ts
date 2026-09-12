@@ -8,11 +8,21 @@ import { syncRunDatesFromShows } from '@/lib/run-dates'
 /**
  * Creates shows (if missing) and seeds cost_fields for a run.
  * Safe to call on runs that already have shows — won't duplicate shows.
- * Skips cost_fields seeding if already present.
+ * Skips cost_fields seeding if already present (also enforced inside
+ * `seedRunDefaults` so re-seed never wipes Finance fills).
  *
  * New runs: create shows with state_territory (+ venue_city), then seed-run
  * (or POST /api/admin/classify-regions) sets runs.region from locked costings
  * G1/G2/G3 rules — never leave seed defaults as the source of truth.
+ *
+ * Codes without `RUN_DEFAULTS` (26R*) get estimated Group 1/2/3 lines from
+ * `run_factors` + region + show dates/capacity. Import Schedule does not
+ * create cost_fields.
+ *
+ * Prod trigger `seed_run_on_show_insert` POSTs here via `net.http_post` with
+ * Content-Type only (no auth / no secret). This route is unauthenticated and
+ * uses the service-role client. Hardening that trigger (shared secret header)
+ * needs prod SQL — out of scope here; do not change the trigger in this PR.
  */
 export async function POST(req: NextRequest) {
   const { runCode } = await req.json()
@@ -56,7 +66,7 @@ export async function POST(req: NextRequest) {
   // Re-fetch full shows for seeding + region classify
   const { data: fullShows } = await supabase
     .from('shows')
-    .select('id, show_order, venue_name, venue_city, state_territory, show_date')
+    .select('id, show_order, venue_name, venue_city, state_territory, show_date, capacity, ticket_price')
     .eq('run_id', run.id)
     .order('show_order')
 

@@ -9,7 +9,7 @@
  * Empty shows → group2 ("no shows yet").
  */
 
-import type { RunRegion } from '@/lib/types'
+import type { RunRegion } from './types.ts'
 
 export type ShowLocationInput = {
   state_territory?: string | null

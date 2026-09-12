@@ -1,6 +1,6 @@
-import { formatDateShortAU } from '@/lib/dates'
+import { formatDateShortAU } from '../dates.ts'
 import { LIGHTING_HIRE_LINE_LABEL } from '../cost-fields.ts'
-import { LIGHTING_HIRE_PER_RUN, type RunDefault } from './run-defaults'
+import { LIGHTING_HIRE_PER_RUN, type RunDefault } from './run-defaults.ts'
 
 export type SeedEntry = {
   id: string
@@ -25,14 +25,19 @@ export type FactorOverrides = {
   backline_hire_per_run?: number
   crew_travel_day_adam?: number
   crew_travel_day_michael?: number
+  crew_fee_adam_sound?: number
+  crew_fee_michael_lighting?: number
+  crew_fee_michael_pm?: number
+  crew_fee_darryn?: number
+  crew_fee_danny?: number
 }
 
 const CREW_BREAKDOWN = [
-  { name: 'Adam Dahl — FOH / Sound',           rate: 600, gst: true  },
-  { name: 'Michael Richardson — Lighting',      rate: 600, gst: true  },
-  { name: 'Michael Richardson — Production Mgr', rate: 250, gst: true },
-  { name: 'Darryn McLaughlin — Bass',           rate: 600, gst: false },
-  { name: 'Danny Oakhill — Keys',               rate: 600, gst: false },
+  { name: 'Adam Dahl — FOH / Sound',            rate: 600, gst: true,  factorKey: 'crew_fee_adam_sound' as const },
+  { name: 'Michael Richardson — Lighting',      rate: 600, gst: true,  factorKey: 'crew_fee_michael_lighting' as const },
+  { name: 'Michael Richardson — Production Mgr', rate: 250, gst: true,  factorKey: 'crew_fee_michael_pm' as const },
+  { name: 'Darryn McLaughlin — Bass',           rate: 600, gst: false, factorKey: 'crew_fee_darryn' as const },
+  { name: 'Danny Oakhill — Keys',               rate: 600, gst: false, factorKey: 'crew_fee_danny' as const },
 ]
 
 
@@ -66,14 +71,17 @@ export function generateEntries(
 
   switch (fieldKey) {
     case 'crew_fees_total':
-      return CREW_BREAKDOWN.map(c => ({
-        id: uid(),
-        description: c.name,
-        notes: `$${c.rate.toLocaleString()}/show × ${numShows} show${numShows !== 1 ? 's' : ''}`,
-        amount: c.rate * numShows,
-        gst_included: c.gst,
-        confirmed: true,
-      }))
+      return CREW_BREAKDOWN.map(c => {
+        const rate = factors?.[c.factorKey] ?? c.rate
+        return {
+          id: uid(),
+          description: c.name,
+          notes: `$${rate.toLocaleString()}/show × ${numShows} show${numShows !== 1 ? 's' : ''}`,
+          amount: rate * numShows,
+          gst_included: c.gst,
+          confirmed: true,
+        }
+      })
 
     case 'accommodation': {
       if (!defaults) return []
