@@ -886,7 +886,7 @@ export function isUnconfirmedEntriesSeed(
 export function fallbackNonConfirmedState(fieldKey: string): Exclude<CostFieldState, 'known' | 'invoiced'> {
   const def = definedCostField(fieldKey)
   const raw = def?.defaultState
-  if (raw && raw !== CONFIRMED_FIELD_STATE && raw !== INVOICED_FIELD_STATE && raw !== 'auto_calc') return raw
+  if (raw && raw !== CONFIRMED_FIELD_STATE && raw !== 'auto_calc') return raw
   return 'estimated'
 }
 
