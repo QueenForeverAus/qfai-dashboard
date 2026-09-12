@@ -428,7 +428,13 @@ export function toSyntheticRunDefault(est: FactorRunEstimate): RunDefault {
       ? undefined
       : { value: est.backlineHire.value, state: est.backlineHire.state, source: est.backlineHire.source },
     bradDriverFee: null,
-    crewTravelDay: est.crewTravelDay,
+    crewTravelDay: est.crewTravelDay == null || est.crewTravelDay.value == null
+      ? null
+      : {
+          value: est.crewTravelDay.value,
+          state: est.crewTravelDay.state,
+          source: est.crewTravelDay.source,
+        },
     perDiems: {
       value: est.perDiems,
       state: 'estimated',
