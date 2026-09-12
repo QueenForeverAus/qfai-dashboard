@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatDateAU, formatDateShortAU } from '@/lib/dates'
+import { NOTES_SOURCE_OF_DATA_LABEL } from '@/lib/cost-entry-source'
 import { SETTLEMENTS_MODULE_LABEL, formatSettlementsMoney, type BandCostLine } from '@/lib/settlements'
 import type { CostingSnapshotField } from '@/lib/settlements'
 import type { SettlementShow } from '@/lib/settlements-load'
@@ -224,15 +225,15 @@ function Col3Cell({
   line: DecoratedSheetLine
   showId: string | null
   busy: boolean
-  onConfirmVenue: (line: DecoratedSheetLine, amount: number) => void
+  onConfirmVenue: (line: DecoratedSheetLine, amount: number, sourceNote: string) => void
   onChallenge: (line: DecoratedSheetLine, showId: string | null) => void
-  onSaveBand: (line: DecoratedSheetLine, amount: number) => void
-  onTogglePaid: (line: DecoratedSheetLine, paid: boolean) => void
+  onSaveBand: (line: DecoratedSheetLine, amount: number, sourceNote: string) => void
+  onTogglePaid: (line: DecoratedSheetLine, paid: boolean, sourceNote: string) => void
   onQuoteNote: (line: DecoratedSheetLine, note: string) => void
 }) {
   const [draft, setDraft] = useState(line.actual == null ? '' : String(line.actual))
   const [note, setNote] = useState(line.quoteNote ?? '')
-  const locked = isBandCostLine(line) && !canEditSheetBandActual(line.actualPaid)
+  const locked = !canEditSheetBandActual(line.actualPaid)
   const varianceLabel = line.variance != null && line.variance !== 0
     ? `${line.variance > 0 ? '+' : ''}${line.kind === 'count' ? line.variance : formatSettlementsMoney(line.variance)}`
     : null
@@ -268,7 +269,7 @@ function Col3Cell({
               type="button"
               disabled={busy || draft === ''}
               data-testid={`sheet-actual-confirm-${line.key}`}
-              onClick={() => onConfirmVenue(line, Number(draft))}
+              onClick={() => onConfirmVenue(line, Number(draft), note)}
               className="text-[10px] font-semibold px-2 py-1 rounded bg-teal-900/50 text-teal-300 border border-teal-800 hover:bg-teal-900 disabled:opacity-40"
             >
               Confirm
@@ -300,7 +301,29 @@ function Col3Cell({
               {CHALLENGE_BUTTON_LABEL}
             </button>
           )}
+          {line.group === 'venue_costs' && line.actual != null && !line.actualPaid ? (
+            <button
+              type="button"
+              disabled={busy || !note.trim()}
+              data-testid={`sheet-venue-paid-btn-${line.key}`}
+              onClick={() => onTogglePaid(line, true, note)}
+              className="text-[10px] font-semibold text-teal-300"
+            >
+              Mark PAID
+            </button>
+          ) : null}
         </div>
+        {line.group === 'venue_costs' ? (
+          <input
+            type="text"
+            value={note}
+            disabled={busy || locked}
+            data-testid={`sheet-actual-source-${line.key}`}
+            onChange={e => setNote(e.target.value)}
+            placeholder={NOTES_SOURCE_OF_DATA_LABEL}
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-300 disabled:opacity-50"
+          />
+        ) : null}
         {varianceLabel && line.varianceSeverity ? (
           <div
             className={`text-[10px] ${line.varianceSeverity === 'hard' ? 'text-red-300' : 'text-orange-300'}`}
@@ -341,7 +364,7 @@ function Col3Cell({
           type="button"
           disabled={busy || locked || draft === ''}
           data-testid={`sheet-band-save-${line.key}`}
-          onClick={() => onSaveBand(line, Number(draft))}
+          onClick={() => onSaveBand(line, Number(draft), note)}
           className="text-[10px] font-semibold px-2 py-1 rounded bg-slate-700 text-slate-200 hover:bg-slate-600 disabled:opacity-40"
         >
           Save
@@ -361,7 +384,7 @@ function Col3Cell({
             type="button"
             disabled={busy}
             data-testid={`sheet-band-reopen-${line.key}`}
-            onClick={() => onTogglePaid(line, false)}
+            onClick={() => onTogglePaid(line, false, note)}
             className="text-[10px] text-slate-500 hover:text-slate-300"
           >
             Reopen
@@ -371,7 +394,7 @@ function Col3Cell({
             type="button"
             disabled={busy}
             data-testid={`sheet-band-paid-btn-${line.key}`}
-            onClick={() => onTogglePaid(line, true)}
+            onClick={() => onTogglePaid(line, true, note)}
             className="text-[10px] font-semibold text-teal-300 hover:text-teal-200"
           >
             Mark PAID
@@ -410,10 +433,10 @@ function LineTable({
   lines: DecoratedSheetLine[]
   showId: string
   busy: boolean
-  onConfirmVenue: (line: DecoratedSheetLine, amount: number) => void
+  onConfirmVenue: (line: DecoratedSheetLine, amount: number, sourceNote: string) => void
   onChallenge: (line: DecoratedSheetLine, showId: string | null) => void
-  onSaveBand: (line: DecoratedSheetLine, amount: number) => void
-  onTogglePaid: (line: DecoratedSheetLine, paid: boolean) => void
+  onSaveBand: (line: DecoratedSheetLine, amount: number, sourceNote: string) => void
+  onTogglePaid: (line: DecoratedSheetLine, paid: boolean, sourceNote: string) => void
   onQuoteNote: (line: DecoratedSheetLine, note: string) => void
 }) {
   return (
@@ -496,6 +519,15 @@ export default function SettlementSheetClient({
     }
     return initial
   })
+  const [draftTicketNotes, setDraftTicketNotes] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {}
+    for (const actual of actuals) {
+      if (actual.line_key === 'tickets_sold' && actual.show_id && actual.notes) {
+        initial[actual.show_id] = actual.notes
+      }
+    }
+    return initial
+  })
   const [challengeLine, setChallengeLine] = useState<{ line: DecoratedSheetLine; showId: string | null } | null>(null)
   const [challengeReason, setChallengeReason] = useState('')
   const [draftPreview, setDraftPreview] = useState<RemittanceChallenge | null>(null)
@@ -543,7 +575,11 @@ export default function SettlementSheetClient({
       const res = await fetch(`/api/settlements/${run.id}/tickets-sold`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ show_id: showId, tickets_sold: tickets }),
+        body: JSON.stringify({
+          show_id: showId,
+          tickets_sold: tickets,
+          source_note: (draftTicketNotes[showId] ?? '').trim(),
+        }),
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body.error || 'Could not save tickets sold')
@@ -561,6 +597,7 @@ export default function SettlementSheetClient({
     amount: number
     paid?: boolean
     quote_note?: string | null
+    source_note?: string | null
     source?: 'manual' | 'advancing_copy'
   }) {
     setBusy(true)
@@ -576,6 +613,7 @@ export default function SettlementSheetClient({
           amount: opts.amount,
           paid: opts.paid,
           quote_note: opts.quote_note,
+          source_note: opts.source_note ?? opts.quote_note,
           source: opts.source ?? 'manual',
           label: opts.line.label,
         }),
@@ -630,26 +668,34 @@ export default function SettlementSheetClient({
 
   const tableHandlers = {
     busy,
-    onConfirmVenue: (line: DecoratedSheetLine, amount: number) => {
+    onConfirmVenue: (line: DecoratedSheetLine, amount: number, sourceNote: string) => {
       const showId = focusedShow?.id ?? runModel.sections.find(sec =>
         sec.lines.some(l => l.key === line.key),
       )?.show.id ?? null
-      void upsertActual({ line, showId, amount })
+      void upsertActual({ line, showId, amount, source_note: sourceNote })
     },
     onChallenge: (line: DecoratedSheetLine, showId: string | null) => {
       setDraftPreview(null)
       setChallengeLine({ line, showId })
     },
-    onSaveBand: (line: DecoratedSheetLine, amount: number) => {
-      void upsertActual({ line, showId: null, amount, source: 'manual' })
+    onSaveBand: (line: DecoratedSheetLine, amount: number, sourceNote: string) => {
+      void upsertActual({ line, showId: null, amount, source: 'manual', source_note: sourceNote, quote_note: sourceNote })
     },
-    onTogglePaid: (line: DecoratedSheetLine, paid: boolean) => {
+    onTogglePaid: (line: DecoratedSheetLine, paid: boolean, sourceNote: string) => {
       const amount = line.actual ?? line.expected ?? 0
-      void upsertActual({ line, showId: null, amount, paid, source: line.actualSource === 'advancing_copy' ? 'advancing_copy' : 'manual' })
+      void upsertActual({
+        line,
+        showId: line.key.startsWith('run:') ? null : focusedShow?.id ?? null,
+        amount,
+        paid,
+        source: line.actualSource === 'advancing_copy' ? 'advancing_copy' : 'manual',
+        source_note: sourceNote,
+        quote_note: sourceNote,
+      })
     },
     onQuoteNote: (line: DecoratedSheetLine, note: string) => {
       const amount = line.actual ?? line.expected ?? 0
-      void upsertActual({ line, showId: null, amount, quote_note: note, source: line.actualSource === 'advancing_copy' ? 'advancing_copy' : 'manual' })
+      void upsertActual({ line, showId: null, amount, quote_note: note, source_note: note, source: line.actualSource === 'advancing_copy' ? 'advancing_copy' : 'manual' })
     },
   }
 
@@ -797,9 +843,20 @@ export default function SettlementSheetClient({
                         className="mt-1 block w-28 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm"
                       />
                     </label>
+                    <label className="text-[10px] uppercase tracking-wide text-slate-500">
+                      {NOTES_SOURCE_OF_DATA_LABEL}
+                      <input
+                        type="text"
+                        value={draftTicketNotes[show.id] ?? ''}
+                        onChange={e => setDraftTicketNotes(prev => ({ ...prev, [show.id]: e.target.value }))}
+                        placeholder="Settlement sheet / email scrape"
+                        data-testid={`sheet-tickets-source-${show.id}`}
+                        className="mt-1 block w-56 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm"
+                      />
+                    </label>
                     <button
                       type="submit"
-                      disabled={busy}
+                      disabled={busy || !(draftTicketNotes[show.id] ?? '').trim()}
                       data-testid={`sheet-tickets-save-${show.id}`}
                       className="bg-amber-400 text-slate-900 text-xs font-semibold px-3 py-1.5 rounded hover:bg-amber-300 disabled:opacity-50"
                     >
@@ -812,16 +869,16 @@ export default function SettlementSheetClient({
                   lines={lines}
                   showId={show.id}
                   {...tableHandlers}
-                  onConfirmVenue={(line, amount) => void upsertActual({ line, showId: show.id, amount })}
+                  onConfirmVenue={(line, amount, sourceNote) => void upsertActual({ line, showId: show.id, amount, source_note: sourceNote })}
                   onChallenge={(line) => {
                     setDraftPreview(null)
                     setChallengeLine({ line, showId: show.id })
                   }}
-                  onSaveBand={(line, amount) => {
+                  onSaveBand={(line, amount, sourceNote) => {
                     const sid = line.key.startsWith('run:') ? null : show.id
-                    void upsertActual({ line, showId: sid, amount, source: 'manual' })
+                    void upsertActual({ line, showId: sid, amount, source: 'manual', source_note: sourceNote, quote_note: sourceNote })
                   }}
-                  onTogglePaid={(line, paid) => {
+                  onTogglePaid={(line, paid, sourceNote) => {
                     const sid = line.key.startsWith('run:') ? null : show.id
                     void upsertActual({
                       line,
@@ -829,6 +886,8 @@ export default function SettlementSheetClient({
                       amount: line.actual ?? line.expected ?? 0,
                       paid,
                       source: line.actualSource === 'advancing_copy' ? 'advancing_copy' : 'manual',
+                      source_note: sourceNote,
+                      quote_note: sourceNote,
                     })
                   }}
                   onQuoteNote={(line, note) => {
@@ -838,6 +897,7 @@ export default function SettlementSheetClient({
                       showId: sid,
                       amount: line.actual ?? line.expected ?? 0,
                       quote_note: note,
+                      source_note: note,
                       source: line.actualSource === 'advancing_copy' ? 'advancing_copy' : 'manual',
                     })
                   }}

@@ -20,6 +20,7 @@ import {
   mergeShowsWithAdvancingChrome,
   type AdvancingShowChrome,
 } from '@/lib/run-advancing'
+import type { AdvancingTicketLock } from './PnlOwnerChrome'
 import AdvancementTab from './AdvancementTab'
 import ShowPackTab from './ShowPackTab'
 import TicketOutlookBlock from './TicketOutlookBlock'
@@ -105,6 +106,7 @@ type Show = {
   capacity: number | null
   capacity_bands?: unknown | null
   ticket_price: number | null
+  tickets_sold?: number | null
   sell_through_pct: number | null
   show_order: number
   ticket_outlook?: string | null
@@ -1772,6 +1774,7 @@ export default function CostFieldsTab({
   advancingWorkspaceId = null,
   initialAdvancingFields = [],
   initialAdvancingChrome = [],
+  ticketLocks = {},
 }: {
   runId: string
   runCode: string
@@ -1792,6 +1795,7 @@ export default function CostFieldsTab({
   advancingWorkspaceId?: string | null
   initialAdvancingFields?: CostFieldRow[]
   initialAdvancingChrome?: AdvancingShowChrome[]
+  ticketLocks?: Record<string, AdvancingTicketLock>
 }) {
   const { effectiveRole, profile } = useProfile()
   const hasTabAccess = canAccessTab(effectiveRole, 'costs')
@@ -2059,6 +2063,7 @@ export default function CostFieldsTab({
   })()
 
   async function updateSellThrough(showId: string, pct: number) {
+    if (onAdvancingSheet && ticketLocks[showId]?.locked) return
     const newSellThrough = { ...sellThrough, [showId]: pct }
     setSellThrough(newSellThrough)
     const supabase = createClient()
@@ -2233,6 +2238,7 @@ export default function CostFieldsTab({
                     return updated ?? show
                   }
                 : undefined}
+              ticketLocks={onAdvancingSheet ? ticketLocks : undefined}
             />
           )}
 

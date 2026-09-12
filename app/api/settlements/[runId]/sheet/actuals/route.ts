@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server-admin'
 import { writeAuditLog } from '@/lib/audit-log'
 import { getSettlementsActor, resolveSettlementsRun } from '@/lib/settlements-access'
+import { persistActualWriteBack } from '@/lib/settlements-advancing-sync-persist'
+import { pickSourceNote, sourceNoteRequiredError } from '@/lib/settlements-advancing-sync'
 import { showHasOccurred } from '@/lib/settlements-sheet'
 import {
   formatSheetActualAuditCopy,
@@ -46,6 +48,8 @@ export async function POST(
     amount?: number | string
     source?: SettlementActualSource
     quote_note?: string | null
+    notes?: string | null
+    source_note?: string | null
     paid?: boolean
     label?: string
   }
@@ -85,7 +89,7 @@ export async function POST(
     : 'manual'
   const now = new Date().toISOString()
 
-  if (body.line_kind === 'band_cost' && existing) {
+  if (existing) {
     const lock = sheetBandPaidLockViolation({
       existingPaid: Boolean(existing.paid),
       nextPaid: body.paid === undefined ? Boolean(existing.paid) : Boolean(body.paid),
@@ -96,12 +100,19 @@ export async function POST(
     if (lock) return NextResponse.json({ error: lock }, { status: 409 })
   }
 
-  const paid = body.line_kind === 'band_cost'
-    ? (body.paid === undefined ? Boolean(existing?.paid) : Boolean(body.paid))
-    : false
+  const paid = body.paid === undefined ? Boolean(existing?.paid) : Boolean(body.paid)
   const quoteNote = typeof body.quote_note === 'string' || body.quote_note === null
     ? ((body.quote_note ?? '').trim() || null)
     : (existing?.quote_note ?? null)
+  const sourceNote = pickSourceNote(
+    body.source_note,
+    body.notes,
+    quoteNote,
+    existing?.notes as string | null | undefined,
+    existing?.quote_note as string | null | undefined,
+  )
+  const sourceErr = sourceNoteRequiredError(sourceNote)
+  if (sourceErr) return NextResponse.json({ error: sourceErr }, { status: 400 })
 
   const payload = {
     run_id: run.id,
@@ -111,6 +122,7 @@ export async function POST(
     amount,
     status: existing?.status === 'challenged' ? 'challenged' : 'confirmed',
     source: existing && source === 'manual' && existing.source !== 'manual' ? 'manual' : source,
+    notes: sourceNote,
     quote_note: quoteNote,
     paid,
     paid_at: paid ? (existing?.paid_at ?? now) : null,
@@ -126,8 +138,26 @@ export async function POST(
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const label = (body.label ?? lineKey).trim()
+  try {
+    await persistActualWriteBack({
+      admin,
+      runId: run.id,
+      runCode: run.code,
+      lineKey,
+      showId,
+      label,
+      actualAmount: amount,
+      markPaid: paid,
+      sourceNote,
+      actorUserId: actor.userId,
+      actorName: actor.fullName,
+    })
+  } catch (err) {
+    console.error('Settlements → Advancing write-back failed:', err)
+  }
+
   const paidChanged = Boolean(existing?.paid) !== paid
-  if (paidChanged && body.line_kind === 'band_cost') {
+  if (paidChanged) {
     const copy = formatSheetBandPaidAuditCopy({
       actorName: actor.fullName,
       runCode: run.code,

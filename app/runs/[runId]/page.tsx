@@ -23,6 +23,7 @@ import {
   loadAdvancingCostFields,
 } from '@/lib/run-advancing-persist'
 import type { AdvancingShowChrome } from '@/lib/run-advancing'
+import { ticketLockFromActuals } from '@/lib/settlements-advancing-sync'
 import { isAdvancingDeskTab, parseRunDetailTab } from '@/lib/tour-desk-nav'
 
 type Show = {
@@ -34,6 +35,7 @@ type Show = {
   capacity: number | null
   capacity_bands?: unknown | null
   ticket_price: number | null
+  tickets_sold?: number | null
   sell_through_pct: number | null
   show_order: number
   ticket_outlook: string | null
@@ -124,7 +126,7 @@ export default async function RunDetailPage({
   if (!run) notFound()
 
   const auditOr = `run_id.eq.${run.id},record_id.eq.${run.id}`
-  const [{ data: shows }, { data: costFields }, auditResult, { data: advancementRows }, { data: factorsRaw }, remittanceResult, agentResult] = await Promise.all([
+  const [{ data: shows }, { data: costFields }, auditResult, { data: advancementRows }, { data: factorsRaw }, remittanceResult, agentResult, ticketActualsResult] = await Promise.all([
     supabase.from('shows').select('*').eq('run_id', run.id).order('show_order'),
     supabase.from('cost_fields').select('*').eq('run_id', run.id).order('show_id', { ascending: true, nullsFirst: false }),
     (async () => {
@@ -154,6 +156,7 @@ export default async function RunDetailPage({
     ]),
     supabase.from('remittance_lines').select('show_id, description, amount').eq('run_id', run.id),
     supabase.from('agent_settlement_lines').select('show_id, description, amount').eq('run_id', run.id),
+    supabase.from('settlement_actual_lines').select('show_id, line_key, amount, source, notes').eq('run_id', run.id).eq('line_key', 'tickets_sold'),
   ])
   const auditRows = auditResult.data
 
@@ -389,6 +392,25 @@ export default async function RunDetailPage({
         advancingWorkspaceId={advancingWorkspace?.id ?? null}
         initialAdvancingFields={advancingFields as CostFieldRow[]}
         initialAdvancingChrome={advancingChrome}
+        ticketLocks={Object.fromEntries(
+          typedShows.flatMap(show => {
+            const lock = ticketLockFromActuals({
+              showId: show.id,
+              showDate: show.show_date,
+              ticketsSold: show.tickets_sold,
+              actuals: (ticketActualsResult.error ? [] : ticketActualsResult.data ?? []).map(row => ({
+                show_id: row.show_id,
+                line_key: String(row.line_key),
+                amount: Number(row.amount) || 0,
+                source: String(row.source ?? ''),
+                notes: (row.notes as string | null) ?? null,
+              })),
+            })
+            return lock.locked && lock.tickets != null
+              ? [[show.id, { locked: true, tickets: lock.tickets, sourceNote: lock.sourceNote }]] as const
+              : []
+          }),
+        )}
         runName={run.name}
         region={run.region}
         startDate={startDate}
