@@ -26,6 +26,7 @@ export type RunBookingFreezeRow = {
   status: string
   booked_cost_snapshot: unknown
   booked_cost_frozen_at: string | null
+  costings_unconfirmed_at?: string | null
 }
 
 export async function loadRunBookingFreeze(
@@ -34,13 +35,13 @@ export async function loadRunBookingFreeze(
 ): Promise<RunBookingFreezeRow | null> {
   const byId = await admin
     .from('runs')
-    .select('id, code, status, booked_cost_snapshot, booked_cost_frozen_at')
+    .select('id, code, status, booked_cost_snapshot, booked_cost_frozen_at, costings_unconfirmed_at')
     .eq('id', runId)
     .maybeSingle()
   if (byId.data) return byId.data as RunBookingFreezeRow
   const byCode = await admin
     .from('runs')
-    .select('id, code, status, booked_cost_snapshot, booked_cost_frozen_at')
+    .select('id, code, status, booked_cost_snapshot, booked_cost_frozen_at, costings_unconfirmed_at')
     .eq('code', runId.toUpperCase())
     .maybeSingle()
   return (byCode.data as RunBookingFreezeRow | null) ?? null
@@ -71,6 +72,7 @@ export async function captureBookedCostSnapshotIfNeeded(opts: {
   prevStatus?: string | null
   actorId?: string | null
   actorName?: string | null
+  forceRecapture?: boolean
 }): Promise<{ captured: boolean; snapshot: BookedCostSnapshot | null }> {
   const existing = await loadRunBookingFreeze(opts.admin, opts.runId)
   const hasSnapshot = hasBookedCostSnapshot(existing?.booked_cost_snapshot)
@@ -80,6 +82,7 @@ export async function captureBookedCostSnapshotIfNeeded(opts: {
     prevStatus: opts.prevStatus ?? existing?.status ?? null,
     hasSnapshot,
     lockEnabled: settings.booked_costing_lock,
+    forceRecapture: opts.forceRecapture,
   })) {
     return { captured: false, snapshot: parseBookedCostSnapshot(existing?.booked_cost_snapshot) }
   }

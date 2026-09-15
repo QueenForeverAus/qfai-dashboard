@@ -2,50 +2,13 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { RUN_DEFAULTS } from '@/lib/defaults/run-defaults'
 import { generateEntries, type FactorOverrides } from '@/lib/defaults/generate-entries'
-import { loadPortalSettings, PORTAL_SETTINGS_DEFAULTS } from '@/lib/portal-settings'
-
-// Factor keys → affected cost_field field_keys (estimated state only)
-const FACTOR_FIELD_MAP: Record<string, string[]> = {
-  accom_per_night:             ['accommodation'],
-  per_diem_per_person_per_day: ['per_diems'],
-  food_basics_per_show:        ['food_basics'],
-  lighting_hire_per_run:       ['lighting_hire'],
-  backline_hire_per_run:       ['backline_hire'],
-  crew_travel_day_adam:        ['crew_travel_day'],
-  crew_travel_day_michael:     ['crew_travel_day'],
-}
-
-function computeNewValue(
-  fieldKey: string,
-  runCode: string,
-  numShows: number,
-  factors: FactorOverrides,
-  lightingHireDefault = PORTAL_SETTINGS_DEFAULTS.lighting_hire_default,
-): number | null {
-  switch (fieldKey) {
-    case 'accommodation': {
-      const nights = RUN_DEFAULTS[runCode]?.accommodationNights ?? numShows
-      return nights * (factors.accom_per_night ?? 1400)
-    }
-    case 'per_diems': {
-      const days = RUN_DEFAULTS[runCode]?.perDiemDays ?? numShows
-      return days * 2 * (factors.per_diem_per_person_per_day ?? 40)
-    }
-    case 'food_basics':
-      return numShows * (factors.food_basics_per_show ?? 225)
-    case 'lighting_hire':
-      return factors.lighting_hire_per_run ?? lightingHireDefault
-    case 'backline_hire':
-      return factors.backline_hire_per_run ?? 3800
-    case 'crew_travel_day': {
-      const adam = factors.crew_travel_day_adam ?? 250
-      const michael = factors.crew_travel_day_michael ?? 250
-      return adam + michael
-    }
-    default:
-      return null
-  }
-}
+import { loadPortalSettings } from '@/lib/portal-settings'
+import {
+  buildFactorFieldPatch,
+  canRefreshCostingsFromFactors,
+  FACTOR_COSTING_FIELD_MAP,
+  shouldRefreshCostField,
+} from '@/lib/factors-refresh'
 
 export async function GET() {
   const supabase = createAdminClient()
@@ -79,15 +42,14 @@ export async function PATCH(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Cascade: re-derive affected estimated fields across all runs
-  const affectedFieldKeys = FACTOR_FIELD_MAP[key]
+  const affectedFieldKeys = FACTOR_COSTING_FIELD_MAP[key]
   if (affectedFieldKeys?.length) {
-    // Fetch all current factor values to pass as overrides
     const { data: allFactors } = await supabase.from('run_factors').select('key, value')
     const factorMap: FactorOverrides = {}
     for (const f of allFactors ?? []) {
-      if (f.key in FACTOR_FIELD_MAP || ['accom_per_night','per_diem_per_person_per_day','food_basics_per_show','lighting_hire_per_run','backline_hire_per_run','crew_travel_day_adam','crew_travel_day_michael'].includes(f.key)) {
-        (factorMap as Record<string, number>)[f.key] = parseFloat(f.value)
+      if (f.key in FACTOR_COSTING_FIELD_MAP) {
+        const n = parseFloat(f.value)
+        if (Number.isFinite(n)) (factorMap as Record<string, number>)[f.key] = n
       }
     }
 
@@ -95,14 +57,12 @@ export async function PATCH(req: NextRequest) {
     const today = new Date().toISOString().slice(0, 10)
     const { data: runs } = await supabase.from('runs').select('id, code, status')
     for (const run of runs ?? []) {
-      // BOOKED cost freeze: do not rewrite live cost lines on a frozen sheet.
-      if (run.status === 'confirmed') continue
+      if (!canRefreshCostingsFromFactors(run)) continue
       const defaults = RUN_DEFAULTS[run.code] ?? null
 
-      // Only fetch upcoming shows — don't cascade to shows that have already happened
       const { data: shows } = await supabase
         .from('shows')
-        .select('id, show_order, venue_city, show_date')
+        .select('id, show_order, venue_city, show_date, capacity, ticket_price, tickets_sold, sell_through_pct')
         .eq('run_id', run.id)
         .gte('show_date', today)
         .order('show_order')
@@ -111,20 +71,35 @@ export async function PATCH(req: NextRequest) {
 
       const { data: fields } = await supabase
         .from('cost_fields')
-        .select('id, field_key, state')
+        .select('id, field_key, state, show_id')
         .eq('run_id', run.id)
         .in('field_key', affectedFieldKeys)
-        .in('state', ['estimated', 'guess'])
 
       if (!fields?.length) continue
 
+      const showsById = new Map(shows.map(s => [s.id, s]))
       const numShows = shows.length
       for (const field of fields) {
-        const newValue = computeNewValue(field.field_key, run.code, numShows, factorMap, lightingHireDefault)
+        if (!shouldRefreshCostField({
+          fieldKey: field.field_key,
+          state: field.state,
+          runStatus: run.status,
+        })) continue
+        const show = field.show_id ? showsById.get(field.show_id) ?? null : null
+        const derived = buildFactorFieldPatch({
+          fieldKey: field.field_key,
+          runCode: run.code,
+          numShows,
+          factors: factorMap,
+          lightingHireDefault,
+          show,
+        })
         const newEntries = generateEntries(field.field_key, field.state, defaults, shows, factorMap)
         const patch: Record<string, unknown> = {}
-        if (newValue !== null) patch.value = newValue
-        // Explicitly stringify entries so the JSONB column always receives a valid payload
+        if (derived) {
+          patch.value = derived.value
+          if (derived.state) patch.state = derived.state
+        }
         if (newEntries?.length) patch.entries = JSON.parse(JSON.stringify(newEntries))
         if (Object.keys(patch).length) {
           await supabase.from('cost_fields').update(patch).eq('id', field.id)

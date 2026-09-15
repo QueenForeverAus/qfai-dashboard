@@ -30,6 +30,8 @@ export type FactorOverrides = {
   crew_fee_michael_pm?: number
   crew_fee_darryn?: number
   crew_fee_danny?: number
+  music_rights_pct?: number
+  daniel_champagne_per_ticket?: number
 }
 
 const CREW_BREAKDOWN = [

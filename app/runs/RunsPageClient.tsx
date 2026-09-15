@@ -13,6 +13,7 @@ import {
   runDetailHref,
 } from '@/lib/tour-desk-nav'
 import { isBookedBookingStatus } from '@/lib/booked-cost-freeze'
+import { BOOK_SURE_WARNING, REBOOK_SURE_WARNING, UNCONFIRM_WARNING } from '@/lib/unconfirm'
 import {
   CANCELLED_OR_RESCHEDULED_HEADING,
   partitionRunsActiveVsCancelled,
@@ -62,6 +63,7 @@ export type Run = {
   start_date: string | null
   end_date: string | null
   completion_pct: number
+  costings_unconfirmed_at?: string | null
   shows: {
     id: string
     show_date?: string | null
@@ -98,12 +100,14 @@ const ADVANCING_TABS: { key: Tab; label: string }[] = [
   { key: 'completed', label: 'COMPLETED' },
 ]
 
-function StatusChangeButtons({ runId, currentStatus, onStatusChange }: {
+function StatusChangeButtons({ runId, currentStatus, costingsUnconfirmedAt, onStatusChange }: {
   runId: string
   currentStatus: string
-  onStatusChange: (runId: string, newStatus: string) => void
+  costingsUnconfirmedAt?: string | null
+  onStatusChange: (runId: string, newStatus: string, patch?: Partial<Run>) => void
 }) {
   const [pending, startTransition] = useTransition()
+  const unconfirmed = Boolean(costingsUnconfirmedAt)
 
   function change(newStatus: string) {
     startTransition(async () => {
@@ -120,8 +124,13 @@ function StatusChangeButtons({ runId, currentStatus, onStatusChange }: {
     return (
       <div className="flex items-center gap-1">
         <button
-          onClick={(e) => { e.preventDefault(); change('confirmed') }}
+          onClick={(e) => {
+            e.preventDefault()
+            if (!window.confirm(BOOK_SURE_WARNING)) return
+            change('confirmed')
+          }}
           disabled={pending}
+          data-testid="book-accept"
           className="px-2 py-0.5 rounded text-xs font-semibold bg-green-900/60 text-green-400 border border-green-700 hover:bg-green-800/60 disabled:opacity-40 transition-colors"
         >
           Accept
@@ -137,13 +146,47 @@ function StatusChangeButtons({ runId, currentStatus, onStatusChange }: {
     )
   }
 
+  if (currentStatus === 'confirmed' && unconfirmed) {
+    return (
+      <button
+        onClick={(e) => {
+          e.preventDefault()
+          if (!window.confirm(REBOOK_SURE_WARNING)) return
+          startTransition(async () => {
+            const res = await fetch(`/api/runs/${runId}/rebook`, { method: 'POST' })
+            if (res.ok) onStatusChange(runId, 'confirmed', { costings_unconfirmed_at: null })
+          })
+        }}
+        disabled={pending}
+        data-testid="rebook-accept"
+        className="px-2 py-0.5 rounded text-xs font-semibold bg-green-900/60 text-green-400 border border-green-700 hover:bg-green-800/60 disabled:opacity-40 transition-colors"
+        title="Freeze Costings again and recopy to Advancing, preserving PAID"
+      >
+        Accept
+      </button>
+    )
+  }
+
   if (currentStatus === 'confirmed') {
     return (
       <button
-        onClick={(e) => { e.preventDefault(); change('proposed') }}
+        onClick={(e) => {
+          e.preventDefault()
+          if (!window.confirm(UNCONFIRM_WARNING)) return
+          const why = window.prompt('Optional why (Unconfirm audit):') ?? ''
+          startTransition(async () => {
+            const res = await fetch(`/api/runs/${runId}/unconfirm`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reason: why }),
+            })
+            if (res.ok) onStatusChange(runId, 'confirmed', { costings_unconfirmed_at: new Date().toISOString() })
+          })
+        }}
         disabled={pending}
+        data-testid="unconfirm-costings"
         className="px-2 py-0.5 rounded text-xs font-semibold bg-slate-700 text-slate-400 border border-slate-600 hover:bg-slate-600 disabled:opacity-40 transition-colors"
-        title="Move back to proposed"
+        title="Unlock Costings. Run stays BOOKED. Advancing retained."
       >
         Unconfirm
       </button>
@@ -171,7 +214,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
   completed?: boolean
   declined?: boolean
   cancelled?: boolean
-  onStatusChange: (runId: string, newStatus: string) => void
+  onStatusChange: (runId: string, newStatus: string, patch?: Partial<Run>) => void
 }) {
   const pathname = usePathname()
   const advancingEntry = pathname.startsWith('/advancing')
@@ -226,7 +269,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
                 </div>
                 {!cancelled && (
                 <div className="flex-shrink-0">
-                  <StatusChangeButtons runId={run.id} currentStatus={run.status} onStatusChange={onStatusChange} />
+                  <StatusChangeButtons runId={run.id} currentStatus={run.status} costingsUnconfirmedAt={run.costings_unconfirmed_at} onStatusChange={onStatusChange} />
                 </div>
                 )}
               </div>
@@ -314,7 +357,7 @@ function RunTable({ runs, completionByRun, completed = false, declined = false, 
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   {!cancelled && (
-                    <StatusChangeButtons runId={run.id} currentStatus={run.status} onStatusChange={onStatusChange} />
+                    <StatusChangeButtons runId={run.id} currentStatus={run.status} costingsUnconfirmedAt={run.costings_unconfirmed_at} onStatusChange={onStatusChange} />
                   )}
                 </td>
               </tr>
@@ -344,7 +387,7 @@ function GroupedRunTables({
   completed?: boolean
   declined?: boolean
   cancelled?: boolean
-  onStatusChange: (runId: string, newStatus: string) => void
+  onStatusChange: (runId: string, newStatus: string, patch?: Partial<Run>) => void
 }) {
   const groups = group && visibleTours(tours).length > 0
     ? groupRunsByTour(runs, tours)
@@ -416,8 +459,8 @@ export default function RunsPageClient({
     ))
     : runs
 
-  function handleStatusChange(runId: string, newStatus: string) {
-    setRuns(prev => prev.map(r => r.id === runId ? { ...r, status: newStatus } : r))
+  function handleStatusChange(runId: string, newStatus: string, patch?: Partial<Run>) {
+    setRuns(prev => prev.map(r => r.id === runId ? { ...r, status: newStatus, ...patch } : r))
     if (advancingDesk && !isAdvancingShowsListRun({
       status: newStatus,
       workspace: null,

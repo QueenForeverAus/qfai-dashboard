@@ -22,6 +22,7 @@ import {
   RUN_ADVANCING_TAB_LABEL,
   shouldArchiveAdvancingWorkspace,
   shouldCopyRunIntoAdvancing,
+  shouldRecopyAdvancingAfterRebook,
   shouldEnsureAdvancingWorkspaceForBookedRun,
   TOUR_DESK_V2_SETTINGS_LOCK_ON,
   WORKSHEET_TAB_LABEL,
@@ -128,6 +129,19 @@ describe('Tour Desk v2 Phase 1 — Run Advancing', () => {
     }), false)
     assert.equal(isRunCostSheetFrozen({ status: 'proposed' }), false)
     assert.equal(isRunCostSheetFrozen({ status: 'confirmed' }), true)
+    assert.equal(shouldArchiveAdvancingWorkspace({
+      nextStatus: 'confirmed',
+      prevStatus: 'confirmed',
+      hasActiveWorkspace: true,
+    }), false)
+    assert.equal(shouldRecopyAdvancingAfterRebook({
+      isUnconfirmed: true,
+      hasActiveWorkspace: true,
+    }), true)
+    assert.equal(shouldRecopyAdvancingAfterRebook({
+      isUnconfirmed: false,
+      hasActiveWorkspace: true,
+    }), false)
   })
 
   it('treats archived_at as a soft-archive, not a delete', () => {

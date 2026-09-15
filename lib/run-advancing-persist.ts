@@ -10,6 +10,7 @@ import { writeAuditLog } from './audit-log.ts'
 import {
   ADVANCING_WRITEBACK_ERROR,
   ADVANCING_WRITES_BACK_TO_COSTING,
+  advancingCopyLineKey,
   buildAdvancingFieldCopies,
   buildAdvancingShowsChrome,
   formatRunAdvancingArchiveAuditCopy,
@@ -18,10 +19,15 @@ import {
   shouldArchiveAdvancingWorkspace,
   shouldCopyRunIntoAdvancing,
   shouldEnsureAdvancingWorkspaceForBookedRun,
+  type AdvancingCostFieldCopy,
   type AdvancingShowChrome,
   type CostFieldCopySource,
   type ShowChromeSource,
 } from './run-advancing.ts'
+import {
+  isBandCompsFieldKey,
+  mergeCostingCopiesPreservingAdvancing,
+} from './advancing-preserve.ts'
 import type { createAdminClient } from '@/lib/supabase/server-admin'
 
 type AdminClient = ReturnType<typeof createAdminClient>
@@ -254,6 +260,108 @@ export async function archiveAdvancingWorkspaceIfNeeded(opts: {
   }
 
   return { archived: true }
+}
+
+/**
+ * Re-BOOK after Unconfirm: overwrite Advancing structure from Costings,
+ * keep PAID / INVOICED / paid travel / Band Comps on the existing twin.
+ * Does not archive or create a second workspace.
+ */
+export async function recopyCostingsIntoAdvancingPreservingPaid(opts: {
+  admin: AdminClient
+  runId: string
+  runCode: string
+  actorId?: string | null
+  actorName?: string | null
+}): Promise<{ copied: boolean; fieldCount: number; workspace: RunAdvancingWorkspaceRow | null }> {
+  assertNoAdvancingWriteBack()
+  const existing = await loadActiveAdvancingWorkspace(opts.admin, opts.runId)
+  if (!isAdvancingWorkspaceActive(existing) || !existing) {
+    const created = await insertAdvancingWorkspaceCopy(opts)
+    return {
+      copied: created.copied,
+      fieldCount: 0,
+      workspace: created.workspace,
+    }
+  }
+
+  const [{ data: fields }, { data: shows }] = await Promise.all([
+    opts.admin.from('cost_fields').select('*').eq('run_id', opts.runId),
+    opts.admin.from('shows').select('id, ticket_price, capacity, capacity_bands, booking_fee_per_payer, cc_fee_pct').eq('run_id', opts.runId),
+  ])
+
+  const costingCopies = buildAdvancingFieldCopies(
+    existing.id,
+    opts.runId,
+    (fields ?? []) as CostFieldCopySource[],
+  )
+  const advancingRows = await loadAdvancingCostFields(opts.admin, existing.id)
+  const merged = mergeCostingCopiesPreservingAdvancing(
+    costingCopies,
+    advancingRows.map(row => ({
+      show_id: row.show_id,
+      field_key: row.field_key,
+      state: row.state,
+      value: row.value,
+      source: row.source,
+      label: row.label,
+      category: row.category,
+      entries: Array.isArray(row.entries) ? row.entries : null,
+      line_items: Array.isArray(row.line_items) ? row.line_items : null,
+    })),
+  )
+
+  const existingByKey = new Map(
+    advancingRows.map(row => [advancingCopyLineKey(row), row]),
+  )
+  const now = new Date().toISOString()
+
+  for (const row of merged) {
+    const prior = existingByKey.get(advancingCopyLineKey(row))
+    const payload: Record<string, unknown> = {
+      category: row.category,
+      label: row.label,
+      value: row.value,
+      state: row.state,
+      source: row.source,
+      line_items: row.line_items,
+      entries: row.entries,
+      updated_at: now,
+    }
+    if (prior && 'id' in prior && prior.id) {
+      if (isBandCompsFieldKey(row.field_key)) continue
+      await opts.admin.from('advancing_cost_fields').update(payload).eq('id', prior.id)
+    } else {
+      const insertRow: AdvancingCostFieldCopy = {
+        workspace_id: existing.id,
+        run_id: opts.runId,
+        source_cost_field_id: costingCopies.find(c => advancingCopyLineKey(c) === advancingCopyLineKey(row))?.source_cost_field_id ?? null,
+        show_id: row.show_id,
+        category: row.category ?? 'Venue Costs',
+        field_key: row.field_key,
+        label: row.label ?? row.field_key,
+        value: row.value ?? null,
+        state: row.state ?? 'guess',
+        source: row.source ?? null,
+        line_items: row.line_items ?? null,
+        entries: row.entries ?? null,
+      }
+      await opts.admin.from('advancing_cost_fields').insert(insertRow)
+    }
+  }
+
+  const chrome = buildAdvancingShowsChrome((shows ?? []) as ShowChromeSource[])
+  await opts.admin
+    .from('run_advancing_workspaces')
+    .update({
+      copied_at: now,
+      copied_by: opts.actorId ?? existing.copied_by,
+      shows_chrome: chrome,
+      updated_at: now,
+    })
+    .eq('id', existing.id)
+
+  return { copied: true, fieldCount: merged.length, workspace: existing }
 }
 
 export async function syncRunAdvancingForStatusChange(opts: {

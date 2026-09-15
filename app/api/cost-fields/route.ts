@@ -17,6 +17,7 @@ import {
   productionCanEditFieldKey,
   stampPaidAt,
 } from '@/lib/cost-fields'
+import { normalizeStoredCostFieldState } from '@/lib/certainty-ladder'
 import { rejectIfBookedCostFrozen } from '@/lib/booked-cost-freeze-persist'
 
 /**
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
   const frozen = await rejectIfBookedCostFrozen(supabase, String(body.run_id))
   if (frozen) return frozen
 
-  const state = body.state ?? 'guess'
+  const state = normalizeStoredCostFieldState(body.state ?? 'guess') ?? 'guess'
   if (!isCostFieldState(String(state))) {
     return NextResponse.json({ error: 'Invalid state' }, { status: 400 })
   }

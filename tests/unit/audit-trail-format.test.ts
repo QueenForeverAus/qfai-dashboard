@@ -580,6 +580,29 @@ test('Run Advancing copy / archive narratives are plain sentences', () => {
   )
 })
 
+test('Unconfirm / Re-BOOK narratives are plain sentences', () => {
+  assert.equal(
+    sentence({
+      table_name: 'runs',
+      record_id: 'run-1',
+      field_name: 'Unconfirm Costings',
+      old_value: 'BOOKED · Costings frozen',
+      new_value: 'Gareth unconfirmed Costings for R12. Run stays BOOKED. Advancing retained. Why: venue quote changed.',
+    }),
+    'Gareth unconfirmed Costings for R12. Run stays BOOKED. Advancing retained. Why: venue quote changed.',
+  )
+  assert.equal(
+    sentence({
+      table_name: 'runs',
+      record_id: 'run-1',
+      field_name: 'Re-BOOK after Unconfirm',
+      old_value: 'BOOKED · Costings unconfirmed',
+      new_value: 'Gareth re-BOOKED R12: Costings frozen and copied to Advancing (12 lines), preserving PAID / INVOICED / paid travel / Band Comps.',
+    }),
+    'Gareth re-BOOKED R12: Costings frozen and copied to Advancing (12 lines), preserving PAID / INVOICED / paid travel / Band Comps.',
+  )
+})
+
 test('Finalise Costing narrative is a plain sentence', () => {
   assert.equal(
     sentence({
