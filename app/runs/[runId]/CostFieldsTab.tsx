@@ -54,6 +54,7 @@ import {
   INVOICED_FIELD_STATE,
   lineItemsSum,
   normalizeLineItems,
+  venueStaffHeaderAmount,
   roleCanSeeCostField,
   canEditCostFields,
   productionCanEditFieldKey,
@@ -1078,6 +1079,11 @@ function VenueStaffRow({
   const state = figureStateFromSelect(draftSelect, persistedState)
   const { styles, chipLabel, chromeAttr, allPaid: sectionPaid, showPaid } = sectionChrome(state, payableLines)
   const total = lineItemsSum(items)
+  const headerAmount = venueStaffHeaderAmount({
+    lineItems: items,
+    entries,
+    value: existing?.value,
+  })
   const enteredTotal = entries.reduce((s, e) => s + e.amount, 0)
   const staffInvoiceRows = entries.some(e => e.invoice_amount != null)
     ? entries
@@ -1278,8 +1284,8 @@ function VenueStaffRow({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <span className={`text-sm font-medium ${styles.text}`}>
-            {total > 0 ? fmt(total) : '—'}
+          <span data-testid="cost-field-venue_staff-amount" className={`text-sm font-medium ${styles.text}`}>
+            {headerAmount != null ? fmt(headerAmount) : '—'}
             {invoiceVar?.hasVariance && (
               <span data-testid="cost-field-invoice-variance" className="block text-[10px] font-medium text-sky-300">
                 Invoice {fmt(invoiceVar.invoiced)}
