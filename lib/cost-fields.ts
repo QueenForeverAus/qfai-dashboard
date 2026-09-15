@@ -277,6 +277,30 @@ export function lineItemsSum(items: StaffLineItem[] | null | undefined): number 
   )
 }
 
+/**
+ * Venue Staff header main amount.
+ * Prefer planned-role `line_items` when they exist and sum to a positive
+ * dollar amount. When roles are empty/missing (or sum to 0), fall back to
+ * entries sum, then field `value` — the same sources P&L `effectiveFieldValue`
+ * already uses. Does not invent amounts or mutate stored roles.
+ */
+export function venueStaffHeaderAmount(args: {
+  lineItems?: StaffLineItem[] | null
+  entries?: Array<{ amount?: number | null }> | null
+  value?: number | null
+}): number | null {
+  const rolesSum = lineItemsSum(args.lineItems)
+  if (Array.isArray(args.lineItems) && args.lineItems.length > 0 && rolesSum > 0) {
+    return rolesSum
+  }
+  const fromEntries = Array.isArray(args.entries)
+    ? args.entries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+    : 0
+  if (fromEntries > 0) return fromEntries
+  if (args.value != null && Number(args.value) > 0) return Number(args.value)
+  return null
+}
+
 /** True when the section has ≥1 line and every line-item confirm tick is checked. */
 export function allEntriesConfirmed(entries: PayableLine[] | null | undefined): boolean {
   return Array.isArray(entries) && entries.length > 0 && entries.every(e => e.confirmed)

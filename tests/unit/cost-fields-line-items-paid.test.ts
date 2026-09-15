@@ -12,6 +12,7 @@ import {
   hasBulkPaidSnapshot,
   lineItemsSum,
   normalizeLineItems,
+  venueStaffHeaderAmount,
   paidLineItemLockViolation,
   restorePaidSnapshot,
   rolledUpCostFieldState,
@@ -50,6 +51,36 @@ test('normalizeLineItems assigns ids and paid flags without changing rate×hrs×
   assert.equal(rows?.[1].id, 'keep-me')
   assert.equal(rows?.[1].paid, true)
   assert.equal(lineItemsSum(rows), 50 * 3 * 2 + 70 * 5 * 1)
+})
+
+test('venueStaffHeaderAmount falls back to entries then value when roles are empty', () => {
+  const entries = [{ amount: 1200 }, { amount: 300 }]
+  assert.equal(venueStaffHeaderAmount({ lineItems: [], entries, value: 9999 }), 1500)
+  assert.equal(venueStaffHeaderAmount({ lineItems: null, entries, value: 9999 }), 1500)
+  assert.equal(venueStaffHeaderAmount({ lineItems: undefined, entries: [], value: 4100 }), 4100)
+  assert.equal(venueStaffHeaderAmount({ lineItems: [], entries: [], value: null }), null)
+  assert.equal(venueStaffHeaderAmount({ lineItems: [], entries: [{ amount: 0 }], value: 0 }), null)
+})
+
+test('venueStaffHeaderAmount keeps planned-role sum when roles are present and > 0', () => {
+  const items = [role({ id: 'r1', rate: 50, hours: 3, headcount: 2 })]
+  const roleTotal = 50 * 3 * 2
+  assert.equal(
+    venueStaffHeaderAmount({
+      lineItems: items,
+      entries: [{ amount: 9999 }],
+      value: 8888,
+    }),
+    roleTotal,
+  )
+  assert.equal(
+    venueStaffHeaderAmount({
+      lineItems: [role({ id: 'zero', rate: 0, hours: 0, headcount: 0 })],
+      entries: [{ amount: 2750 }],
+      value: 4100,
+    }),
+    2750,
+  )
 })
 
 test('sectionPayableLines prefers venue_staff roles over entries', () => {
