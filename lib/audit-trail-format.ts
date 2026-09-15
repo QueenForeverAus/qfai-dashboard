@@ -43,6 +43,7 @@ import {
 } from './settlements-sheet-actuals.ts'
 import { AUDIT_FIELD_DISTRIBUTE } from './settlements-distribute-gate.ts'
 import { AUDIT_FIELD_SETTLEMENTS_ADVANCING_SYNC } from './settlements-advancing-sync.ts'
+import { AUDIT_FIELD_REBOOK, AUDIT_FIELD_UNCONFIRM } from './unconfirm.ts'
 import { staffDisplayName } from './cost-entry-source.ts'
 import { formatBookingStatus } from './format-booking-status.ts'
 import { formatDateAU } from './dates.ts'
@@ -196,6 +197,8 @@ const NARRATIVE_FIELDS = new Set([
   AUDIT_FIELD_SHEET_CHALLENGE,
   AUDIT_FIELD_DISTRIBUTE,
   AUDIT_FIELD_SETTLEMENTS_ADVANCING_SYNC,
+  AUDIT_FIELD_UNCONFIRM,
+  AUDIT_FIELD_REBOOK,
 ])
 
 export function formatAuditMoney(value: unknown): string {

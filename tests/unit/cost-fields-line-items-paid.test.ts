@@ -12,6 +12,7 @@ import {
   hasBulkPaidSnapshot,
   lineItemsSum,
   normalizeLineItems,
+  parentHeaderAmount,
   venueStaffHeaderAmount,
   paidLineItemLockViolation,
   restorePaidSnapshot,
@@ -60,6 +61,10 @@ test('venueStaffHeaderAmount falls back to entries then value when roles are emp
   assert.equal(venueStaffHeaderAmount({ lineItems: undefined, entries: [], value: 4100 }), 4100)
   assert.equal(venueStaffHeaderAmount({ lineItems: [], entries: [], value: null }), null)
   assert.equal(venueStaffHeaderAmount({ lineItems: [], entries: [{ amount: 0 }], value: 0 }), null)
+  assert.equal(
+    parentHeaderAmount({ lineItems: [], entries, value: 9999 }),
+    venueStaffHeaderAmount({ lineItems: [], entries, value: 9999 }),
+  )
 })
 
 test('venueStaffHeaderAmount keeps planned-role sum when roles are present and > 0', () => {

@@ -49,10 +49,11 @@ export function isBookedBookingStatus(status: string | null | undefined): boolea
  * and Admin Settings BOOKED costing lock is ON (default).
  */
 export function isRunCostSheetFrozen(
-  run: { status?: string | null } | null | undefined,
+  run: { status?: string | null; costings_unconfirmed_at?: string | null } | null | undefined,
   opts?: { lockEnabled?: boolean },
 ): boolean {
   if (opts?.lockEnabled === false) return false
+  if (run?.costings_unconfirmed_at) return false
   return isBookedBookingStatus(run?.status)
 }
 
@@ -61,9 +62,12 @@ export function shouldCaptureBookedCostSnapshot(opts: {
   prevStatus?: string | null
   hasSnapshot?: boolean
   lockEnabled?: boolean
+  /** Re-BOOK after Unconfirm — recapture even if still BOOKED with a snapshot. */
+  forceRecapture?: boolean
 }): boolean {
   if (opts.lockEnabled === false) return false
   if (!isBookedBookingStatus(opts.nextStatus)) return false
+  if (opts.forceRecapture) return true
   const hasSnapshot = opts.hasSnapshot === true
   if (hasSnapshot && isBookedBookingStatus(opts.prevStatus)) return false
   if (!isBookedBookingStatus(opts.prevStatus)) return true

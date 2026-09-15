@@ -12,6 +12,7 @@ import {
   PER_DIEM_PEOPLE,
   resolveSeedRegion,
 } from '../../lib/defaults/estimate-from-factors.ts'
+import { FOUR_VENUE_BUCKETS } from '../../lib/cost-fields.ts'
 import {
   buildSeedCostFieldRows,
   seedRunDefaults,
@@ -70,6 +71,19 @@ function runRow(rows: object[], fieldKey: string) {
     state: string
     source: string | null
   } | undefined
+}
+
+function showRows(rows: object[], fieldKey: string) {
+  return rows.filter(r => {
+    const row = r as { field_key: string; show_id: string | null }
+    return row.field_key === fieldKey && row.show_id != null
+  }) as Array<{
+    field_key: string
+    show_id: string | null
+    value: number | null
+    state: string
+    source: string | null
+  }>
 }
 
 function r01Shows(): SeedShow[] {
@@ -251,8 +265,22 @@ describe('missing RUN_DEFAULTS uses Factors for cost lines', () => {
     assert.equal(runRow(rows, 'accommodation')?.state, 'estimated')
     assert.equal(runRow(rows, 'ground_transport')?.value, 1900)
     assert.equal(runRow(rows, 'per_diems')?.value, 160)
-    assert.equal(runRow(rows, 'fb_ads')?.value, 6000)
+    assert.equal(runRow(rows, 'fb_ads'), undefined)
     assert.equal(runRow(rows, 'flights')?.value, 2000)
+    const showFb = showRows(rows, 'fb_ads')
+    assert.equal(showFb.length, 2)
+    assert.ok(showFb.every(r => r.state === 'guess' && r.value == null))
+    const showRights = showRows(rows, 'music_rights')
+    assert.equal(showRights.length, 2)
+    assert.ok(showRights.every(r => r.state === 'pending' && r.value == null))
+    const showDc = showRows(rows, 'daniel_champagne')
+    assert.equal(showDc.length, 2)
+    assert.ok(showDc.every(r => r.state === 'auto_calc'))
+    assert.equal(showDc.reduce((s, r) => s + (r.value ?? 0), 0), Math.round(375 * 1.10 * 100) / 100 + Math.round(600 * 1.10 * 100) / 100)
+    assert.equal(showRows(rows, 'venue_marketing').length, 2)
+    for (const key of FOUR_VENUE_BUCKETS) {
+      assert.equal(showRows(rows, key).length, 2, key)
+    }
   })
 
   it('uses lighting_hire_per_run over portal fallback; portal when Factor missing', () => {
@@ -320,7 +348,8 @@ describe('missing RUN_DEFAULTS uses Factors for cost lines', () => {
     assert.equal(runRow(rows, 'flights')?.value, 3000)
     assert.equal(runRow(rows, 'backline_hire')?.value, 3800)
     assert.equal(runRow(rows, 'crew_travel_day')?.value, 500)
-    assert.equal(runRow(rows, 'fb_ads')?.value, 6000 + 3500)
+    assert.equal(runRow(rows, 'fb_ads'), undefined)
+    assert.ok(showRows(rows, 'fb_ads').every(r => r.state === 'guess' && r.value == null))
     assert.equal(runRow(rows, 'ground_transport')?.value, 400 + 100 + 150)
   })
 })

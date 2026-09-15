@@ -7,6 +7,18 @@ import {
   ensureMinimumEntry,
   ENTRY_EXEMPT_FIELD_KEYS,
 } from '../cost-fields.ts'
+import {
+  computeDanielChampagne,
+  computeMusicRights,
+  DANIEL_CHAMPAGNE_FIELD_KEY,
+  DANIEL_CHAMPAGNE_FACTOR_KEY,
+  DANIEL_CHAMPAGNE_SOURCE,
+  FB_ADS_NOT_AUTO_SOURCE,
+  MUSIC_RIGHTS_FIELD_KEY,
+  MUSIC_RIGHTS_FACTOR_KEY,
+  MUSIC_RIGHTS_SOURCE,
+  parseOptionalFactor,
+} from '../show-auto-calc.ts'
 import { syncRunDatesFromShows } from '../run-dates.ts'
 import type { RunRegion } from '../types.ts'
 import {
@@ -68,6 +80,42 @@ function withDefaultEntry(row: Record<string, unknown>) {
   }
 }
 
+/** Show-level Music Rights (AUTO-CALC or FIGURES_NEEDED), DC, FB Ads (never auto). */
+function showWaveAAutoRows(runId: string, show: SeedShow, factors?: FactorMap): object[] {
+  const music = computeMusicRights({
+    show,
+    musicRightsPct: parseOptionalFactor(factors?.[MUSIC_RIGHTS_FACTOR_KEY]),
+  })
+  const dc = computeDanielChampagne({
+    show,
+    perTicket: parseOptionalFactor(factors?.[DANIEL_CHAMPAGNE_FACTOR_KEY]),
+  })
+  return [
+    withDefaultEntry({
+      run_id: runId, show_id: show.id,
+      category: 'Venue Costs', field_key: MUSIC_RIGHTS_FIELD_KEY,
+      label: displayCostFieldLabel(MUSIC_RIGHTS_FIELD_KEY),
+      value: music.amount, state: music.state,
+      source: MUSIC_RIGHTS_SOURCE,
+    }),
+    {
+      run_id: runId, show_id: show.id,
+      category: 'Marketing', field_key: DANIEL_CHAMPAGNE_FIELD_KEY,
+      label: displayCostFieldLabel(DANIEL_CHAMPAGNE_FIELD_KEY),
+      value: dc.amount, state: dc.state,
+      source: DANIEL_CHAMPAGNE_SOURCE,
+      entries: [],
+    },
+    withDefaultEntry({
+      run_id: runId, show_id: show.id,
+      category: 'Marketing', field_key: 'fb_ads',
+      label: displayCostFieldLabel('fb_ads'),
+      value: null, state: 'guess',
+      source: FB_ADS_NOT_AUTO_SOURCE,
+    }),
+  ]
+}
+
 function socialAdsVarRow(runId: string) {
   return {
     run_id: runId, show_id: null,
@@ -84,6 +132,7 @@ export function buildHistoricalSeedRows(
   defaults: RunDefault,
   shows: SeedShow[],
   lightingHire: number,
+  factors?: FactorMap,
 ): object[] {
   const numShows = shows.length
   const rows: object[] = []
@@ -226,6 +275,7 @@ export function buildHistoricalSeedRows(
       value: null, state: 'pending',
       source: 'Additional Venue Production/AV costs not included in venue staff on-costs. Confirm with Michael Richardson.',
     }))
+    rows.push(...showWaveAAutoRows(runId, show, factors))
   }
 
   return rows
@@ -322,13 +372,8 @@ export function buildFactorEstimateSeedRows(
     value: est.perDiems, state: 'estimated',
     source: est.perDiemsSource,
   }, 'per_diems', defaults, shows, factorOverrides))
-  rows.push(withEntries({
-    run_id: runId, show_id: null,
-    category: 'Marketing', field_key: 'fb_ads',
-    label: 'Facebook / Social Ads',
-    value: est.fbAds, state: 'estimated',
-    source: est.fbAdsSource,
-  }, 'fb_ads', defaults, shows, factorOverrides))
+  // Wave A: FB Ads is per-show and not auto-calc. Do not seed a run-level
+  // bracket sum. Show-level guess rows are added in the per-show loop.
   rows.push(withEntries({
     run_id: runId, show_id: null,
     category: 'Production', field_key: 'backline_hire',
@@ -344,6 +389,7 @@ export function buildFactorEstimateSeedRows(
       withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_staff', label: 'Venue Staff / On-costs', value: null, state: 'guess', source: null, line_items: [] }),
       withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_marketing', label: 'Venue Marketing', value: 0, state: 'guess', source: null }),
       withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'production_costs', label: displayCostFieldLabel('production_costs'), value: null, state: 'pending', source: null }),
+      ...showWaveAAutoRows(runId, show, factors),
     )
   }
 
@@ -360,7 +406,7 @@ export function buildSeedCostFieldRows(opts: {
 }): object[] {
   const defaults = RUN_DEFAULTS[opts.runCode]
   if (defaults) {
-    return buildHistoricalSeedRows(opts.runId, defaults, opts.shows, opts.lightingHire)
+    return buildHistoricalSeedRows(opts.runId, defaults, opts.shows, opts.lightingHire, opts.factors)
   }
   return buildFactorEstimateSeedRows(
     opts.runId,

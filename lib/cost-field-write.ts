@@ -44,6 +44,7 @@ import {
   type SectionPaymentAuditCopy,
   type StaffLineItem,
 } from './cost-fields.ts'
+import { normalizeStoredCostFieldState } from './certainty-ladder.ts'
 import {
   COST_FIELD_SCALAR_AUDIT_FIELDS,
   auditEntryDiffs,
@@ -94,10 +95,11 @@ export async function executeCostFieldPatch(opts: {
   }
 
   if (body.state !== undefined) {
-    if (!isCostFieldState(String(body.state))) {
+    const stored = normalizeStoredCostFieldState(String(body.state))
+    if (!stored || !isCostFieldState(stored)) {
       return NextResponse.json({ error: 'Invalid state' }, { status: 400 })
     }
-    updates.state = body.state
+    updates.state = stored
   }
 
   if (body.source !== undefined) {

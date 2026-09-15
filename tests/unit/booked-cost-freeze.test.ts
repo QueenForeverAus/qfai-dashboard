@@ -65,6 +65,10 @@ describe('BOOKED cost freeze gate', () => {
     assert.equal(isRunCostSheetFrozen({ status: 'declined' }), false)
     assert.equal(isRunCostSheetFrozen({ status: 'booking' }), false)
     assert.equal(isRunCostSheetFrozen(null), false)
+    assert.equal(isRunCostSheetFrozen({
+      status: 'confirmed',
+      costings_unconfirmed_at: '2026-09-15T00:00:00.000Z',
+    }), false)
   })
 
   it('blocks confirm / PAID / pencil mutations when frozen and allows them when not', () => {
@@ -109,6 +113,12 @@ describe('BOOKED cost freeze gate', () => {
       nextStatus: 'confirmed',
       prevStatus: 'proposed',
       hasSnapshot: true,
+    }), true)
+    assert.equal(shouldCaptureBookedCostSnapshot({
+      nextStatus: 'confirmed',
+      prevStatus: 'confirmed',
+      hasSnapshot: true,
+      forceRecapture: true,
     }), true)
   })
 

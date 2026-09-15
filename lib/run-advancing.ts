@@ -179,7 +179,10 @@ export function shouldEnsureAdvancingWorkspaceForBookedRun(opts: {
   return opts.hasActiveWorkspace !== true
 }
 
-/** Soft-archive Advancing when leaving BOOKED (UNBOOKED / Unconfirm). */
+/**
+ * Soft-archive Advancing when leaving BOOKED (true UNBOOKED / status drop).
+ * Wave A Unconfirm does NOT call this — run stays BOOKED, workspace stays.
+ */
 export function shouldArchiveAdvancingWorkspace(opts: {
   nextStatus: string | null | undefined
   prevStatus?: string | null
@@ -188,6 +191,14 @@ export function shouldArchiveAdvancingWorkspace(opts: {
   if (!isBookedBookingStatus(opts.prevStatus)) return false
   if (isBookedBookingStatus(opts.nextStatus)) return false
   return opts.hasActiveWorkspace !== false
+}
+
+/** Re-BOOK after Unconfirm recopies into the existing active workspace. */
+export function shouldRecopyAdvancingAfterRebook(opts: {
+  isUnconfirmed?: boolean
+  hasActiveWorkspace?: boolean
+}): boolean {
+  return opts.isUnconfirmed === true && opts.hasActiveWorkspace === true
 }
 
 export function isAdvancingWorkspaceActive(row: {

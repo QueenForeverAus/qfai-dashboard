@@ -111,7 +111,15 @@ export const CONFIRMED_FIELD_STATE = 'known' as const
  */
 export const INVOICED_FIELD_STATE = 'invoiced' as const
 
-export const COST_FIELD_STATES = ['known', 'estimated', 'guess', 'pending', 'auto_calc', 'invoiced'] as const
+export const COST_FIELD_STATES = [
+  'known',
+  'estimated',
+  'guess',
+  'pending',
+  'auto_calc',
+  'invoiced',
+  'figures_needed',
+] as const
 export type CostFieldState = (typeof COST_FIELD_STATES)[number]
 
 /**
@@ -125,12 +133,16 @@ export type SectionEditValue = CostFieldState | typeof SECTION_BULK_PAID_VALUE
  * Section Edit dropdown figure-source options (ladder chrome).
  * Invoiced sits immediately before PAID. PAID is SECTION_BULK_PAID_VALUE, not a state.
  */
+/**
+ * Section Edit dropdown — worst → best ladder, then AUTO CALC (computed).
+ * PAID is SECTION_BULK_PAID_VALUE, not a state. Confirmed ≠ Paid.
+ */
 export const COST_FIELD_EDIT_OPTIONS: ReadonlyArray<{ value: CostFieldState; label: string }> = [
-  { value: 'known', label: 'Confirmed' },
-  { value: 'estimated', label: 'Estimate' },
-  { value: 'guess', label: 'Guess' },
   { value: 'pending', label: 'Figures Needed' },
+  { value: 'guess', label: 'Guess' },
+  { value: 'estimated', label: 'Estimate' },
   { value: 'auto_calc', label: 'Auto Calc' },
+  { value: 'known', label: 'Confirmed' },
   { value: 'invoiced', label: 'Invoiced' },
 ]
 
@@ -145,13 +157,20 @@ export const SECTION_PAYMENT_RESTORE = 'restore' as const
 export type SectionPayment = typeof SECTION_PAYMENT_PAID | typeof SECTION_PAYMENT_RESTORE
 
 export function isCostFieldState(value: string | null | undefined): value is CostFieldState {
-  return value != null && (COST_FIELD_STATES as readonly string[]).includes(value)
+  if (value == null) return false
+  const key = String(value).trim().toLowerCase()
+  if (key === 'confirmed') return true
+  return (COST_FIELD_STATES as readonly string[]).includes(key)
 }
 
 export function isNonConfirmedFieldState(
   value: string | null | undefined,
 ): value is Exclude<CostFieldState, 'known' | 'invoiced'> {
-  return isCostFieldState(value) && value !== CONFIRMED_FIELD_STATE && value !== INVOICED_FIELD_STATE
+  const key = String(value ?? '').trim().toLowerCase()
+  if (key === 'confirmed' || key === CONFIRMED_FIELD_STATE || key === INVOICED_FIELD_STATE) {
+    return false
+  }
+  return isCostFieldState(key)
 }
 
 export type CostFieldDef = {
@@ -163,7 +182,12 @@ export type CostFieldDef = {
 }
 
 /** Auto-calc / revenue lines — entries optional; not forced to ≥1. */
-export const ENTRY_EXEMPT_FIELD_KEYS = new Set(['social_ads_var', 'gross_box_office'])
+export const ENTRY_EXEMPT_FIELD_KEYS = new Set([
+  'social_ads_var',
+  'gross_box_office',
+  'music_rights',
+  'daniel_champagne',
+])
 
 /**
  * Fields production role may edit (matches CostFieldsTab visibility).
@@ -197,6 +221,14 @@ export const PRODUCTION_BOUGHT_IN_LABEL = 'Production Bought In'
  */
 export const LIGHTING_HIRE_LINE_LABEL = 'Lighting Equipment Hire'
 
+/** Show-level venue buckets (Wave A). field_keys stay stable. */
+export const FOUR_VENUE_BUCKETS = [
+  'venue_hire',
+  'venue_staff',
+  'production_costs',
+  'venue_marketing',
+] as const
+
 /** Canonical per-show cost lines shown in Run Costing. */
 export const DEFINED_SHOW_COST_FIELDS: CostFieldDef[] = [
   { key: 'gross_box_office', label: 'Gross Box Office', category: 'Revenue', defaultState: 'pending', scope: 'show' },
@@ -204,6 +236,9 @@ export const DEFINED_SHOW_COST_FIELDS: CostFieldDef[] = [
   { key: 'venue_staff', label: 'Venue Staff / On-costs', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
   { key: 'venue_marketing', label: 'Venue Marketing', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
   { key: 'production_costs', label: VENUE_PRODUCTION_AV_LABEL, category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
+  { key: 'music_rights', label: 'Music Rights', category: 'Venue Costs', defaultState: 'auto_calc', scope: 'show' },
+  { key: 'daniel_champagne', label: 'Daniel Champagne', category: 'Marketing', defaultState: 'auto_calc', scope: 'show' },
+  { key: 'fb_ads', label: 'Facebook / Social Ads', category: 'Marketing', defaultState: 'guess', scope: 'show' },
 ]
 
 /** Canonical run-level cost lines shown in Run Costing (always listed in UI). */
@@ -278,13 +313,13 @@ export function lineItemsSum(items: StaffLineItem[] | null | undefined): number 
 }
 
 /**
- * Venue Staff header main amount.
+ * Parent header main amount (itemisation rollup).
  * Prefer planned-role `line_items` when they exist and sum to a positive
  * dollar amount. When roles are empty/missing (or sum to 0), fall back to
- * entries sum, then field `value` — the same sources P&L `effectiveFieldValue`
- * already uses. Does not invent amounts or mutate stored roles.
+ * entries sum, then field `value`. Empty line_items must not show “—” when
+ * value/entries have $. Does not invent amounts or mutate stored rows.
  */
-export function venueStaffHeaderAmount(args: {
+export function parentHeaderAmount(args: {
   lineItems?: StaffLineItem[] | null
   entries?: Array<{ amount?: number | null }> | null
   value?: number | null
@@ -299,6 +334,15 @@ export function venueStaffHeaderAmount(args: {
   if (fromEntries > 0) return fromEntries
   if (args.value != null && Number(args.value) > 0) return Number(args.value)
   return null
+}
+
+/** Venue Staff header — same rollup as every parent (PR #95 fallback). */
+export function venueStaffHeaderAmount(args: {
+  lineItems?: StaffLineItem[] | null
+  entries?: Array<{ amount?: number | null }> | null
+  value?: number | null
+}): number | null {
+  return parentHeaderAmount(args)
 }
 
 /** True when the section has ≥1 line and every line-item confirm tick is checked. */

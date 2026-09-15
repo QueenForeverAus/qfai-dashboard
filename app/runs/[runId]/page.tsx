@@ -25,6 +25,7 @@ import {
 import type { AdvancingShowChrome } from '@/lib/run-advancing'
 import { ticketLockFromActuals } from '@/lib/settlements-advancing-sync'
 import { isAdvancingDeskTab, parseRunDetailTab } from '@/lib/tour-desk-nav'
+import { DANIEL_CHAMPAGNE_DEFAULT_PER_TICKET, parseOptionalFactor } from '@/lib/show-auto-calc'
 
 type Show = {
   id: string
@@ -153,6 +154,8 @@ export default async function RunDetailPage({
       'cc_fee_pct',
       'inside_cc_fee_pct',
       'ticketing_inside_pct',
+      'music_rights_pct',
+      'daniel_champagne_per_ticket',
     ]),
     supabase.from('remittance_lines').select('show_id, description, amount').eq('run_id', run.id),
     supabase.from('agent_settlement_lines').select('show_id, description, amount').eq('run_id', run.id),
@@ -353,6 +356,14 @@ export default async function RunDetailPage({
                 Frozen costs
               </span>
             )}
+            {run.costings_unconfirmed_at && (
+              <span
+                data-testid="costings-unconfirmed-badge"
+                className="px-2 py-0.5 rounded text-xs font-medium uppercase bg-amber-950/70 text-amber-300 border border-amber-800"
+              >
+                Costings unconfirmed
+              </span>
+            )}
           </div>
           <h1 className="text-white text-2xl font-bold">{run.name}</h1>
           <p className="text-slate-400 text-sm mt-1">
@@ -389,6 +400,16 @@ export default async function RunDetailPage({
         runId={run.id}
         runCode={run.code}
         costSheetFrozen={costSheetFrozen}
+        bookingStatus={run.status}
+        costingsUnconfirmedAt={run.costings_unconfirmed_at ?? null}
+        musicRightsPct={parseOptionalFactor(
+          (factorsRaw ?? []).find(f => f.key === 'music_rights_pct')?.value,
+        )}
+        danielChampagnePerTicket={
+          parseOptionalFactor(
+            (factorsRaw ?? []).find(f => f.key === 'daniel_champagne_per_ticket')?.value,
+          ) ?? DANIEL_CHAMPAGNE_DEFAULT_PER_TICKET
+        }
         advancingWorkspaceId={advancingWorkspace?.id ?? null}
         initialAdvancingFields={advancingFields as CostFieldRow[]}
         initialAdvancingChrome={advancingChrome}

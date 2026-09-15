@@ -55,6 +55,7 @@ import {
   lineItemsSum,
   normalizeLineItems,
   venueStaffHeaderAmount,
+  parentHeaderAmount,
   roleCanSeeCostField,
   canEditCostFields,
   productionCanEditFieldKey,
@@ -89,6 +90,15 @@ import {
   BOOKED_COST_FREEZE_BADGE,
   BOOKED_COST_FREEZE_BANNER,
 } from '@/lib/booked-cost-freeze'
+import { CERTAINTY_LADDER_LEGEND } from '@/lib/certainty-ladder'
+import {
+  computeDanielChampagne,
+  computeMusicRights,
+  DANIEL_CHAMPAGNE_DEFAULT_PER_TICKET,
+  DANIEL_CHAMPAGNE_FIELD_KEY,
+  MUSIC_RIGHTS_FIELD_KEY,
+} from '@/lib/show-auto-calc'
+import { canRefreshCostingsFromFactors, FACTORS_REFRESH_OFFER } from '@/lib/factors-refresh'
 
 type FieldState = CostFieldState
 
@@ -149,6 +159,7 @@ const STATE_STYLES: Record<string, { bg: string; text: string; border: string; l
   figures_needed: { bg: 'bg-red-900/20', text: 'text-red-400', border: 'border-red-900', label: 'FIGURES NEEDED' },
   invoiced:  { bg: 'bg-sky-900/30',    text: 'text-sky-300',    border: 'border-sky-800',    label: 'INVOICED' },
   auto_calc: { bg: 'bg-slate-800/60',  text: 'text-slate-400',  border: 'border-slate-700',  label: 'AUTO CALC' },
+  confirmed: { bg: 'bg-green-900/30',  text: 'text-green-400',  border: 'border-green-800',  label: 'CONFIRMED' },
 }
 
 function stateStyles(state: string | null | undefined) {
@@ -871,7 +882,11 @@ function FieldRow({
 
   const state = figureStateFromSelect(isEditing ? draftSelect : persistedSelect, persistedState)
   const { styles, chipLabel, chromeAttr, allPaid: sectionPaid, showPaid } = sectionChrome(state, entries)
-  const displayTotal = entries.length > 0 ? entriesSum(entries) : (existing?.value ?? null)
+  const displayTotal = parentHeaderAmount({
+    lineItems: existing?.line_items,
+    entries,
+    value: existing?.value,
+  }) ?? (entries.length > 0 ? entriesSum(entries) : (existing?.value ?? null))
   const invoiceVar = sectionInvoiceVariance(displayTotal, entries)
   const canBulkPaid = Boolean(existing?.id) && entries.length > 0 && !ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
 
@@ -1011,7 +1026,7 @@ function FieldRow({
             </>
           )}
           {/* Receipts toggle — show for all fields that have an ID */}
-          {existing?.id && fieldDef.key !== 'gross_box_office' && fieldDef.key !== 'social_ads_var' && (
+          {existing?.id && fieldDef.key !== 'gross_box_office' && fieldDef.key !== 'social_ads_var' && fieldDef.key !== 'music_rights' && fieldDef.key !== 'daniel_champagne' && (
             <button
               onClick={() => setEntriesOpen(o => !o)}
               className={`text-xs transition-colors ${entriesOpen ? 'text-amber-400' : 'text-slate-600 hover:text-slate-300'}`}
@@ -1777,10 +1792,14 @@ export default function CostFieldsTab({
   insideFactors = {},
   remittanceLines = [],
   costSheetFrozen = false,
+  bookingStatus = null,
+  costingsUnconfirmedAt = null,
   advancingWorkspaceId = null,
   initialAdvancingFields = [],
   initialAdvancingChrome = [],
   ticketLocks = {},
+  musicRightsPct = null,
+  danielChampagnePerTicket = DANIEL_CHAMPAGNE_DEFAULT_PER_TICKET,
 }: {
   runId: string
   runCode: string
@@ -1798,10 +1817,14 @@ export default function CostFieldsTab({
   insideFactors?: InsideFactorValues
   remittanceLines?: KnownInsideLine[]
   costSheetFrozen?: boolean
+  bookingStatus?: string | null
+  costingsUnconfirmedAt?: string | null
   advancingWorkspaceId?: string | null
   initialAdvancingFields?: CostFieldRow[]
   initialAdvancingChrome?: AdvancingShowChrome[]
   ticketLocks?: Record<string, AdvancingTicketLock>
+  musicRightsPct?: number | null
+  danielChampagnePerTicket?: number
 }) {
   const { effectiveRole, profile } = useProfile()
   const hasTabAccess = canAccessTab(effectiveRole, 'costs')
@@ -1985,23 +2008,43 @@ export default function CostFieldsTab({
 
   const mergedFactors: InsideFactorValues = insideFactors
 
-  // social_ads_var is AUTO-CALC: tickets × $1.10 — computed live from sliders, not from stored value
-  const dynamicSocialAds = viewShows.reduce((sum, s) => {
-    const cap = modelCapacity(s); const tickets = cap ? Math.round(cap * (sellThrough[s.id] ?? 75) / 100) : 0
-    return sum + Math.round(tickets * 1.10)
-  }, 0)
+  // Daniel Champagne + Music Rights AUTO-CALC live from sliders / Factors.
+  // Ticket base = tickets_sold if set, else capacity × sell-through (tickets × price for rights).
+  const showAutoCalc = (show: Show) => {
+    const pct = sellThrough[show.id] ?? 75
+    const modelled = {
+      capacity: modelCapacity(show),
+      ticket_price: show.ticket_price,
+      tickets_sold: show.tickets_sold,
+      sell_through_pct: pct,
+    }
+    return {
+      music: computeMusicRights({ show: modelled, musicRightsPct, sellThroughPct: pct }),
+      dc: computeDanielChampagne({
+        show: modelled,
+        perTicket: danielChampagnePerTicket,
+        sellThroughPct: pct,
+      }),
+    }
+  }
+
+  const dynamicSocialAds = viewShows.reduce((sum, s) => sum + showAutoCalc(s).dc.amount, 0)
 
   const runCostTotal = RUN_FIELDS.reduce((sum, f) => {
-    if (f.key === 'social_ads_var') return sum + dynamicSocialAds
+    // Run-level social_ads_var is the settlements rollup of show-level DC — do not double-count.
+    if (f.key === 'social_ads_var') return sum
     const row = fieldMap.get(runFieldKey(f.key))
     return sum + (effectiveFieldValue(row) ?? 0)
   }, 0)
 
   const showCostTotal = viewShows.reduce((sum, show) => {
     const pct = sellThrough[show.id] ?? 75
+    const calc = showAutoCalc(show)
     return sum + SHOW_FIELDS.filter(f => f.category !== 'Revenue').reduce((s2, f) => {
       const row = fieldMap.get(showFieldKey(show.id, f.key))
       if (f.key === 'venue_staff') return s2 + (calcVenueStaff(show, pct, row) ?? 0)
+      if (f.key === MUSIC_RIGHTS_FIELD_KEY) return s2 + (calc.music.amount ?? 0)
+      if (f.key === DANIEL_CHAMPAGNE_FIELD_KEY) return s2 + calc.dc.amount
       return s2 + (effectiveFieldValue(row) ?? 0)
     }, 0)
   }, 0)
@@ -2225,6 +2268,33 @@ export default function CostFieldsTab({
               <p className="text-emerald-200/90 text-xs leading-snug">{BOOKED_COST_FREEZE_BANNER}</p>
             </div>
           )}
+          {!onAdvancingSheet && !sheetFrozen && Boolean(costingsUnconfirmedAt) && (
+            <div
+              data-testid="costings-unconfirmed-banner"
+              role="status"
+              className="rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-2.5"
+            >
+              <p className="text-amber-200/90 text-xs leading-snug">
+                Costings is unconfirmed. The run stays BOOKED. Edit Costings, then Accept / Re-BOOK to freeze and recopy into Advancing (PAID / INVOICED / paid travel / Band Comps kept). Factors will not refresh this run.
+              </p>
+            </div>
+          )}
+          {!onAdvancingSheet && !sheetFrozen && canRefreshCostingsFromFactors({ status: bookingStatus }) && isOwnerOrAdmin && (
+            <div data-testid="factors-refresh-offer" className="rounded-lg border border-amber-900/60 bg-amber-950/20 px-3 py-2.5 flex items-start justify-between gap-3">
+              <p className="text-amber-200/80 text-xs leading-snug">{FACTORS_REFRESH_OFFER}</p>
+              <button
+                type="button"
+                data-testid="factors-refresh-button"
+                className="shrink-0 px-2 py-1 rounded text-xs font-semibold bg-amber-400 text-slate-900 hover:bg-amber-300"
+                onClick={async () => {
+                  const res = await fetch(`/api/runs/${runId}/factors-refresh`, { method: 'POST' })
+                  if (res.ok) window.location.reload()
+                }}
+              >
+                Refresh from Factors
+              </button>
+            </div>
+          )}
 
           {showOwnerPnl && (!onAdvancingSheet || advancingWorkspaceId) && (
             <PnlRevenueBlock
@@ -2252,17 +2322,11 @@ export default function CostFieldsTab({
           {(!onAdvancingSheet || advancingWorkspaceId) && (
           <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs mb-1">
-            {([
-              { key: 'known',     desc: 'CONFIRMED — figure accuracy / lines attested. Not payment.' },
-              { key: 'invoiced',  desc: 'INVOICED — invoice received on the line. Not PAID (receipt chrome stays per-entry).' },
-              { key: 'estimated', desc: 'Rough figure known; update to CONFIRMED when ready' },
-              { key: 'pending',   desc: 'Income-dependent: box office, Harbour commission, per-ticket fees' },
-              { key: 'guess',     desc: 'External data still needed before run go/no-go decision' },
-            ] as const).map(({ key, desc }) => {
-              const style = STATE_STYLES[key]
+            {CERTAINTY_LADDER_LEGEND.map(({ rung, stored, desc }) => {
+              const style = STATE_STYLES[stored] ?? STATE_STYLES.pending
               return (
-                <div key={key} className="flex items-start gap-2">
-                  <span className={`px-1.5 py-0.5 rounded border shrink-0 ${style.bg} ${style.text} ${style.border}`}>{style.label}</span>
+                <div key={rung} className="flex items-start gap-2">
+                  <span className={`px-1.5 py-0.5 rounded border shrink-0 ${style.bg} ${style.text} ${style.border}`}>{rung}</span>
                   <span className="text-slate-500 leading-snug pt-0.5">{desc}</span>
                 </div>
               )
@@ -2297,26 +2361,30 @@ export default function CostFieldsTab({
                 </div>
               </div>
 
-              {['Venue Costs'].map(cat => {
+              {['Venue Costs', 'Marketing'].map(cat => {
                 const catFields = visibleShowFields.filter(f => f.category === cat)
+                if (!catFields.length) return null
+                const calc = showAutoCalc(show)
                 return (
                   <div key={cat}>
                     <h4 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1.5 ml-9">{cat}</h4>
                     <div className="space-y-1.5 ml-9">
-                      {catFields.map(fieldDef =>
-                        fieldDef.key === 'venue_staff' ? (
+                      {catFields.map(fieldDef => {
+                        const stored = fieldMap.get(showFieldKey(show.id, fieldDef.key))
+                        const existing = fieldDef.key === MUSIC_RIGHTS_FIELD_KEY
+                          ? { ...(stored ?? { id: '', run_id: runId, show_id: show.id, category: fieldDef.category, field_key: fieldDef.key, label: fieldDef.label, source: null, line_items: null, entries: [] }), value: calc.music.amount, state: calc.music.state }
+                          : fieldDef.key === DANIEL_CHAMPAGNE_FIELD_KEY
+                            ? { ...(stored ?? { id: '', run_id: runId, show_id: show.id, category: fieldDef.category, field_key: fieldDef.key, label: fieldDef.label, source: null, line_items: null, entries: [] }), value: calc.dc.amount, state: calc.dc.state }
+                            : stored
+                        return fieldDef.key === 'venue_staff' ? (
                           <VenueStaffRow
                             key={fieldDef.key}
                             runId={runId}
                             showId={show.id}
-                            existing={fieldMap.get(showFieldKey(show.id, fieldDef.key))}
+                            existing={stored}
                             onSaved={handleSaved}
                             onEntriesUpdated={handleEntriesUpdated}
-                            editorDisplayName={editorNameForField(
-                              fieldMap.get(showFieldKey(show.id, fieldDef.key)),
-                              editorDisplayNameByFieldId,
-                              profile,
-                            )}
+                            editorDisplayName={editorNameForField(stored, editorDisplayNameByFieldId, profile)}
                             costSheetFrozen={sheetFrozen}
                           />
                         ) : (
@@ -2325,18 +2393,14 @@ export default function CostFieldsTab({
                             runId={runId}
                             showId={show.id}
                             fieldDef={fieldDef}
-                            existing={fieldMap.get(showFieldKey(show.id, fieldDef.key))}
+                            existing={existing}
                             onSaved={handleSaved}
                             onEntriesUpdated={handleEntriesUpdated}
-                            editorDisplayName={editorNameForField(
-                              fieldMap.get(showFieldKey(show.id, fieldDef.key)),
-                              editorDisplayNameByFieldId,
-                              profile,
-                            )}
+                            editorDisplayName={editorNameForField(stored, editorDisplayNameByFieldId, profile)}
                             costSheetFrozen={sheetFrozen}
                           />
                         )
-                      )}
+                      })}
                     </div>
                   </div>
                 )
@@ -2359,11 +2423,26 @@ export default function CostFieldsTab({
               </div>
             </div>
 
-            {visibleRunCategories.map(cat => (
+            {visibleRunCategories.map(cat => {
+              const catFields = RUN_FIELDS.filter(f => {
+                if (f.category !== cat) return false
+                if (f.key === 'social_ads_var') return false
+                if (f.key === 'fb_ads') {
+                  const row = fieldMap.get(runFieldKey('fb_ads'))
+                  const hasMoney = row != null && (
+                    (row.value != null && Number(row.value) > 0)
+                    || (Array.isArray(row.entries) && row.entries.some(e => (Number(e.amount) || 0) > 0))
+                  )
+                  return hasMoney
+                }
+                return true
+              })
+              if (!catFields.length) return null
+              return (
               <div key={cat} className="mb-4">
                 <h4 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1.5 ml-9">{cat}</h4>
                 <div className="space-y-1.5 ml-9">
-                  {RUN_FIELDS.filter(f => f.category === cat).map(fieldDef => (
+                  {catFields.map(fieldDef => (
                     <FieldRow
                       key={fieldDef.key}
                       runId={runId}
@@ -2382,7 +2461,8 @@ export default function CostFieldsTab({
                   ))}
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
           )}
 
