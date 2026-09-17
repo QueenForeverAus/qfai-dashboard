@@ -1,32 +1,26 @@
 /**
- * Wave A2 — itemised Inside fee lines on Costings / Advancing.
+ * Wave A2.1 — itemised Inside fee lines on Costings / Advancing (Revenue).
  *
- * Standard lines seed from Factors (or silent Estimate defaults).
+ * Seed from contract and/or Harbour Draft when available — never from Factors
+ * standing rates or silent $4.50 / 1.6% / $5 defaults. Prefer empty until known.
+ * Operator may add / delete / edit booking, CC, comps, or custom lines.
  * Edit rate → $ recalculates from that show's payers / ticket gross.
- * Custom add = label + $ only. Still tagged inside.
  * Settlement remittance never overwrites Costings/Advancing figure-source.
- * Contract known → Confirmed on Costings/Advancing.
+ * Contract / Harbour Draft known → Confirmed on Costings/Advancing.
  */
 
 import type { CostEntry } from './cost-fields.ts'
 import {
-  SILENT_BOOKING_FEE_PER_PAYER,
-  SILENT_BUNDLED_PER_PAYER,
-  SILENT_CC_FEE_PCT,
   classifyInsidePlacement,
   firstNumberOrNull,
-  remittanceHasCcSplit,
-  resolveInsideCosts,
   roundMoney,
   type InsideBreakdown,
-  type InsideFactorValues,
   type KnownInsideLine,
-  type VenueInsideOverride,
 } from './pnl-run-costing.ts'
 
 export const INSIDE_FEES_FIELD_KEY = 'inside_fees' as const
 export const INSIDE_FEES_CATEGORY = 'Inside fees' as const
-export const INSIDE_FEES_LABEL = 'Inside fees (come off gross before Harbour 10%)'
+export const INSIDE_FEES_LABEL = 'Inside Fees'
 
 export const INSIDE_SEED_KEYS = {
   bookingFee: 'booking_fee',
@@ -135,23 +129,39 @@ export function insideLineDescription(kind: InsideKind): string {
   }
 }
 
-export function insideLineNotes(kind: InsideKind, usedFactors: boolean): string {
-  const source = usedFactors
-    ? 'Source: Factors (Estimate — not known)'
-    : 'Source: silent default (Estimate — not known)'
+export function insideLineNotes(kind: InsideKind, source: 'operator' | 'contract' | 'harbour_draft' = 'operator'): string {
+  const from = source === 'contract'
+    ? 'Known — contract (Confirmed). Not a settlement remittance.'
+    : source === 'harbour_draft'
+      ? 'Known — Harbour Draft (Confirmed). Not a settlement remittance.'
+      : 'Operator-entered (Estimate — not known). Not from Factors.'
   switch (kind) {
     case INSIDE_SEED_KEYS.bookingFee:
-      return `${source}. $/payer × paying tickets.`
+      return `${from} $/payer × paying tickets.`
     case INSIDE_SEED_KEYS.ccFee:
-      return `${source}. % of ticket gross.`
+      return `${from} % of ticket gross.`
     case INSIDE_SEED_KEYS.ticketingInside:
-      return `${source}. Optional Factors % of ticket gross.`
+      return `${from} % of ticket gross.`
     case INSIDE_SEED_KEYS.compTickets:
-      return `${source}. Same inside bucket when applicable.`
+      return `${from} Same inside bucket when applicable.`
     default:
-      return 'Custom inside line — comes off gross before Harbour 10%.'
+      return source === 'operator'
+        ? 'Custom inside line — comes off gross before Harbour 10%.'
+        : from
   }
 }
+
+/** Standard kinds an owner can add under Revenue → Inside Fees. */
+export const OPERATOR_INSIDE_ADD_KINDS: ReadonlyArray<{
+  kind: InsideKind
+  label: string
+  rateUnit: InsideRateUnit | null
+}> = [
+  { kind: INSIDE_SEED_KEYS.bookingFee, label: 'Booking fee', rateUnit: 'per_payer' },
+  { kind: INSIDE_SEED_KEYS.ccFee, label: 'CC / merchant', rateUnit: 'pct_gross' },
+  { kind: INSIDE_SEED_KEYS.compTickets, label: 'Comp ticket fees', rateUnit: 'per_payer' },
+  { kind: 'custom', label: 'Custom', rateUnit: null },
+]
 
 export type StandardInsideSpec = {
   seedKey: InsideSeedKey
@@ -162,73 +172,56 @@ export type StandardInsideSpec = {
 }
 
 /**
- * Standard Estimate lines for a new/unbooked show.
- * Never invent known. Comp line only when an applicable amount exists.
+ * Build operator-entered standard specs from explicit rates only.
+ * Wave A2.1: never read Factors standing keys or silent $4.50 / 1.6% / $5.
  */
 export function standardInsideSpecs(opts: {
-  factors?: InsideFactorValues | null
-  venueOverride?: VenueInsideOverride | null
-  hasCcSplitHistory?: boolean
+  bookingFeePerPayer?: number | null
+  ccFeePct?: number | null
+  ticketingInsidePct?: number | null
   includeComp?: boolean
   compRatePerPayer?: number | null
 }): StandardInsideSpec[] {
-  const bookingPerPayer = firstNumberOrNull(
-    opts.venueOverride?.bookingFeePerPayer,
-    opts.factors?.bookingFeePerPayer,
-  )
-  const ccPct = firstNumberOrNull(
-    opts.venueOverride?.ccFeePct,
-    opts.factors?.ccFeePct,
-  )
-  const ticketingPct = firstNumberOrNull(opts.factors?.ticketingInsidePct)
-  const compRate = firstNumberOrNull(opts.compRatePerPayer, opts.factors?.compTicketFeePerPayer)
-  const includeComp = opts.includeComp === true || (opts.includeComp !== false && compRate != null)
-  const hasCcSplit = Boolean(opts.hasCcSplitHistory) || ccPct != null
-  const usedFactors = bookingPerPayer != null || ccPct != null || ticketingPct != null || compRate != null
-
+  const bookingPerPayer = firstNumberOrNull(opts.bookingFeePerPayer)
+  const ccPct = firstNumberOrNull(opts.ccFeePct)
+  const ticketingPct = firstNumberOrNull(opts.ticketingInsidePct)
+  const compRate = firstNumberOrNull(opts.compRatePerPayer)
   const specs: StandardInsideSpec[] = []
-  if (hasCcSplit) {
+
+  if (bookingPerPayer != null) {
     specs.push({
       seedKey: INSIDE_SEED_KEYS.bookingFee,
       kind: INSIDE_SEED_KEYS.bookingFee,
-      rate: bookingPerPayer ?? SILENT_BOOKING_FEE_PER_PAYER,
+      rate: bookingPerPayer,
       rateUnit: 'per_payer',
-      usedFactors,
+      usedFactors: false,
     })
+  }
+  if (ccPct != null) {
     specs.push({
       seedKey: INSIDE_SEED_KEYS.ccFee,
       kind: INSIDE_SEED_KEYS.ccFee,
-      rate: ccPct ?? SILENT_CC_FEE_PCT,
+      rate: ccPct,
       rateUnit: 'pct_gross',
-      usedFactors,
-    })
-  } else {
-    specs.push({
-      seedKey: INSIDE_SEED_KEYS.bookingFee,
-      kind: INSIDE_SEED_KEYS.bookingFee,
-      rate: bookingPerPayer ?? SILENT_BUNDLED_PER_PAYER,
-      rateUnit: 'per_payer',
-      usedFactors,
+      usedFactors: false,
     })
   }
-
   if (ticketingPct != null) {
     specs.push({
       seedKey: INSIDE_SEED_KEYS.ticketingInside,
       kind: INSIDE_SEED_KEYS.ticketingInside,
       rate: ticketingPct,
       rateUnit: 'pct_gross',
-      usedFactors: true,
+      usedFactors: false,
     })
   }
-
-  if (includeComp && compRate != null) {
+  if (opts.includeComp !== false && compRate != null) {
     specs.push({
       seedKey: INSIDE_SEED_KEYS.compTickets,
       kind: INSIDE_SEED_KEYS.compTickets,
       rate: compRate,
       rateUnit: 'per_payer',
-      usedFactors,
+      usedFactors: false,
     })
   }
 
@@ -256,7 +249,7 @@ export function buildInsideFeeEntry(opts: {
   return {
     id: newEntryId(),
     description: opts.description ?? insideLineDescription(kind),
-    notes: opts.notes ?? (opts.spec ? insideLineNotes(kind, opts.spec.usedFactors) : insideLineNotes('custom', false)),
+    notes: opts.notes ?? (opts.spec ? insideLineNotes(kind, 'operator') : insideLineNotes(kind === 'custom' ? 'custom' : kind, 'operator')),
     amount,
     gst_included: true,
     confirmed: opts.stateConfirmed === true,
@@ -269,21 +262,46 @@ export function buildInsideFeeEntry(opts: {
   }
 }
 
+/**
+ * Seed Inside Fees for a show.
+ * Contract / Harbour Draft known lines → Confirmed entries.
+ * Otherwise empty (operator adds). Never Factors or silent $ defaults.
+ */
 export function seedStandardInsideEntries(opts: {
-  factors?: InsideFactorValues | null
-  venueOverride?: VenueInsideOverride | null
-  hasCcSplitHistory?: boolean
+  payerCount?: number
+  grossTicketSales?: number
+  tombstonedSeedKeys?: Iterable<string>
+  contractLines?: KnownInsideLine[] | null
+  showId?: string | null
+  bookingFeePerPayer?: number | null
+  ccFeePct?: number | null
+  ticketingInsidePct?: number | null
   includeComp?: boolean
   compRatePerPayer?: number | null
-  payerCount: number
-  grossTicketSales: number
-  tombstonedSeedKeys?: Iterable<string>
 }): CostEntry[] {
+  const known = knownInsideSeedLines(opts.contractLines, opts.showId)
+  if (known.length) {
+    return applyContractKnownInsideEntries({
+      existing: [],
+      contractLines: known,
+      tombstonedSeedKeys: opts.tombstonedSeedKeys,
+    }).entries
+  }
+
   const blocked = new Set(
     [...(opts.tombstonedSeedKeys ?? [])].map(k => String(k).trim()).filter(Boolean),
   )
-  const base = { payerCount: opts.payerCount, grossTicketSales: opts.grossTicketSales }
-  return standardInsideSpecs(opts)
+  const base = {
+    payerCount: opts.payerCount ?? 0,
+    grossTicketSales: opts.grossTicketSales ?? 0,
+  }
+  return standardInsideSpecs({
+    bookingFeePerPayer: opts.bookingFeePerPayer,
+    ccFeePct: opts.ccFeePct,
+    ticketingInsidePct: opts.ticketingInsidePct,
+    includeComp: opts.includeComp,
+    compRatePerPayer: opts.compRatePerPayer,
+  })
     .filter(spec => !blocked.has(spec.seedKey))
     .map(spec => buildInsideFeeEntry({ spec, base }))
 }
@@ -297,7 +315,7 @@ export function buildCustomInsideEntry(opts: {
     kind: 'custom',
     description: opts.description.trim() || 'Inside fee',
     amount: roundMoney(opts.amount),
-    notes: opts.notes ?? insideLineNotes('custom', false),
+    notes: opts.notes ?? insideLineNotes('custom', 'operator'),
     rate: null,
     rateUnit: null,
     seedKey: null,
@@ -308,12 +326,29 @@ export function isContractKnownInsideSource(source: string | null | undefined): 
   return String(source ?? '').trim().toLowerCase() === 'contract'
 }
 
+export function isHarbourDraftInsideSource(source: string | null | undefined): boolean {
+  const s = String(source ?? '').trim().toLowerCase()
+  return s === 'harbour_draft' || s === 'draft'
+}
+
+export function isKnownInsideSeedSource(source: string | null | undefined): boolean {
+  return isContractKnownInsideSource(source) || isHarbourDraftInsideSource(source)
+}
+
 export function contractKnownInsideLines(
   lines: KnownInsideLine[] | null | undefined,
   showId?: string | null,
 ): KnownInsideLine[] {
+  return knownInsideSeedLines(lines, showId).filter(l => isContractKnownInsideSource(l.source))
+}
+
+/** Contract and/or Harbour Draft insides that may Confirm Costings/Advancing. */
+export function knownInsideSeedLines(
+  lines: KnownInsideLine[] | null | undefined,
+  showId?: string | null,
+): KnownInsideLine[] {
   return (lines ?? []).filter(line => {
-    if (!isContractKnownInsideSource(line.source)) return false
+    if (!isKnownInsideSeedSource(line.source)) return false
     if (showId && (line.showId ?? null) !== showId) return false
     return classifyInsidePlacement(line.description) === 'inside'
   })
@@ -365,7 +400,7 @@ export function applyContractKnownInsideEntries(opts: {
           ...prev,
           description: line.description || prev.description,
           amount,
-          notes: prev.notes || 'Known — contract (Confirmed). Not a settlement remittance.',
+          notes: prev.notes || insideLineNotes(kind, isHarbourDraftInsideSource(line.source) ? 'harbour_draft' : 'contract'),
           confirmed: true,
         }
         changed = true
@@ -377,7 +412,7 @@ export function applyContractKnownInsideEntries(opts: {
       kind,
       description: line.description || insideLineDescription(kind),
       amount,
-      notes: 'Known — contract (Confirmed). Not a settlement remittance.',
+      notes: insideLineNotes(kind, isHarbourDraftInsideSource(line.source) ? 'harbour_draft' : 'contract'),
       seedKey,
       rate: null,
       rateUnit: null,
@@ -421,16 +456,26 @@ export function insideBreakdownFromEntries(
   }
 }
 
+export function emptyInsideBreakdown(sourceLabel = 'empty — add Inside Fees or seed from contract / Harbour Draft'): InsideBreakdown {
+  return {
+    bookingFee: 0,
+    ccFee: 0,
+    ticketingInside: 0,
+    namedInside: 0,
+    total: 0,
+    source: 'estimated',
+    sourceLabel,
+  }
+}
+
 /**
  * Costings / Advancing waterfall insides.
  * Prefer itemised lines (live-recalc). Never let settlement remittance overwrite.
- * Empty / missing lines fall back to Factors / silent Estimate math.
+ * Empty / missing lines stay $0 — no Factors or silent-default fallback.
  */
 export function resolveSheetInsideCosts(opts: {
   grossTicketSales: number
   payerCount: number
-  factors?: InsideFactorValues | null
-  venueOverride?: VenueInsideOverride | null
   entries?: CostEntry[] | null
   fieldState?: string | null
   contractLines?: KnownInsideLine[] | null
@@ -447,24 +492,23 @@ export function resolveSheetInsideCosts(opts: {
       live,
       known ? 'known' : 'estimated',
       known
-        ? 'known — contract / Confirmed lines'
+        ? 'known — contract / Harbour Draft / Confirmed lines'
         : 'estimated — itemised Inside fee lines (not known)',
     )
   }
 
-  const contract = contractKnownInsideLines(opts.contractLines, opts.showId)
-  if (contract.length) {
-    const applied = applyContractKnownInsideEntries({ existing: [], contractLines: contract })
-    return insideBreakdownFromEntries(applied.entries, 'known', 'known — contract')
+  const knownLines = knownInsideSeedLines(opts.contractLines, opts.showId)
+  if (knownLines.length) {
+    const applied = applyContractKnownInsideEntries({ existing: [], contractLines: knownLines })
+    const draft = knownLines.some(l => isHarbourDraftInsideSource(l.source))
+    return insideBreakdownFromEntries(
+      applied.entries,
+      'known',
+      draft && !knownLines.every(l => isContractKnownInsideSource(l.source))
+        ? 'known — Harbour Draft'
+        : 'known — contract',
+    )
   }
 
-  return resolveInsideCosts({
-    grossTicketSales: opts.grossTicketSales,
-    payerCount: opts.payerCount,
-    factors: opts.factors,
-    venueOverride: opts.venueOverride,
-    remittanceKnownTotal: null,
-    remittanceKnownLines: null,
-    hasCcSplitHistory: remittanceHasCcSplit(opts.contractLines ?? [], opts.showId ?? undefined),
-  })
+  return emptyInsideBreakdown()
 }

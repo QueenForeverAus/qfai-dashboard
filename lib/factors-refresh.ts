@@ -40,14 +40,10 @@ export const FACTOR_COSTING_FIELD_MAP: Record<string, string[]> = {
   crew_travel_day_michael: ['crew_travel_day'],
   music_rights_pct: ['music_rights'],
   daniel_champagne_per_ticket: ['daniel_champagne'],
-  booking_fee_per_payer: ['inside_fees'],
-  cc_fee_pct: ['inside_fees'],
-  inside_cc_fee_pct: ['inside_fees'],
-  ticketing_inside_pct: ['inside_fees'],
 }
 
-/** FB Ads is per-show and is never refreshed from Factors. */
-export const FACTORS_NEVER_REFRESH_FIELD_KEYS = new Set(['fb_ads'])
+/** FB Ads is per-show and is never refreshed from Factors. Inside fees seed from contract / Draft / operator, not Factors. */
+export const FACTORS_NEVER_REFRESH_FIELD_KEYS = new Set(['fb_ads', 'inside_fees'])
 
 export const FACTORS_REFRESHABLE_STATES = new Set(['estimated', 'guess', 'pending', 'figures_needed', 'auto_calc'])
 

@@ -44,7 +44,7 @@ describe('Factors refresh gate — unbooked Costings only', () => {
       fieldKey: 'inside_fees',
       state: 'estimated',
       runStatus: 'proposed',
-    }), true)
+    }), false)
     assert.equal(shouldRefreshCostField({
       fieldKey: 'inside_fees',
       state: 'known',

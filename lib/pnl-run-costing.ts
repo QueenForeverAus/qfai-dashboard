@@ -109,7 +109,7 @@ export type KnownInsideLine = {
    * Wave A2: contract known may Confirm Costings/Advancing insides.
    * Settlement / remittance stay Actual-on-Settlements only.
    */
-  source?: 'contract' | 'settlement' | 'remittance' | null
+  source?: 'contract' | 'harbour_draft' | 'settlement' | 'remittance' | null
 }
 
 export type KnownGstLine = {

@@ -83,8 +83,12 @@ import { PnlRevenueBlock, PnlSummaryBlock, modelledTickets, projectedBoxOffice, 
 import {
   INSIDE_FEES_CATEGORY,
   INSIDE_FEES_FIELD_KEY,
-  INSIDE_FEES_LABEL,
+  OPERATOR_INSIDE_ADD_KINDS,
+  amountFromInsideRate,
+  buildInsideFeeEntry,
   liveRecalcInsideEntries,
+  parseInsideKind,
+  type InsideKind,
 } from '@/lib/inside-fee-lines'
 import {
   canSeeOwnerPnl,
@@ -701,8 +705,11 @@ function EntryPanel({
   const [notes, setNotes] = useState('')
   const [amount, setAmount] = useState('')
   const [gst, setGst] = useState(!NO_GST_DEFAULTS.has(fieldKey))
+  const [insideKind, setInsideKind] = useState<InsideKind>('custom')
+  const [insideRate, setInsideRate] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const addKindSpec = OPERATOR_INSIDE_ADD_KINDS.find(k => k.kind === insideKind) ?? OPERATOR_INSIDE_ADD_KINDS[3]
 
   const total = entries.reduce((sum, e) => sum + e.amount, 0)
   const confirmed = entries.filter(e => e.confirmed).reduce((sum, e) => sum + e.amount, 0)
@@ -777,30 +784,60 @@ function EntryPanel({
   }
 
   async function addEntry() {
-    if (!amount) return
     const trimmedNotes = notes.trim()
-    const newEntry: Entry = {
-      id: crypto.randomUUID(),
-      description: desc || fieldLabel || 'Estimate',
-      notes: trimmedNotes || enteredByLabel(profile?.full_name) || '',
-      amount: parseFloat(amount),
-      gst_included: gst,
-      confirmed: false,
-      paid: false,
-      paid_at: null,
-      attachment_path: null,
-      attachment_filename: null,
-      attachment_mime: null,
-      quote_note: '',
-      payables_document_id: null,
-      ...(fieldKey === INSIDE_FEES_FIELD_KEY
-        ? { inside_kind: 'custom' as const, seed_key: null, rate: null, rate_unit: null }
-        : {}),
+    let newEntry: Entry
+    if (fieldKey === INSIDE_FEES_FIELD_KEY) {
+      const kind = parseInsideKind(insideKind) ?? 'custom'
+      const parsedRate = insideRate.trim() === '' ? null : parseFloat(insideRate)
+      const rate = parsedRate != null && Number.isFinite(parsedRate) ? parsedRate : null
+      if (kind === 'custom') {
+        if (!amount) return
+        newEntry = buildInsideFeeEntry({
+          kind: 'custom',
+          description: desc.trim() || 'Inside fee',
+          amount: parseFloat(amount) || 0,
+          notes: trimmedNotes || undefined,
+        })
+      } else {
+        if (rate == null) return
+        const unit = addKindSpec?.rateUnit ?? 'per_payer'
+        const computed = insideCalc
+          ? amountFromInsideRate(rate, unit, insideCalc)
+          : (parseFloat(amount) || 0)
+        newEntry = buildInsideFeeEntry({
+          kind,
+          description: desc.trim() || addKindSpec?.label,
+          amount: computed,
+          rate,
+          rateUnit: unit,
+          notes: trimmedNotes || undefined,
+          base: insideCalc,
+        })
+      }
+    } else {
+      if (!amount) return
+      newEntry = {
+        id: crypto.randomUUID(),
+        description: desc || fieldLabel || 'Estimate',
+        notes: trimmedNotes || enteredByLabel(profile?.full_name) || '',
+        amount: parseFloat(amount),
+        gst_included: gst,
+        confirmed: false,
+        paid: false,
+        paid_at: null,
+        attachment_path: null,
+        attachment_filename: null,
+        attachment_mime: null,
+        quote_note: '',
+        payables_document_id: null,
+      }
     }
     await persist([...entries, newEntry])
     setDesc('')
     setNotes('')
     setAmount('')
+    setInsideRate('')
+    setInsideKind('custom')
     setGst(!NO_GST_DEFAULTS.has(fieldKey))
   }
 
@@ -867,7 +904,20 @@ function EntryPanel({
       {/* Add new entry */}
       {!costSheetFrozen && <div className="space-y-1.5">
         {fieldKey === INSIDE_FEES_FIELD_KEY && (
-          <p className="text-slate-500 text-xs">Custom inside line — label + $ only (still comes off gross before Harbour 10%).</p>
+          <>
+            <p className="text-slate-500 text-xs">Add booking / CC / comps with a rate, or a custom label + $. Comes off gross before Harbour 10%. Not from Factors.</p>
+            <select
+              value={insideKind}
+              onChange={e => setInsideKind((parseInsideKind(e.target.value) ?? 'custom'))}
+              aria-label="Inside fee kind"
+              data-testid="inside-fee-add-kind"
+              className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400"
+            >
+              {OPERATOR_INSIDE_ADD_KINDS.map(k => (
+                <option key={k.kind} value={k.kind}>{k.label}</option>
+              ))}
+            </select>
+          </>
         )}
         <input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description"
           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
@@ -876,12 +926,32 @@ function EntryPanel({
           aria-label={NOTES_INPUT_LABEL}
           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
         <div className="flex items-center gap-1.5">
-          <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="$0"
-            className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+          {fieldKey === INSIDE_FEES_FIELD_KEY && addKindSpec?.rateUnit && (
+            <label className="text-slate-400 text-xs whitespace-nowrap">
+              {addKindSpec.rateUnit === 'per_payer' ? '$/payer' : '% of gross'}
+              <input
+                type="number"
+                step="0.01"
+                value={insideRate}
+                onChange={e => setInsideRate(e.target.value)}
+                aria-label={addKindSpec.rateUnit === 'per_payer' ? 'Rate per payer' : 'Rate percent of gross'}
+                data-testid="inside-fee-add-rate"
+                className="ml-1 w-20 bg-slate-900 border border-amber-400/40 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400"
+              />
+            </label>
+          )}
+          {(fieldKey !== INSIDE_FEES_FIELD_KEY || insideKind === 'custom') && (
+            <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="$0"
+              className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
+          )}
           <label className="flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap cursor-pointer select-none">
             <input type="checkbox" checked={gst} onChange={e => setGst(e.target.checked)} className="accent-amber-400" /> GST
           </label>
-          <button onClick={addEntry} disabled={!amount || saving}
+          <button
+            onClick={addEntry}
+            disabled={saving || (fieldKey === INSIDE_FEES_FIELD_KEY
+              ? (insideKind === 'custom' ? !amount : !insideRate)
+              : !amount)}
             className="ml-auto bg-amber-400/90 text-slate-900 text-xs font-semibold px-2.5 py-1 rounded hover:bg-amber-300 disabled:opacity-40 transition-colors whitespace-nowrap">
             {saving ? '…' : '+ Add'}
           </button>
@@ -921,7 +991,7 @@ function FieldRow({
   const persistedSelect = sectionEditSelectValue(entries, persistedState)
   const [draftSelect, setDraftSelect] = useState<SectionEditValue>(persistedSelect)
   const [saving, setSaving] = useState(false)
-  const [entriesOpen, setEntriesOpen] = useState(false)
+  const [entriesOpen, setEntriesOpen] = useState(fieldDef.key === INSIDE_FEES_FIELD_KEY)
   const [error, setError] = useState<string | null>(null)
 
   const state = figureStateFromSelect(isEditing ? draftSelect : persistedSelect, persistedState)
@@ -963,16 +1033,18 @@ function FieldRow({
           label: fieldDef.label,
           value: 0,
           state: draftSelect,
-          entries: [{
-            id: crypto.randomUUID(),
-            description: defaultCostEntryDescription(fieldDef.key, fieldDef.label),
-            notes: '',
-            amount: 0,
-            gst_included: !NO_GST_DEFAULTS.has(fieldDef.key),
-            confirmed: false,
-            paid: false,
-            paid_at: null,
-          }],
+          entries: fieldDef.key === INSIDE_FEES_FIELD_KEY
+            ? []
+            : [{
+              id: crypto.randomUUID(),
+              description: defaultCostEntryDescription(fieldDef.key, fieldDef.label),
+              notes: '',
+              amount: 0,
+              gst_included: !NO_GST_DEFAULTS.has(fieldDef.key),
+              confirmed: false,
+              paid: false,
+              paid_at: null,
+            }],
         })
         onSaved(data)
         setEntriesOpen(true)
@@ -1834,7 +1906,7 @@ export default function CostFieldsTab({
   isOwnerOrAdmin = false,
   ticketOutlookSummary = null,
   editorDisplayNameByFieldId = {},
-  insideFactors = {},
+  insideFactors: _insideFactors = {},
   remittanceLines = [],
   costingTombstones = [],
   advancingTombstones = [],
@@ -1967,6 +2039,7 @@ export default function CostFieldsTab({
       const emptyRows = fields.filter(f => {
         if (!roleCanSeeCostField(role, f.field_key)) return false
         if (ENTRY_EXEMPT_FIELD_KEYS.has(f.field_key)) return false
+        if (EMPTY_ENTRIES_ALLOWED_FIELD_KEYS.has(f.field_key)) return false
         return f.entries === null || (Array.isArray(f.entries) && f.entries.length === 0)
       })
 
@@ -2055,8 +2128,6 @@ export default function CostFieldsTab({
     else fieldMap.set(runFieldKey(f.field_key), f)
   }
 
-  const mergedFactors: InsideFactorValues = insideFactors
-
   // Daniel Champagne + Music Rights AUTO-CALC live from sliders / Factors.
   // Ticket base = tickets_sold if set, else capacity × sell-through (tickets × price for rights).
   const showAutoCalc = (show: Show) => {
@@ -2139,7 +2210,6 @@ export default function CostFieldsTab({
     venuePnl({
       show,
       pct: sellThrough[show.id] ?? 75,
-      factors: mergedFactors,
       remittanceLines,
       insideEntries: insideByShow[show.id]?.entries,
       insideFieldState: insideByShow[show.id]?.state,
@@ -2374,25 +2444,39 @@ export default function CostFieldsTab({
               slidersUnlocked={slidersUnlocked}
               incompleteFields={incompleteFields}
               hasGuessFields={hasGuessFields}
-              factors={mergedFactors}
               remittanceLines={remittanceLines}
               onSellThrough={updateSellThrough}
               onShowUpdated={handlePnlShowUpdated}
               chromeReadOnly={sheetPnlLocked}
-              onChromeSave={onAdvancingSheet
-                ? async (show, patch) => {
-                    const updated = await saveAdvancingChrome(show.id, patch)
-                    return updated ?? show
-                  }
-                : undefined}
               ticketLocks={onAdvancingSheet ? ticketLocks : undefined}
               insideByShow={insideByShow}
+              renderInsideFees={({ show, tickets, gbo }) => {
+                const fieldDef = SHOW_FIELDS.find(f => f.key === INSIDE_FEES_FIELD_KEY)
+                if (!fieldDef) return null
+                const stored = fieldMap.get(showFieldKey(show.id, fieldDef.key))
+                return (
+                  <div data-testid={`inside-fees-block-${show.id}`}>
+                    <FieldRow
+                      runId={runId}
+                      showId={show.id}
+                      fieldDef={fieldDef}
+                      existing={stored}
+                      onSaved={handleSaved}
+                      onEntriesUpdated={handleEntriesUpdated}
+                      editorDisplayName={editorNameForField(stored, editorDisplayNameByFieldId, profile)}
+                      costSheetFrozen={sheetFrozen}
+                      insideCalc={{ payerCount: tickets, grossTicketSales: gbo }}
+                    />
+                  </div>
+                )
+              }}
             />
           )}
 
-          {/* Legend */}
+          {/* Costs — same FieldRow chrome as Revenue; no Inside Fees here */}
           {(!onAdvancingSheet || advancingWorkspaceId) && (
-          <>
+          <div data-testid="pnl-owner-costs" className="space-y-6">
+          <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Costs</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs mb-1">
             {CERTAINTY_LADDER_LEGEND.map(({ rung, stored, desc }) => {
               const style = STATE_STYLES[stored] ?? STATE_STYLES.pending
@@ -2409,11 +2493,9 @@ export default function CostFieldsTab({
             <span className="text-slate-500 leading-snug pt-0.5">Receipt recorded — locks the line or planned role. Per-line / per-role Pay still needs a confirm tick. Edit → MARK ALL AS PAID marks every line (or role) paid (unticked rows are confirmed by that action). Un-pay or undo via the dropdown to unlock.</span>
           </div>
           <p className="text-slate-600 text-xs -mt-2">Use ▼ on any cost field to drill into the breakdown and add individual line items as they come in.</p>
-          </>
-          )}
 
           {/* Per-show sections */}
-          {(!onAdvancingSheet || advancingWorkspaceId) && viewShows.map((show, idx) => (
+          {viewShows.map((show, idx) => (
             <div key={show.id} className="space-y-3">
               <div className="flex items-center gap-3">
                 <div className="w-6 h-6 rounded-full bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 text-xs font-bold shrink-0 self-start mt-0.5">{idx + 1}</div>
@@ -2432,40 +2514,6 @@ export default function CostFieldsTab({
                   />
                 </div>
               </div>
-
-              {showOwnerPnl && (() => {
-                const fieldDef = SHOW_FIELDS.find(f => f.key === INSIDE_FEES_FIELD_KEY)
-                if (!fieldDef) return null
-                const stored = fieldMap.get(showFieldKey(show.id, fieldDef.key))
-                const pct = sellThrough[show.id] ?? 75
-                const lock = ticketLocks[show.id]
-                const tickets = lock?.locked
-                  ? lock.tickets
-                  : (modelledTickets(show, pct) ?? 0)
-                const gbo = lock?.locked
-                  ? Math.round(tickets * (Number(show.ticket_price) || 0))
-                  : (projectedBoxOffice(show, pct) ?? 0)
-                return (
-                  <div key={INSIDE_FEES_CATEGORY} data-testid={`inside-fees-block-${show.id}`}>
-                    <h4 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1.5 ml-9">
-                      {INSIDE_FEES_LABEL}
-                    </h4>
-                    <div className="space-y-1.5 ml-9">
-                      <FieldRow
-                        runId={runId}
-                        showId={show.id}
-                        fieldDef={fieldDef}
-                        existing={stored}
-                        onSaved={handleSaved}
-                        onEntriesUpdated={handleEntriesUpdated}
-                        editorDisplayName={editorNameForField(stored, editorDisplayNameByFieldId, profile)}
-                        costSheetFrozen={sheetFrozen}
-                        insideCalc={{ payerCount: tickets, grossTicketSales: gbo }}
-                      />
-                    </div>
-                  </div>
-                )
-              })()}
 
               {['Venue Costs', 'Marketing'].map(cat => {
                 const catFields = visibleShowFields.filter(f => f.category === cat)
@@ -2517,7 +2565,6 @@ export default function CostFieldsTab({
           ))}
 
           {/* Run-level shared costs */}
-          {(!onAdvancingSheet || advancingWorkspaceId) && (
           <div>
             <div className="flex items-center gap-3 mb-3">
               <div className="w-6 h-6 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center shrink-0">
@@ -2569,6 +2616,7 @@ export default function CostFieldsTab({
               </div>
               )
             })}
+          </div>
           </div>
           )}
 
