@@ -278,6 +278,9 @@ describe('missing RUN_DEFAULTS uses Factors for cost lines', () => {
     assert.ok(showDc.every(r => r.state === 'auto_calc'))
     assert.equal(showDc.reduce((s, r) => s + (r.value ?? 0), 0), Math.round(375 * 1.10 * 100) / 100 + Math.round(600 * 1.10 * 100) / 100)
     assert.equal(showRows(rows, 'venue_marketing').length, 2)
+    const insides = showRows(rows, 'inside_fees')
+    assert.equal(insides.length, 2)
+    assert.ok(insides.every(r => r.state === 'estimated'))
     for (const key of FOUR_VENUE_BUCKETS) {
       assert.equal(showRows(rows, key).length, 2, key)
     }

@@ -137,4 +137,27 @@ describe('Unconfirm stays BOOKED and preserves Advancing chrome', () => {
     assert.equal(compsOnly.field_key, 'band_comps')
     assert.equal(compsOnly.value, 12)
   })
+
+  it('re-BOOK does not resurrect Advancing-tombstoned inside lines', () => {
+    const merged = mergeCostingCopiesPreservingAdvancing(
+      [{
+        show_id: 'show-1',
+        field_key: 'inside_fees',
+        state: 'estimated',
+        value: 450,
+        entries: [{
+          id: 'booking',
+          description: 'Booking fee',
+          notes: '',
+          amount: 450,
+          gst_included: true,
+          confirmed: false,
+          seed_key: 'booking_fee',
+        }],
+      }],
+      [],
+      { advancingTombstones: [{ show_id: 'show-1', field_key: 'inside_fees', seed_key: 'booking_fee' }] },
+    )
+    assert.equal(merged[0]?.entries?.length, 0)
+  })
 })

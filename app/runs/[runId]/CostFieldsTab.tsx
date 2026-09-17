@@ -44,6 +44,7 @@ import {
   entryInvoiceVariance,
   entryIsAttested,
   entryIsPaidLocked,
+  EMPTY_ENTRIES_ALLOWED_FIELD_KEYS,
   ENTRY_EXEMPT_FIELD_KEYS,
   DEFINED_RUN_COST_FIELDS,
   DEFINED_SHOW_COST_FIELDS,
@@ -78,7 +79,13 @@ import {
   staffDisplayName,
 } from '@/lib/cost-entry-source'
 import QuoteInvoiceStub from '@/components/QuoteInvoiceStub'
-import { PnlRevenueBlock, PnlSummaryBlock, venuePnl, type PnlShow } from './PnlOwnerChrome'
+import { PnlRevenueBlock, PnlSummaryBlock, modelledTickets, projectedBoxOffice, venuePnl, type PnlShow } from './PnlOwnerChrome'
+import {
+  INSIDE_FEES_CATEGORY,
+  INSIDE_FEES_FIELD_KEY,
+  INSIDE_FEES_LABEL,
+  liveRecalcInsideEntries,
+} from '@/lib/inside-fee-lines'
 import {
   canSeeOwnerPnl,
   computePnlSummary,
@@ -350,6 +357,7 @@ function EntryRow({
   onAttachFile,
   stubBusy,
   costSheetFrozen = false,
+  insideCalc,
 }: {
   entry: Entry
   onUpdate: (updated: Entry) => void
@@ -362,6 +370,7 @@ function EntryRow({
   onAttachFile: (file: File) => void
   stubBusy?: boolean
   costSheetFrozen?: boolean
+  insideCalc?: { payerCount: number; grossTicketSales: number }
 }) {
   const [editing, setEditing] = useState(false)
   const [desc, setDesc] = useState(entry.description)
@@ -371,6 +380,7 @@ function EntryRow({
     entry.invoice_amount != null ? String(entry.invoice_amount) : '',
   )
   const [gst, setGst] = useState(entry.gst_included)
+  const [rate, setRate] = useState(entry.rate != null ? String(entry.rate) : '')
 
   const locked = entryIsPaidLocked(entry) || costSheetFrozen
   const attested = entryIsAttested(entry)
@@ -380,13 +390,19 @@ function EntryRow({
   function save() {
     if (locked) return
     const parsedInvoice = invoiceAmount.trim() === '' ? null : parseFloat(invoiceAmount)
+    const parsedRate = rate.trim() === '' ? null : parseFloat(rate)
+    const nextRate = parsedRate != null && Number.isFinite(parsedRate) ? parsedRate : null
+    const recalc = nextRate != null && entry.rate_unit && insideCalc
+      ? liveRecalcInsideEntries([{ ...entry, rate: nextRate }], insideCalc)[0]
+      : null
     onUpdate({
       ...entry,
       description: desc,
       notes,
-      amount: parseFloat(amount) || 0,
+      amount: recalc?.amount ?? (parseFloat(amount) || 0),
       invoice_amount: parsedInvoice != null && Number.isFinite(parsedInvoice) ? parsedInvoice : null,
       gst_included: gst,
+      rate: nextRate,
     })
     setEditing(false)
   }
@@ -424,6 +440,20 @@ function EntryRow({
           aria-label={NOTES_INPUT_LABEL}
           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
         <div className="flex items-center gap-1.5 flex-wrap">
+          {entry.rate_unit && (
+            <label className="text-slate-400 text-xs whitespace-nowrap">
+              {entry.rate_unit === 'per_payer' ? '$/payer' : '% of gross'}
+              <input
+                type="number"
+                step="0.01"
+                value={rate}
+                onChange={e => setRate(e.target.value)}
+                aria-label={entry.rate_unit === 'per_payer' ? 'Rate per payer' : 'Rate percent of gross'}
+                data-testid="inside-fee-rate"
+                className="ml-1 w-20 bg-slate-900 border border-amber-400/40 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400"
+              />
+            </label>
+          )}
           <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
             aria-label="Expected amount"
             className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
@@ -501,6 +531,9 @@ function EntryRow({
         )}
         <span className={`flex-1 min-w-0 text-xs truncate ${attested ? 'text-white' : 'text-slate-400'}`}>
           {entry.description || '—'}
+          {entry.rate != null && entry.rate_unit
+            ? <span className="text-slate-500"> · {entry.rate_unit === 'per_payer' ? `$${Number(entry.rate).toFixed(2)}/payer` : `${Number(entry.rate)}%`}</span>
+            : null}
         </span>
         <span
           title={notesRef || undefined}
@@ -649,6 +682,7 @@ function EntryPanel({
   editorDisplayName,
   runId,
   costSheetFrozen = false,
+  insideCalc,
 }: {
   fieldId: string
   fieldKey: string
@@ -659,6 +693,7 @@ function EntryPanel({
   editorDisplayName?: string | null
   runId: string
   costSheetFrozen?: boolean
+  insideCalc?: { payerCount: number; grossTicketSales: number }
 }) {
   const { patchField } = useCostSheetApi()
   const { profile } = useProfile()
@@ -679,7 +714,7 @@ function EntryPanel({
       setError(BOOKED_COST_FREEZE_BANNER)
       return
     }
-    if (updated.length === 0) {
+    if (updated.length === 0 && !EMPTY_ENTRIES_ALLOWED_FIELD_KEYS.has(fieldKey)) {
       setError('At least one entry is required')
       return
     }
@@ -734,7 +769,7 @@ function EntryPanel({
       setError('Paid line is locked — un-pay before removing')
       return
     }
-    if (entries.length <= 1) {
+    if (entries.length <= 1 && !EMPTY_ENTRIES_ALLOWED_FIELD_KEYS.has(fieldKey)) {
       setError('Cannot remove the last entry — set amount to $0 instead')
       return
     }
@@ -758,6 +793,9 @@ function EntryPanel({
       attachment_mime: null,
       quote_note: '',
       payables_document_id: null,
+      ...(fieldKey === INSIDE_FEES_FIELD_KEY
+        ? { inside_kind: 'custom' as const, seed_key: null, rate: null, rate_unit: null }
+        : {}),
     }
     await persist([...entries, newEntry])
     setDesc('')
@@ -791,7 +829,8 @@ function EntryPanel({
                 entry={e}
                 onUpdate={updated => updateEntry(i, updated)}
                 onRemove={() => removeEntry(i)}
-                canRemove={entries.length > 1}
+                canRemove={entries.length > 1 || EMPTY_ENTRIES_ALLOWED_FIELD_KEYS.has(fieldKey)}
+                insideCalc={insideCalc}
                 fieldSource={fieldSource}
                 fieldKey={fieldKey}
                 editorDisplayName={editorDisplayName}
@@ -827,6 +866,9 @@ function EntryPanel({
 
       {/* Add new entry */}
       {!costSheetFrozen && <div className="space-y-1.5">
+        {fieldKey === INSIDE_FEES_FIELD_KEY && (
+          <p className="text-slate-500 text-xs">Custom inside line — label + $ only (still comes off gross before Harbour 10%).</p>
+        )}
         <input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description"
           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-amber-400" />
         <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
@@ -860,6 +902,7 @@ function FieldRow({
   onEntriesUpdated,
   editorDisplayName,
   costSheetFrozen = false,
+  insideCalc,
 }: {
   runId: string
   showId: string | null
@@ -869,6 +912,7 @@ function FieldRow({
   onEntriesUpdated: (updated: CostFieldRow) => void
   editorDisplayName?: string | null
   costSheetFrozen?: boolean
+  insideCalc?: { payerCount: number; grossTicketSales: number }
 }) {
   const { patchField, createField, workspaceId } = useCostSheetApi()
   const [isEditing, setIsEditing] = useState(false)
@@ -1047,6 +1091,7 @@ function FieldRow({
           entries={entries}
           fieldSource={existing.source}
           editorDisplayName={editorDisplayName}
+          insideCalc={insideCalc}
           onEntriesUpdated={onEntriesUpdated}
           runId={runId}
           costSheetFrozen={costSheetFrozen}
@@ -1791,6 +1836,8 @@ export default function CostFieldsTab({
   editorDisplayNameByFieldId = {},
   insideFactors = {},
   remittanceLines = [],
+  costingTombstones = [],
+  advancingTombstones = [],
   costSheetFrozen = false,
   bookingStatus = null,
   costingsUnconfirmedAt = null,
@@ -1816,6 +1863,8 @@ export default function CostFieldsTab({
   editorDisplayNameByFieldId?: Record<string, string>
   insideFactors?: InsideFactorValues
   remittanceLines?: KnownInsideLine[]
+  costingTombstones?: Array<{ show_id?: string | null; field_key: string; seed_key?: string | null }>
+  advancingTombstones?: Array<{ show_id?: string | null; field_key: string; seed_key?: string | null }>
   costSheetFrozen?: boolean
   bookingStatus?: string | null
   costingsUnconfirmedAt?: string | null
@@ -1849,7 +1898,7 @@ export default function CostFieldsTab({
   // Which per-show fields production can see (no revenue, no venue hire)
   const visibleShowFields = isProduction
     ? SHOW_FIELDS.filter(f => productionCanEditFieldKey(f.key))
-    : SHOW_FIELDS.filter(f => f.category !== 'Revenue')
+    : SHOW_FIELDS.filter(f => f.category !== 'Revenue' && f.category !== INSIDE_FEES_CATEGORY)
   // Which run-level categories production can see (only Production = lighting_hire)
   const visibleRunCategories = isProduction
     ? ['Production']
@@ -1899,7 +1948,7 @@ export default function CostFieldsTab({
       const missing = findMissingDefinedCostFields(
         fields.map(f => ({ show_id: f.show_id, field_key: f.field_key })),
         showsState.map(s => s.id),
-        { role, onlyVisibleToRole: true },
+        { role, onlyVisibleToRole: true, tombstones: costingTombstones },
       )
 
       const created: CostFieldRow[] = []
@@ -2040,7 +2089,7 @@ export default function CostFieldsTab({
   const showCostTotal = viewShows.reduce((sum, show) => {
     const pct = sellThrough[show.id] ?? 75
     const calc = showAutoCalc(show)
-    return sum + SHOW_FIELDS.filter(f => f.category !== 'Revenue').reduce((s2, f) => {
+    return sum + SHOW_FIELDS.filter(f => f.category !== 'Revenue' && f.category !== INSIDE_FEES_CATEGORY).reduce((s2, f) => {
       const row = fieldMap.get(showFieldKey(show.id, f.key))
       if (f.key === 'venue_staff') return s2 + (calcVenueStaff(show, pct, row) ?? 0)
       if (f.key === MUSIC_RIGHTS_FIELD_KEY) return s2 + (calc.music.amount ?? 0)
@@ -2082,12 +2131,19 @@ export default function CostFieldsTab({
     .map(line => line.label)
   const isDataComplete = slidersUnlocked
   const COMPLETENESS_EXCLUDED = new Set(['social_ads_var', 'gross_box_office'])
+  const insideByShow = Object.fromEntries(viewShows.map(show => {
+    const row = fieldMap.get(showFieldKey(show.id, INSIDE_FEES_FIELD_KEY))
+    return [show.id, { entries: row?.entries ?? [], state: row?.state ?? null }]
+  }))
   const ownerVenuePnls = viewShows.map(show =>
     venuePnl({
       show,
       pct: sellThrough[show.id] ?? 75,
       factors: mergedFactors,
       remittanceLines,
+      insideEntries: insideByShow[show.id]?.entries,
+      insideFieldState: insideByShow[show.id]?.state,
+      actualTickets: onAdvancingSheet && ticketLocks[show.id]?.locked ? ticketLocks[show.id]!.tickets : null,
     }),
   )
   const ownerNetRevenue = ownerVenuePnls.reduce((s, v) => s + v.waterfall.netRevenue, 0)
@@ -2127,6 +2183,21 @@ export default function CostFieldsTab({
     if (socialAdsField && !costSheetFrozen) {
       await supabase.from('cost_fields').update({ value: newSocialAds }).eq('id', socialAdsField.id)
       setFields(prev => prev.map(f => f.id === socialAdsField.id ? { ...f, value: newSocialAds } : f))
+    }
+    if (!sheetFrozen) {
+      const show = showsState.find(s => s.id === showId)
+      const row = fieldMap.get(showFieldKey(showId, INSIDE_FEES_FIELD_KEY))
+      if (show && row?.id && row.entries?.length) {
+        const tickets = modelledTickets(show, pct) ?? 0
+        const gbo = projectedBoxOffice(show, pct) ?? 0
+        const next = liveRecalcInsideEntries(row.entries, { payerCount: tickets, grossTicketSales: gbo })
+        try {
+          const data = await sheetApi.patchField(row.id, { entries: next })
+          handleSaved(data as CostFieldRow)
+        } catch (err) {
+          console.warn('live inside fee recalc skipped:', err)
+        }
+      }
     }
   }
 
@@ -2315,6 +2386,7 @@ export default function CostFieldsTab({
                   }
                 : undefined}
               ticketLocks={onAdvancingSheet ? ticketLocks : undefined}
+              insideByShow={insideByShow}
             />
           )}
 
@@ -2360,6 +2432,40 @@ export default function CostFieldsTab({
                   />
                 </div>
               </div>
+
+              {showOwnerPnl && (() => {
+                const fieldDef = SHOW_FIELDS.find(f => f.key === INSIDE_FEES_FIELD_KEY)
+                if (!fieldDef) return null
+                const stored = fieldMap.get(showFieldKey(show.id, fieldDef.key))
+                const pct = sellThrough[show.id] ?? 75
+                const lock = ticketLocks[show.id]
+                const tickets = lock?.locked
+                  ? lock.tickets
+                  : (modelledTickets(show, pct) ?? 0)
+                const gbo = lock?.locked
+                  ? Math.round(tickets * (Number(show.ticket_price) || 0))
+                  : (projectedBoxOffice(show, pct) ?? 0)
+                return (
+                  <div key={INSIDE_FEES_CATEGORY} data-testid={`inside-fees-block-${show.id}`}>
+                    <h4 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1.5 ml-9">
+                      {INSIDE_FEES_LABEL}
+                    </h4>
+                    <div className="space-y-1.5 ml-9">
+                      <FieldRow
+                        runId={runId}
+                        showId={show.id}
+                        fieldDef={fieldDef}
+                        existing={stored}
+                        onSaved={handleSaved}
+                        onEntriesUpdated={handleEntriesUpdated}
+                        editorDisplayName={editorNameForField(stored, editorDisplayNameByFieldId, profile)}
+                        costSheetFrozen={sheetFrozen}
+                        insideCalc={{ payerCount: tickets, grossTicketSales: gbo }}
+                      />
+                    </div>
+                  </div>
+                )
+              })()}
 
               {['Venue Costs', 'Marketing'].map(cat => {
                 const catFields = visibleShowFields.filter(f => f.category === cat)

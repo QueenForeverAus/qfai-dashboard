@@ -12,6 +12,7 @@ import {
   ensureMinimumEntry,
   ensurePaidLinesConfirmed,
   entriesSum,
+  EMPTY_ENTRIES_ALLOWED_FIELD_KEYS,
   ENTRY_EXEMPT_FIELD_KEYS,
   formatAllPaidAlsoConfirmedSentence,
   formatBulkPaidAuditCopy,
@@ -54,6 +55,10 @@ import {
   writeAuditLog,
 } from './audit-log.ts'
 import { autoTickChecklistAfterCostFieldSave } from './advancing-checklist-paid-ticks-persist.ts'
+import {
+  tombstoneSheetFromTable,
+  tombstonesForRemovedEntries,
+} from './cost-line-tombstones.ts'
 import type { createAdminClient } from '@/lib/supabase/server-admin'
 
 type AdminClient = ReturnType<typeof createAdminClient>
@@ -241,13 +246,15 @@ export async function executeCostFieldPatch(opts: {
   if (entriesProvided) {
     let entries = normalizeEntries(body.entries) ?? []
     if (!ENTRY_EXEMPT_FIELD_KEYS.has(String(existing.field_key))) {
-      if (entries.length === 0) {
+      if (entries.length === 0 && !EMPTY_ENTRIES_ALLOWED_FIELD_KEYS.has(String(existing.field_key))) {
         return NextResponse.json(
           { error: 'Cannot clear all entries — at least one entry is required' },
           { status: 400 },
         )
       }
-      entries = ensureMinimumEntry(entries, String(existing.label ?? ''), existing.value as number | null)
+      if (entries.length > 0) {
+        entries = ensureMinimumEntry(entries, String(existing.label ?? ''), existing.value as number | null)
+      }
     }
 
     const existingEntries = normalizeEntries(existing.entries) ?? []
@@ -370,6 +377,28 @@ export async function executeCostFieldPatch(opts: {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  if (entriesProvided) {
+    const runIdForTombstone = (existing.run_id as string | null) ?? (data?.run_id as string | null) ?? null
+    if (runIdForTombstone) {
+      const rows = tombstonesForRemovedEntries({
+        runId: runIdForTombstone,
+        sheet: tombstoneSheetFromTable(table),
+        showId: (existing.show_id as string | null) ?? null,
+        fieldKey: String(existing.field_key ?? ''),
+        existing: normalizeEntries(existing.entries),
+        next: normalizeEntries(updates.entries),
+      })
+      if (rows.length) {
+        const { error: tombstoneError } = await admin
+          .from('cost_line_tombstones')
+          .upsert(rows, { ignoreDuplicates: true })
+        if (tombstoneError) {
+          console.error('cost_line_tombstones upsert failed:', tombstoneError.message)
+        }
+      }
+    }
+  }
 
   const runId = (existing.run_id as string | null) ?? (data?.run_id as string | null) ?? null
   const showId = (existing.show_id as string | null) ?? null

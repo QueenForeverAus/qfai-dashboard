@@ -1,4 +1,5 @@
 /** Shared Run Costing helpers — entries as source of truth for line totals. */
+import { seedStandardInsideEntries } from './inside-fee-lines.ts'
 
 /**
  * Confirm / PAID flags shared by cost `entries[]` and venue_staff `line_items[]`.
@@ -50,6 +51,15 @@ export type CostEntry = PayableLine & {
   vendor?: string | null
   confirmation_id?: string | null
   receipt_kind?: 'charge' | 'refund' | null
+  /**
+   * Stable seed identity for Factors refresh / hard-delete.
+   * Standard insides: booking_fee | cc_fee | ticketing_inside | comp_tickets.
+   */
+  seed_key?: string | null
+  /** Editable rate for standard Inside lines ($/payer or % of gross). */
+  rate?: number | null
+  rate_unit?: 'per_payer' | 'pct_gross' | null
+  inside_kind?: 'booking_fee' | 'cc_fee' | 'ticketing_inside' | 'comp_tickets' | 'custom' | null
 }
 
 /**
@@ -84,6 +94,9 @@ export const PAID_LOCKED_ENTRY_FIELDS = [
   'amount',
   'gst_included',
   'confirmed',
+  'rate',
+  'rate_unit',
+  'inside_kind',
 ] as const
 
 export type PaidLockedEntryField = (typeof PAID_LOCKED_ENTRY_FIELDS)[number]
@@ -189,6 +202,11 @@ export const ENTRY_EXEMPT_FIELD_KEYS = new Set([
   'daniel_champagne',
 ])
 
+/** Sections that may persist zero entries after a hard delete. */
+export const EMPTY_ENTRIES_ALLOWED_FIELD_KEYS = new Set([
+  'inside_fees',
+])
+
 /**
  * Fields production role may edit (matches CostFieldsTab visibility).
  * Run-level Production category + per-show venue_staff / venue_marketing / production_costs.
@@ -232,6 +250,7 @@ export const FOUR_VENUE_BUCKETS = [
 /** Canonical per-show cost lines shown in Run Costing. */
 export const DEFINED_SHOW_COST_FIELDS: CostFieldDef[] = [
   { key: 'gross_box_office', label: 'Gross Box Office', category: 'Revenue', defaultState: 'pending', scope: 'show' },
+  { key: 'inside_fees', label: 'Inside fees (come off gross before Harbour 10%)', category: 'Inside fees', defaultState: 'estimated', scope: 'show' },
   { key: 'venue_hire', label: 'Venue Hire', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
   { key: 'venue_staff', label: 'Venue Staff / On-costs', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
   { key: 'venue_marketing', label: 'Venue Marketing', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
@@ -859,7 +878,7 @@ export function stampPaidAt<T extends PayableLine>(
 }
 
 function lockedFieldChanged(prev: CostEntry, next: CostEntry, field: PaidLockedEntryField): boolean {
-  if (field === 'amount') return Number(prev.amount) !== Number(next.amount)
+  if (field === 'amount' || field === 'rate') return Number(prev[field] ?? 0) !== Number(next[field] ?? 0)
   return prev[field] !== next[field]
 }
 
@@ -1098,6 +1117,21 @@ export function normalizeEntries(raw: unknown): CostEntry[] | null {
       receipt_kind: row.receipt_kind === 'refund' || row.receipt_kind === 'charge'
         ? row.receipt_kind
         : null,
+      seed_key: row.seed_key != null && String(row.seed_key).trim() ? String(row.seed_key).trim() : null,
+      rate: (() => {
+        if (row.rate == null || row.rate === '') return null
+        const n = Number(row.rate)
+        return Number.isFinite(n) ? n : null
+      })(),
+      rate_unit: row.rate_unit === 'per_payer' || row.rate_unit === 'pct_gross' ? row.rate_unit : null,
+      inside_kind:
+        row.inside_kind === 'booking_fee'
+        || row.inside_kind === 'cc_fee'
+        || row.inside_kind === 'ticketing_inside'
+        || row.inside_kind === 'comp_tickets'
+        || row.inside_kind === 'custom'
+          ? row.inside_kind
+          : null,
     }
   })
 }
@@ -1108,14 +1142,37 @@ export type MissingCostFieldSpec = {
   showId: string | null
 }
 
+export type DeletedFieldTombstone = {
+  show_id?: string | null
+  field_key: string
+  seed_key?: string | null
+}
+
+function isDeletedFieldTombstone(
+  tombstones: DeletedFieldTombstone[] | null | undefined,
+  showId: string | null,
+  fieldKey: string,
+): boolean {
+  return (tombstones ?? []).some(t =>
+    (t.show_id ?? null) === showId
+    && t.field_key === fieldKey
+    && (t.seed_key == null || t.seed_key === '' || t.seed_key === '*'),
+  )
+}
+
 /**
  * Find defined cost lines that have no DB row yet (e.g. backline_hire on G2 R01).
  * Pass showIds for per-show fields.
+ * Tombstoned field keys are never recreated (hard delete).
  */
 export function findMissingDefinedCostFields(
   existing: Array<{ show_id: string | null; field_key: string }>,
   showIds: string[],
-  opts?: { role?: string; onlyVisibleToRole?: boolean },
+  opts?: {
+    role?: string
+    onlyVisibleToRole?: boolean
+    tombstones?: DeletedFieldTombstone[] | null
+  },
 ): MissingCostFieldSpec[] {
   const onlyVisible = opts?.onlyVisibleToRole ?? false
   const role = opts?.role
@@ -1126,12 +1183,14 @@ export function findMissingDefinedCostFields(
 
   for (const def of DEFINED_RUN_COST_FIELDS) {
     if (onlyVisible && !roleCanSeeCostField(role, def.key)) continue
+    if (isDeletedFieldTombstone(opts?.tombstones, null, def.key)) continue
     if (!has(null, def.key)) missing.push({ fieldDef: def, showId: null })
   }
 
   for (const showId of showIds) {
     for (const def of DEFINED_SHOW_COST_FIELDS) {
       if (onlyVisible && !roleCanSeeCostField(role, def.key)) continue
+      if (isDeletedFieldTombstone(opts?.tombstones, showId, def.key)) continue
       if (!has(showId, def.key)) missing.push({ fieldDef: def, showId })
     }
   }
@@ -1145,9 +1204,11 @@ export function buildCreateCostFieldBody(
   spec: MissingCostFieldSpec,
 ): Record<string, unknown> {
   const { fieldDef, showId } = spec
-  const entries = ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
-    ? []
-    : ensureMinimumEntry([], defaultCostEntryDescription(fieldDef.key, fieldDef.label), 0)
+  const entries = fieldDef.key === 'inside_fees'
+    ? seedStandardInsideEntries({ payerCount: 0, grossTicketSales: 0 })
+    : ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
+      ? []
+      : ensureMinimumEntry([], defaultCostEntryDescription(fieldDef.key, fieldDef.label), 0)
 
   const body: Record<string, unknown> = {
     run_id: runId,

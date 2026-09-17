@@ -12,6 +12,17 @@ import {
   shouldRefreshCostField,
 } from '@/lib/factors-refresh'
 import { isAdminOrOwner } from '@/lib/role-access'
+import {
+  mergeFactorRefreshEntries,
+  tombstonedSeedKeysForField,
+  type CostLineTombstone,
+} from '@/lib/cost-line-tombstones'
+import {
+  INSIDE_FEES_FIELD_KEY,
+  seedStandardInsideEntries,
+} from '@/lib/inside-fee-lines'
+import { entriesSum, normalizeEntries } from '@/lib/cost-fields'
+import { insideFactorsFromRows } from '@/lib/pnl-run-costing'
 
 const ALL_REFRESH_KEYS = [...new Set(Object.values(FACTOR_COSTING_FIELD_MAP).flat())]
 
@@ -42,7 +53,7 @@ export async function POST(
     return NextResponse.json({ error: blocked, refreshed: 0 }, { status: 409 })
   }
 
-  const { data: allFactors } = await supabase.from('run_factors').select('key, value')
+  const { data: allFactors } = await supabase.from('run_factors').select('key, value, category')
   const factorMap: FactorOverrides = {}
   for (const f of allFactors ?? []) {
     if (f.key in FACTOR_COSTING_FIELD_MAP) {
@@ -50,20 +61,27 @@ export async function POST(
       if (Number.isFinite(n)) (factorMap as Record<string, number>)[f.key] = n
     }
   }
+  const insideFactors = insideFactorsFromRows(allFactors ?? [])
 
   const lightingHireDefault = (await loadPortalSettings(supabase)).lighting_hire_default
   const defaults = RUN_DEFAULTS[run.code] ?? null
   const { data: shows } = await supabase
     .from('shows')
-    .select('id, show_order, venue_city, show_date, capacity, ticket_price, tickets_sold, sell_through_pct')
+    .select('id, show_order, venue_city, show_date, capacity, ticket_price, tickets_sold, sell_through_pct, booking_fee_per_payer, cc_fee_pct')
     .eq('run_id', run.id)
     .order('show_order')
   const { data: fields } = await supabase
     .from('cost_fields')
-    .select('id, field_key, state, show_id')
+    .select('id, field_key, state, show_id, entries, value')
     .eq('run_id', run.id)
     .in('field_key', ALL_REFRESH_KEYS)
+  const { data: tombstoneRows } = await supabase
+    .from('cost_line_tombstones')
+    .select('show_id, field_key, seed_key')
+    .eq('run_id', run.id)
+    .eq('sheet', 'costings')
 
+  const tombstones = (tombstoneRows ?? []) as CostLineTombstone[]
   const showsById = new Map((shows ?? []).map(s => [s.id, s]))
 
   let refreshed = 0
@@ -82,13 +100,43 @@ export async function POST(
       lightingHireDefault,
       show,
     })
-    const newEntries = generateEntries(field.field_key, field.state, defaults, shows ?? [], factorMap)
+    const existingEntries = normalizeEntries(field.entries) ?? []
+    const generated = field.field_key === INSIDE_FEES_FIELD_KEY && show
+      ? seedStandardInsideEntries({
+          factors: insideFactors,
+          venueOverride: {
+            bookingFeePerPayer: show.booking_fee_per_payer == null ? null : Number(show.booking_fee_per_payer),
+            ccFeePct: show.cc_fee_pct == null ? null : Number(show.cc_fee_pct),
+          },
+          payerCount: Math.round((Number(show.capacity) || 0) * ((Number(show.sell_through_pct) || 75) / 100)),
+          grossTicketSales: Math.round(
+            (Number(show.capacity) || 0)
+            * ((Number(show.sell_through_pct) || 75) / 100)
+            * (Number(show.ticket_price) || 0),
+          ),
+          tombstonedSeedKeys: tombstonedSeedKeysForField(tombstones, field.field_key, field.show_id),
+        })
+      : generateEntries(field.field_key, field.state, defaults, shows ?? [], factorMap)
+
+    const merged = mergeFactorRefreshEntries({
+      fieldKey: field.field_key,
+      existing: existingEntries,
+      generated,
+      tombstones,
+      showId: field.show_id ?? null,
+    })
+
     const patch: Record<string, unknown> = {}
     if (derived) {
       patch.value = derived.value
       if (derived.state) patch.state = derived.state
     }
-    if (newEntries?.length) patch.entries = JSON.parse(JSON.stringify(newEntries))
+    if (merged.length || existingEntries.length) {
+      patch.entries = JSON.parse(JSON.stringify(merged))
+      if (field.field_key === INSIDE_FEES_FIELD_KEY || !derived) {
+        patch.value = entriesSum(merged)
+      }
+    }
     if (Object.keys(patch).length) {
       await supabase.from('cost_fields').update(patch).eq('id', field.id)
       refreshed++

@@ -35,9 +35,6 @@ import {
   computePnlSummary,
   computeVenueWaterfall,
   gstQuarantineLineLabel,
-  knownInsideForShow,
-  remittanceHasCcSplit,
-  resolveInsideCosts,
   roundMoney,
   type InsideFactorValues,
   type KnownInsideLine,
@@ -45,6 +42,11 @@ import {
   type PnlVenueWaterfall,
 } from './pnl-run-costing.ts'
 import { snapshotFieldTotal, type CostingSnapshotField } from './settlements.ts'
+import {
+  INSIDE_FEES_FIELD_KEY,
+  liveRecalcInsideEntries,
+  resolveSheetInsideCosts,
+} from './inside-fee-lines.ts'
 
 export const SHEET_TAB_LABEL = 'Sheet'
 export const SHEET_HEADING = 'Settlements'
@@ -229,11 +231,17 @@ export function expectedVenueWaterfall(opts: {
   tickets: number
   factors?: InsideFactorValues | null
   remittanceLines?: KnownInsideLine[] | null
+  insideEntries?: CostingSnapshotField['entries'] | null
+  insideFieldState?: string | null
 }): PnlVenueWaterfall {
   const price = Number(opts.show.ticket_price) || 0
   const gross = roundMoney(opts.tickets * price)
-  const known = knownInsideForShow(opts.remittanceLines ?? [], opts.show.id)
-  const inside = resolveInsideCosts({
+  const contractLines = (opts.remittanceLines ?? []).filter(l => l.source === 'contract')
+  const liveEntries = liveRecalcInsideEntries(opts.insideEntries ?? [], {
+    payerCount: opts.tickets,
+    grossTicketSales: gross,
+  })
+  const inside = resolveSheetInsideCosts({
     grossTicketSales: gross,
     payerCount: opts.tickets,
     factors: opts.factors,
@@ -241,8 +249,10 @@ export function expectedVenueWaterfall(opts: {
       bookingFeePerPayer: opts.show.booking_fee_per_payer,
       ccFeePct: opts.show.cc_fee_pct,
     },
-    remittanceKnownTotal: known,
-    hasCcSplitHistory: remittanceHasCcSplit(opts.remittanceLines ?? [], opts.show.id),
+    entries: liveEntries,
+    fieldState: opts.insideFieldState,
+    contractLines,
+    showId: opts.show.id,
   })
   const waterfall = computeVenueWaterfall({ grossTicketSales: gross, insideTotal: inside.total })
   waterfall.inside = inside
@@ -282,12 +292,15 @@ export function buildShowSheetLines(opts: {
     kind: 'count',
   })
 
+  const insideField = fieldFor(opts.fields, INSIDE_FEES_FIELD_KEY, opts.show.id)
   const waterfall = opts.tickets != null
     ? expectedVenueWaterfall({
         show: opts.show,
         tickets: opts.tickets,
         factors: opts.factors,
         remittanceLines: opts.remittanceLines,
+        insideEntries: insideField?.entries ?? null,
+        insideFieldState: insideField?.state ?? null,
       })
     : null
 
