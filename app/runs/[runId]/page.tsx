@@ -14,6 +14,11 @@ import { resolveEditorDisplayNames } from '@/lib/cost-entry-source'
 import { formatAuditTrailEvents } from '@/lib/audit-trail-format'
 import { ADVANCEMENT_CHECKLIST } from '@/lib/advancement-checklist'
 import { insideFactorsFromRows, type KnownInsideLine } from '@/lib/pnl-run-costing'
+import {
+  INSIDE_FEES_FIELD_KEY,
+  seedStandardInsideEntries,
+} from '@/lib/inside-fee-lines'
+import { entriesSum } from '@/lib/cost-fields'
 import { isBookedBookingStatus, isRunCostSheetFrozen } from '@/lib/booked-cost-freeze'
 import { captureBookedCostSnapshotIfNeeded } from '@/lib/booked-cost-freeze-persist'
 import { loadPortalSettings } from '@/lib/portal-settings'
@@ -154,6 +159,7 @@ export default async function RunDetailPage({
       'cc_fee_pct',
       'inside_cc_fee_pct',
       'ticketing_inside_pct',
+      'comp_ticket_fee_per_payer',
       'music_rights_pct',
       'daniel_champagne_per_ticket',
     ]),
@@ -166,6 +172,11 @@ export default async function RunDetailPage({
   // Auto-seed defaults on first view
   const typedShows = (shows ?? []) as Show[]
   const rawFields = (costFields ?? []) as CostFieldRow[]
+  const { data: costingTombstones } = await supabase
+    .from('cost_line_tombstones')
+    .select('show_id, field_key, seed_key')
+    .eq('run_id', run.id)
+    .eq('sheet', 'costings')
 
   const portalSettings = await loadPortalSettings(supabase)
   const costSheetFrozen = isRunCostSheetFrozen(run, { lockEnabled: portalSettings.booked_costing_lock })
@@ -196,12 +207,19 @@ export default async function RunDetailPage({
   const advancingWorkspace = isBookedBookingStatus(run.status)
     ? await loadActiveAdvancingWorkspace(supabase, run.id)
     : null
-  const advancingFields = advancingWorkspace
+  let advancingFields = advancingWorkspace
     ? await loadAdvancingCostFields(supabase, advancingWorkspace.id)
     : []
   const advancingChrome = Array.isArray(advancingWorkspace?.shows_chrome)
     ? advancingWorkspace!.shows_chrome as AdvancingShowChrome[]
     : []
+  const { data: advancingTombstones } = advancingWorkspace
+    ? await supabase
+      .from('cost_line_tombstones')
+      .select('show_id, field_key, seed_key')
+      .eq('run_id', run.id)
+      .eq('sheet', 'advancing')
+    : { data: [] as Array<{ show_id: string | null; field_key: string; seed_key: string }> }
 
   let typedFields = rawFields
   if (!costSheetFrozen && rawFields.length === 0 && typedShows.length > 0) {
@@ -275,10 +293,32 @@ export default async function RunDetailPage({
     const missing = findMissingDefinedCostFields(
       rawFields.map(f => ({ show_id: f.show_id, field_key: f.field_key })),
       typedShows.map(s => s.id),
+      { tombstones: costingTombstones ?? [] },
     )
     if (missing.length > 0) {
+      const insideFactors = insideFactorsFromRows(factorsRaw ?? [])
       const rows = missing.map(spec => {
         const body = buildCreateCostFieldBody(run.id, spec)
+        if (spec.fieldDef.key === INSIDE_FEES_FIELD_KEY) {
+          const show = typedShows.find(s => s.id === spec.showId)
+          const payers = Math.round((Number(show?.capacity) || 0) * 0.75)
+          const entries = seedStandardInsideEntries({
+            factors: insideFactors,
+            venueOverride: {
+              bookingFeePerPayer: show?.booking_fee_per_payer ?? null,
+              ccFeePct: show?.cc_fee_pct ?? null,
+            },
+            payerCount: payers,
+            grossTicketSales: Math.round(payers * (Number(show?.ticket_price) || 0)),
+            tombstonedSeedKeys: (costingTombstones ?? [])
+              .filter(t => t.field_key === INSIDE_FEES_FIELD_KEY && (t.show_id ?? null) === spec.showId)
+              .map(t => t.seed_key),
+          })
+          body.entries = entries
+          body.value = entriesSum(entries)
+          body.state = 'estimated'
+          return body
+        }
         // Prefer generateEntries when defaults exist (e.g. Group 3 backline).
         if (!ENTRY_EXEMPT_FIELD_KEYS.has(spec.fieldDef.key)) {
           const generated = generateEntries(
@@ -306,6 +346,49 @@ export default async function RunDetailPage({
         .from('cost_fields').select('*').eq('run_id', run.id)
         .order('show_id', { ascending: true, nullsFirst: false })
       typedFields = (backfilledFields ?? []) as CostFieldRow[]
+    }
+  }
+
+  if (advancingWorkspace && advancingFields.length > 0 && typedShows.length > 0) {
+    const { findMissingDefinedCostFields } = await import('@/lib/cost-fields')
+    const missingInside = findMissingDefinedCostFields(
+      advancingFields.map(f => ({ show_id: f.show_id, field_key: f.field_key })),
+      typedShows.map(s => s.id),
+      { tombstones: advancingTombstones ?? [] },
+    ).filter(spec => spec.fieldDef.key === INSIDE_FEES_FIELD_KEY)
+    if (missingInside.length > 0) {
+      const insideFactors = insideFactorsFromRows(factorsRaw ?? [])
+      const rows = missingInside.map(spec => {
+        const show = typedShows.find(s => s.id === spec.showId)
+        const payers = Math.round((Number(show?.capacity) || 0) * 0.75)
+        const entries = seedStandardInsideEntries({
+          factors: insideFactors,
+          venueOverride: {
+            bookingFeePerPayer: show?.booking_fee_per_payer ?? null,
+            ccFeePct: show?.cc_fee_pct ?? null,
+          },
+          payerCount: payers,
+          grossTicketSales: Math.round(payers * (Number(show?.ticket_price) || 0)),
+          tombstonedSeedKeys: (advancingTombstones ?? [])
+            .filter(t => t.field_key === INSIDE_FEES_FIELD_KEY && (t.show_id ?? null) === spec.showId)
+            .map(t => t.seed_key),
+        })
+        return {
+          workspace_id: advancingWorkspace.id,
+          run_id: run.id,
+          source_cost_field_id: null,
+          show_id: spec.showId,
+          category: spec.fieldDef.category,
+          field_key: spec.fieldDef.key,
+          label: spec.fieldDef.label,
+          value: entriesSum(entries),
+          state: 'estimated',
+          source: 'Factors / silent Estimate — Wave A2 catch-up on Advancing. Never known.',
+          entries,
+        }
+      })
+      await supabase.from('advancing_cost_fields').insert(rows)
+      advancingFields = await loadAdvancingCostFields(supabase, advancingWorkspace.id)
     }
   }
 
@@ -446,13 +529,17 @@ export default async function RunDetailPage({
             showId: l.show_id ?? null,
             description: String(l.description ?? ''),
             amount: Number(l.amount) || 0,
+            source: 'remittance' as const,
           })),
           ...((agentResult.error ? [] : agentResult.data) ?? []).map(l => ({
             showId: l.show_id ?? null,
             description: String(l.description ?? ''),
             amount: Number(l.amount) || 0,
+            source: 'settlement' as const,
           })),
         ] satisfies KnownInsideLine[]}
+        costingTombstones={costingTombstones ?? []}
+        advancingTombstones={advancingTombstones ?? []}
         ticketOutlookSummary={run.ticket_outlook_summary ?? null}
         editorDisplayNameByFieldId={editorDisplayNameByFieldId}
         auditRows={formatAuditTrailEvents(

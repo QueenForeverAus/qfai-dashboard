@@ -15,6 +15,11 @@
 import { ADVANCING_NULL_SHOW_SENTINEL, advancingCopyLineKey } from './run-advancing.ts'
 import type { CostEntry, StaffLineItem } from './cost-fields.ts'
 import { INVOICED_FIELD_STATE } from './cost-fields.ts'
+import {
+  filterEntriesAgainstTombstones,
+  isTombstoned,
+  type TombstoneRef,
+} from './cost-line-tombstones.ts'
 
 /** Wave D Band Comps — preserve-hook only. Do not wipe if present. */
 export const BAND_COMPS_FIELD_KEYS = ['band_comps', 'comps', 'band_comp'] as const
@@ -193,11 +198,27 @@ export function indexFieldsByLineKey<T extends { show_id: string | null; field_k
 export function mergeCostingCopiesPreservingAdvancing<T extends PreserveField>(
   costingCopies: T[],
   existingAdvancing: T[],
+  opts?: { advancingTombstones?: Iterable<TombstoneRef> | null },
 ): T[] {
   const existing = indexFieldsByLineKey(existingAdvancing)
-  const merged = costingCopies.map(copy => {
+  const tombstones = opts?.advancingTombstones
+  const merged = costingCopies.flatMap(copy => {
+    if (isTombstoned(tombstones, {
+      show_id: copy.show_id,
+      field_key: copy.field_key,
+      seed_key: '*',
+    })) return []
     const prior = existing.get(advancingCopyLineKey(copy))
-    return mergeAdvancingFieldPreserve(copy, prior) as T
+    const next = mergeAdvancingFieldPreserve(copy, prior) as T
+    return [{
+      ...next,
+      entries: filterEntriesAgainstTombstones(
+        next.field_key,
+        next.show_id,
+        next.entries ?? [],
+        tombstones,
+      ),
+    } as T]
   })
   const seen = new Set(merged.map(row => advancingCopyLineKey(row)))
   for (const row of existingAdvancing) {

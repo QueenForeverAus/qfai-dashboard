@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { formatDateShortAU } from '@/lib/dates'
 import { TICKETS_LOCKED_NOTE } from '@/lib/settlements-advancing-sync'
 import BandedSellSlider from '@/components/BandedSellSlider'
@@ -8,14 +7,13 @@ import {
   normalizeCapacityBands,
   topBandSeats,
 } from '@/lib/capacity-bands'
+import type { CostEntry } from '@/lib/cost-fields'
+import { resolveSheetInsideCosts } from '@/lib/inside-fee-lines'
 import {
   HARBOUR_COMMISSION_RATE,
   RESERVE_EX_GST_LABEL,
   computeVenueWaterfall,
   gstQuarantineLineLabel,
-  knownInsideForShow,
-  remittanceHasCcSplit,
-  resolveInsideCosts,
   type InsideFactorValues,
   type KnownInsideLine,
   type PnlSummary,
@@ -71,6 +69,8 @@ export function venuePnl(opts: {
   factors: InsideFactorValues
   remittanceLines: KnownInsideLine[]
   actualTickets?: number | null
+  insideEntries?: CostEntry[] | null
+  insideFieldState?: string | null
 }): { gbo: number; tickets: number; waterfall: PnlVenueWaterfall; insideLabel: string } {
   const tickets = opts.actualTickets != null
     ? Math.max(0, Math.round(Number(opts.actualTickets) || 0))
@@ -78,8 +78,8 @@ export function venuePnl(opts: {
   const gbo = opts.actualTickets != null
     ? Math.round(tickets * (Number(opts.show.ticket_price) || 0))
     : (projectedBoxOffice(opts.show, opts.pct) ?? 0)
-  const known = knownInsideForShow(opts.remittanceLines, opts.show.id)
-  const inside = resolveInsideCosts({
+  const contractLines = opts.remittanceLines.filter(l => l.source === 'contract')
+  const inside = resolveSheetInsideCosts({
     grossTicketSales: gbo,
     payerCount: tickets,
     factors: opts.factors,
@@ -87,8 +87,10 @@ export function venuePnl(opts: {
       bookingFeePerPayer: opts.show.booking_fee_per_payer,
       ccFeePct: opts.show.cc_fee_pct,
     },
-    remittanceKnownTotal: known,
-    hasCcSplitHistory: remittanceHasCcSplit(opts.remittanceLines, opts.show.id),
+    entries: opts.insideEntries,
+    fieldState: opts.insideFieldState,
+    contractLines,
+    showId: opts.show.id,
   })
   const waterfall = computeVenueWaterfall({ grossTicketSales: gbo, insideTotal: inside.total })
   waterfall.inside = inside
@@ -104,10 +106,11 @@ export function PnlRevenueBlock({
   factors,
   remittanceLines,
   onSellThrough,
-  onShowUpdated,
-  chromeReadOnly = false,
-  onChromeSave,
+  onShowUpdated: _onShowUpdated,
+  chromeReadOnly: _chromeReadOnly = false,
+  onChromeSave: _onChromeSave,
   ticketLocks,
+  insideByShow = {},
 }: {
   shows: Show[]
   sellThrough: Record<string, number>
@@ -121,6 +124,7 @@ export function PnlRevenueBlock({
   chromeReadOnly?: boolean
   onChromeSave?: (show: PnlShow, patch: { booking_fee_per_payer?: number | null; cc_fee_pct?: number | null }) => Promise<PnlShow>
   ticketLocks?: Record<string, AdvancingTicketLock>
+  insideByShow?: Record<string, { entries: CostEntry[]; state?: string | null }>
 }) {
   const perVenue = shows.map(show => {
     const lock = ticketLocks?.[show.id]
@@ -135,6 +139,8 @@ export function PnlRevenueBlock({
         factors,
         remittanceLines,
         actualTickets: lock?.locked ? lock.tickets : null,
+        insideEntries: insideByShow[show.id]?.entries,
+        insideFieldState: insideByShow[show.id]?.state,
       }),
     }
   })
@@ -212,12 +218,10 @@ export function PnlRevenueBlock({
                 {!slidersUnlocked && !ticketsLocked && (
                   <p className="text-slate-600 text-xs mb-2">Slider locked until no cost lines are Figures Needed.</p>
                 )}
-                <VenueOverrideRow
-                  show={show}
-                  onUpdated={onShowUpdated}
-                  readOnly={chromeReadOnly}
-                  onChromeSave={onChromeSave}
-                />
+                <p className="text-slate-500 text-xs mb-2">
+                  Inside fees are itemised on the Costings / Advancing sheet below
+                  (come off gross before Harbour 10%). Rate edits recalculate $.
+                </p>
                 <div className="space-y-1.5 text-sm mt-2">
                   <Row label="Gross ticket sales" value={waterfall.grossTicketSales} />
                   <Row
@@ -332,112 +336,6 @@ function Row({
         {hint ? <span className="block text-slate-600 text-xs font-normal">{hint}</span> : null}
       </span>
       <span className={`flex-shrink-0 ${negative ? 'text-red-400' : 'text-white font-medium'}`}>{fmt(value)}</span>
-    </div>
-  )
-}
-
-function VenueOverrideRow({
-  show,
-  onUpdated,
-  readOnly = false,
-  onChromeSave,
-}: {
-  show: Show
-  onUpdated: (updated: PnlShow) => void
-  readOnly?: boolean
-  onChromeSave?: (show: PnlShow, patch: { booking_fee_per_payer?: number | null; cc_fee_pct?: number | null }) => Promise<PnlShow>
-}) {
-  const [editing, setEditing] = useState(false)
-  const [booking, setBooking] = useState(show.booking_fee_per_payer?.toString() ?? '')
-  const [cc, setCc] = useState(show.cc_fee_pct?.toString() ?? '')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function save() {
-    setSaving(true)
-    setError(null)
-    const patch = {
-      booking_fee_per_payer: booking === '' ? null : parseFloat(booking),
-      cc_fee_pct: cc === '' ? null : parseFloat(cc),
-    }
-    try {
-      if (onChromeSave) {
-        await onChromeSave(show, patch)
-      } else {
-        const res = await fetch(`/api/shows/${show.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patch),
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) { setError((data as { error?: string }).error ?? 'Save failed'); setSaving(false); return }
-        onUpdated(data as Show)
-      }
-      setEditing(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  if (!editing) {
-    const hasOverride = show.booking_fee_per_payer != null || show.cc_fee_pct != null
-    return (
-      <div className="flex items-center justify-between text-xs mb-2">
-        <span className="text-slate-500">
-          Venue inside override{hasOverride
-            ? `: ${show.booking_fee_per_payer != null ? `$${Number(show.booking_fee_per_payer).toFixed(2)}/payer` : '—'} · ${show.cc_fee_pct != null ? `${Number(show.cc_fee_pct)}% CC` : '—'}`
-            : ' — none (Factors / silent default)'}
-        </span>
-        {!readOnly && (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="text-slate-600 hover:text-amber-400"
-          >
-            Override
-          </button>
-        )}
-      </div>
-    )
-  }
-
-  return (
-    <div className="bg-slate-900/60 rounded-lg border border-slate-700 p-2 mb-2 space-y-2">
-      <p className="text-slate-500 text-xs">Venue override — estimated only. Remittance/contract known still wins.</p>
-      <div className="flex flex-wrap gap-2 items-center">
-        <label className="text-slate-400 text-xs">
-          $/payer
-          <input
-            type="number"
-            step="0.01"
-            value={booking}
-            onChange={e => setBooking(e.target.value)}
-            className="ml-1 w-20 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white text-xs"
-          />
-        </label>
-        <label className="text-slate-400 text-xs">
-          CC %
-          <input
-            type="number"
-            step="0.1"
-            value={cc}
-            onChange={e => setCc(e.target.value)}
-            className="ml-1 w-16 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white text-xs"
-          />
-        </label>
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving}
-          className="bg-amber-400 text-slate-900 text-xs font-semibold px-2 py-0.5 rounded disabled:opacity-50"
-        >
-          {saving ? '…' : 'Save'}
-        </button>
-        <button type="button" onClick={() => { setEditing(false); setError(null) }} className="text-slate-500 text-xs">Cancel</button>
-      </div>
-      {error && <p className="text-red-400 text-xs">{error}</p>}
     </div>
   )
 }

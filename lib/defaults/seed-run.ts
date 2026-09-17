@@ -5,8 +5,16 @@ import { loadPortalSettings } from '../portal-settings.ts'
 import {
   displayCostFieldLabel,
   ensureMinimumEntry,
+  entriesSum,
   ENTRY_EXEMPT_FIELD_KEYS,
 } from '../cost-fields.ts'
+import {
+  INSIDE_FEES_CATEGORY,
+  INSIDE_FEES_FIELD_KEY,
+  INSIDE_FEES_LABEL,
+  seedStandardInsideEntries,
+} from '../inside-fee-lines.ts'
+import { insideFactorsFromRows } from '../pnl-run-costing.ts'
 import {
   computeDanielChampagne,
   computeMusicRights,
@@ -77,6 +85,42 @@ function withDefaultEntry(row: Record<string, unknown>) {
       label,
       value,
     ),
+  }
+}
+
+function modelledInsideBase(show: SeedShow): { payerCount: number; grossTicketSales: number } {
+  const cap = Number(show.capacity) || 0
+  const price = Number(show.ticket_price) || 0
+  const payers = Math.round(cap * 0.75)
+  return { payerCount: payers, grossTicketSales: Math.round(payers * price) }
+}
+
+function showInsideFeeRow(runId: string, show: SeedShow, factors?: FactorMap): object {
+  const insideFactors = insideFactorsFromRows(
+    Object.entries(factors ?? {}).map(([key, value]) => ({
+      key,
+      value,
+      category: key.includes('fee') || key.includes('ticketing') || key.includes('inside')
+        ? 'Ticketing / Inside Costs'
+        : null,
+    })),
+  )
+  const base = modelledInsideBase(show)
+  const entries = seedStandardInsideEntries({
+    factors: insideFactors,
+    payerCount: base.payerCount,
+    grossTicketSales: base.grossTicketSales,
+  })
+  return {
+    run_id: runId,
+    show_id: show.id,
+    category: INSIDE_FEES_CATEGORY,
+    field_key: INSIDE_FEES_FIELD_KEY,
+    label: INSIDE_FEES_LABEL,
+    value: entriesSum(entries),
+    state: 'estimated',
+    source: 'Factors / silent Estimate — never known. Comes off gross before Harbour 10%.',
+    entries,
   }
 }
 
@@ -246,6 +290,7 @@ export function buildHistoricalSeedRows(
       value: null, state: 'pending',
       source: `Cap ${showDef.capacity.toLocaleString()} × $${showDef.ticketPrice} nett — pending ticket sales. Use sell-through slider in Overview.`,
     }))
+    rows.push(showInsideFeeRow(runId, show, factors))
     rows.push(withDefaultEntry({
       run_id: runId, show_id: show.id,
       category: 'Venue Costs', field_key: 'venue_hire',
@@ -385,6 +430,7 @@ export function buildFactorEstimateSeedRows(
   for (const show of shows) {
     rows.push(
       withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Revenue', field_key: 'gross_box_office', label: 'Gross Box Office', value: null, state: 'pending', source: null }),
+      showInsideFeeRow(runId, show, factors),
       withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_hire', label: 'Venue Hire', value: null, state: 'guess', source: null }),
       withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_staff', label: 'Venue Staff / On-costs', value: null, state: 'guess', source: null, line_items: [] }),
       withDefaultEntry({ run_id: runId, show_id: show.id, category: 'Venue Costs', field_key: 'venue_marketing', label: 'Venue Marketing', value: 0, state: 'guess', source: null }),
@@ -458,12 +504,12 @@ export async function seedRunDefaults(
 
   let factors: FactorMap = {}
   let region: RunRegion = resolveSeedRegion(undefined, shows)
+  const [{ data: factorRows }, { data: runRow }] = await Promise.all([
+    supabase.from('run_factors').select('key, value, category'),
+    supabase.from('runs').select('region').eq('id', runId).maybeSingle(),
+  ])
+  factors = parseFactorMap(factorRows)
   if (!defaults) {
-    const [{ data: factorRows }, { data: runRow }] = await Promise.all([
-      supabase.from('run_factors').select('key, value'),
-      supabase.from('runs').select('region').eq('id', runId).maybeSingle(),
-    ])
-    factors = parseFactorMap(factorRows)
     region = resolveSeedRegion(runRow?.region, shows)
   }
 

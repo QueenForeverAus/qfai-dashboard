@@ -9,6 +9,24 @@ export type SeedEntry = {
   amount: number
   gst_included: boolean
   confirmed: boolean
+  /** Stable identity for Factors refresh / hard-delete tombstones. */
+  seed_key?: string | null
+  rate?: number | null
+  rate_unit?: 'per_payer' | 'pct_gross' | null
+  inside_kind?: 'booking_fee' | 'cc_fee' | 'ticketing_inside' | 'comp_tickets' | 'custom' | null
+}
+
+/** Deterministic seed identity so a deleted line is not recreated on refresh. */
+export function generatedEntrySeedKey(fieldKey: string, description: string): string {
+  const desc = String(description ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+  return `${fieldKey}:${desc}`
+}
+
+function withSeedKeys(fieldKey: string, entries: SeedEntry[]): SeedEntry[] {
+  return entries.map(entry => ({
+    ...entry,
+    seed_key: entry.seed_key ?? generatedEntrySeedKey(fieldKey, entry.description),
+  }))
 }
 
 type Show = {
@@ -63,6 +81,16 @@ function fmtDate(d: string | null) {
 }
 
 export function generateEntries(
+  fieldKey: string,
+  fieldState: string,
+  defaults: RunDefault | null,
+  shows: Show[],
+  factors?: FactorOverrides,
+): SeedEntry[] {
+  return withSeedKeys(fieldKey, generateEntriesUnseeded(fieldKey, fieldState, defaults, shows, factors))
+}
+
+function generateEntriesUnseeded(
   fieldKey: string,
   fieldState: string,
   defaults: RunDefault | null,

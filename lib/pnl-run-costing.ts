@@ -28,6 +28,7 @@ export const INSIDE_FACTOR_KEYS = {
   /** Staging alias already seeded under Ticketing / Inside Costs. */
   insideCcFeePct: 'inside_cc_fee_pct',
   ticketingInsidePct: 'ticketing_inside_pct',
+  compTicketFeePerPayer: 'comp_ticket_fee_per_payer',
 } as const
 
 export const INSIDE_FACTORS_CATEGORY = 'Ticketing / Inside Costs'
@@ -92,6 +93,7 @@ export type InsideFactorValues = {
   bookingFeePerPayer?: number | null
   ccFeePct?: number | null
   ticketingInsidePct?: number | null
+  compTicketFeePerPayer?: number | null
 }
 
 export type VenueInsideOverride = {
@@ -103,6 +105,11 @@ export type KnownInsideLine = {
   showId?: string | null
   description: string
   amount: number
+  /**
+   * Wave A2: contract known may Confirm Costings/Advancing insides.
+   * Settlement / remittance stay Actual-on-Settlements only.
+   */
+  source?: 'contract' | 'settlement' | 'remittance' | null
 }
 
 export type KnownGstLine = {
@@ -404,11 +411,15 @@ export function resolveInsideCosts(opts: {
   }
 }
 
-function firstNumber(...vals: Array<number | null | undefined>): number | null {
+export function firstNumberOrNull(...vals: Array<number | null | undefined>): number | null {
   for (const v of vals) {
     if (v != null && Number.isFinite(Number(v))) return Number(v)
   }
   return null
+}
+
+function firstNumber(...vals: Array<number | null | undefined>): number | null {
+  return firstNumberOrNull(...vals)
 }
 
 function sumKnownInside(
@@ -448,11 +459,13 @@ export function insideFactorsFromRows(
     null
 
   const ticketingInside = byKey.get(INSIDE_FACTOR_KEYS.ticketingInsidePct)?.value ?? null
+  const compFee = byKey.get(INSIDE_FACTOR_KEYS.compTicketFeePerPayer)?.value ?? null
 
   return {
     bookingFeePerPayer: booking,
     ccFeePct: anyCc,
     ticketingInsidePct: ticketingInside,
+    compTicketFeePerPayer: compFee,
   }
 }
 

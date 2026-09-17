@@ -40,6 +40,16 @@ describe('Factors refresh gate — unbooked Costings only', () => {
       state: 'known',
       runStatus: 'proposed',
     }), false)
+    assert.equal(shouldRefreshCostField({
+      fieldKey: 'inside_fees',
+      state: 'estimated',
+      runStatus: 'proposed',
+    }), true)
+    assert.equal(shouldRefreshCostField({
+      fieldKey: 'inside_fees',
+      state: 'known',
+      runStatus: 'proposed',
+    }), false)
   })
 
   it('rebuilds Music Rights / DC from Factors × ticket base', () => {

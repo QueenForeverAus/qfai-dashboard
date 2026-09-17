@@ -166,6 +166,27 @@ test('stampPaidAt sets paid_at on pay and clears on un-pay', () => {
   assert.equal(cleared[0].paid_at, null)
 })
 
+test('normalizeEntries keeps inside rate / seed identity', () => {
+  const rows = normalizeEntries([
+    {
+      id: 'a',
+      description: 'Booking fee',
+      notes: '',
+      amount: 450,
+      gst_included: true,
+      confirmed: false,
+      seed_key: 'booking_fee',
+      rate: 4.5,
+      rate_unit: 'per_payer',
+      inside_kind: 'booking_fee',
+    },
+  ])
+  assert.equal(rows?.[0].seed_key, 'booking_fee')
+  assert.equal(rows?.[0].rate, 4.5)
+  assert.equal(rows?.[0].rate_unit, 'per_payer')
+  assert.equal(rows?.[0].inside_kind, 'booking_fee')
+})
+
 test('normalizeEntries defaults paid false and preserves paid_at when paid', () => {
   const rows = normalizeEntries([
     { id: 'a', description: 'X', notes: '', amount: 1, gst_included: true, confirmed: true },

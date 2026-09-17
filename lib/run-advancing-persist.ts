@@ -285,9 +285,10 @@ export async function recopyCostingsIntoAdvancingPreservingPaid(opts: {
     }
   }
 
-  const [{ data: fields }, { data: shows }] = await Promise.all([
+  const [{ data: fields }, { data: shows }, { data: advancingTombstones }] = await Promise.all([
     opts.admin.from('cost_fields').select('*').eq('run_id', opts.runId),
     opts.admin.from('shows').select('id, ticket_price, capacity, capacity_bands, booking_fee_per_payer, cc_fee_pct').eq('run_id', opts.runId),
+    opts.admin.from('cost_line_tombstones').select('show_id, field_key, seed_key').eq('run_id', opts.runId).eq('sheet', 'advancing'),
   ])
 
   const costingCopies = buildAdvancingFieldCopies(
@@ -309,6 +310,7 @@ export async function recopyCostingsIntoAdvancingPreservingPaid(opts: {
       entries: Array.isArray(row.entries) ? row.entries : null,
       line_items: Array.isArray(row.line_items) ? row.line_items : null,
     })),
+    { advancingTombstones: advancingTombstones ?? [] },
   )
 
   const existingByKey = new Map(
