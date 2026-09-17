@@ -1,4 +1,5 @@
 /** Shared Run Costing helpers — entries as source of truth for line totals. */
+import { seedStandardInsideEntries } from './inside-fee-lines.ts'
 
 /**
  * Confirm / PAID flags shared by cost `entries[]` and venue_staff `line_items[]`.
@@ -1203,9 +1204,11 @@ export function buildCreateCostFieldBody(
   spec: MissingCostFieldSpec,
 ): Record<string, unknown> {
   const { fieldDef, showId } = spec
-  const entries = ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
-    ? []
-    : ensureMinimumEntry([], defaultCostEntryDescription(fieldDef.key, fieldDef.label), 0)
+  const entries = fieldDef.key === 'inside_fees'
+    ? seedStandardInsideEntries({ payerCount: 0, grossTicketSales: 0 })
+    : ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
+      ? []
+      : ensureMinimumEntry([], defaultCostEntryDescription(fieldDef.key, fieldDef.label), 0)
 
   const body: Record<string, unknown> = {
     run_id: runId,
