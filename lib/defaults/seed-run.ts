@@ -14,7 +14,6 @@ import {
   INSIDE_FEES_LABEL,
   seedStandardInsideEntries,
 } from '../inside-fee-lines.ts'
-import { insideFactorsFromRows } from '../pnl-run-costing.ts'
 import {
   computeDanielChampagne,
   computeMusicRights,
@@ -95,19 +94,9 @@ function modelledInsideBase(show: SeedShow): { payerCount: number; grossTicketSa
   return { payerCount: payers, grossTicketSales: Math.round(payers * price) }
 }
 
-function showInsideFeeRow(runId: string, show: SeedShow, factors?: FactorMap): object {
-  const insideFactors = insideFactorsFromRows(
-    Object.entries(factors ?? {}).map(([key, value]) => ({
-      key,
-      value,
-      category: key.includes('fee') || key.includes('ticketing') || key.includes('inside')
-        ? 'Ticketing / Inside Costs'
-        : null,
-    })),
-  )
+function showInsideFeeRow(runId: string, show: SeedShow, _factors?: FactorMap): object {
   const base = modelledInsideBase(show)
   const entries = seedStandardInsideEntries({
-    factors: insideFactors,
     payerCount: base.payerCount,
     grossTicketSales: base.grossTicketSales,
   })
@@ -119,7 +108,7 @@ function showInsideFeeRow(runId: string, show: SeedShow, factors?: FactorMap): o
     label: INSIDE_FEES_LABEL,
     value: entriesSum(entries),
     state: 'estimated',
-    source: 'Factors / silent Estimate — never known. Comes off gross before Harbour 10%.',
+    source: 'Empty until contract / Harbour Draft or owner add. Not from Factors. Comes off gross before Harbour 10%.',
     entries,
   }
 }

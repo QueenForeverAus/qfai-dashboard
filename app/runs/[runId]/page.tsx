@@ -155,11 +155,6 @@ export default async function RunDetailPage({
       res.error ? { data: [] as Array<{ id: string; label: string | null; item_key: string | null }> } : res
     )),
     supabase.from('run_factors').select('key, value, category').in('key', [
-      'booking_fee_per_payer',
-      'cc_fee_pct',
-      'inside_cc_fee_pct',
-      'ticketing_inside_pct',
-      'comp_ticket_fee_per_payer',
       'music_rights_pct',
       'daniel_champagne_per_ticket',
     ]),
@@ -248,6 +243,7 @@ export default async function RunDetailPage({
       ensureMinimumEntry,
       entriesSum,
       ENTRY_EXEMPT_FIELD_KEYS,
+      EMPTY_ENTRIES_ALLOWED_FIELD_KEYS,
       defaultCostEntryDescription,
       findMissingDefinedCostFields,
       buildCreateCostFieldBody,
@@ -257,6 +253,7 @@ export default async function RunDetailPage({
 
     const needsWork = rawFields.filter(f => {
       if (ENTRY_EXEMPT_FIELD_KEYS.has(f.field_key)) return false
+      if (EMPTY_ENTRIES_ALLOWED_FIELD_KEYS.has(f.field_key)) return false
       const empty = f.entries === null || (Array.isArray(f.entries) && f.entries.length === 0)
       if (empty) return true
       if (Array.isArray(f.entries) && f.entries.length > 0) {
@@ -296,20 +293,10 @@ export default async function RunDetailPage({
       { tombstones: costingTombstones ?? [] },
     )
     if (missing.length > 0) {
-      const insideFactors = insideFactorsFromRows(factorsRaw ?? [])
       const rows = missing.map(spec => {
         const body = buildCreateCostFieldBody(run.id, spec)
         if (spec.fieldDef.key === INSIDE_FEES_FIELD_KEY) {
-          const show = typedShows.find(s => s.id === spec.showId)
-          const payers = Math.round((Number(show?.capacity) || 0) * 0.75)
           const entries = seedStandardInsideEntries({
-            factors: insideFactors,
-            venueOverride: {
-              bookingFeePerPayer: show?.booking_fee_per_payer ?? null,
-              ccFeePct: show?.cc_fee_pct ?? null,
-            },
-            payerCount: payers,
-            grossTicketSales: Math.round(payers * (Number(show?.ticket_price) || 0)),
             tombstonedSeedKeys: (costingTombstones ?? [])
               .filter(t => t.field_key === INSIDE_FEES_FIELD_KEY && (t.show_id ?? null) === spec.showId)
               .map(t => t.seed_key),
@@ -317,6 +304,7 @@ export default async function RunDetailPage({
           body.entries = entries
           body.value = entriesSum(entries)
           body.state = 'estimated'
+          body.source = 'Empty until contract / Harbour Draft or owner add. Not from Factors.'
           return body
         }
         // Prefer generateEntries when defaults exist (e.g. Group 3 backline).
@@ -357,18 +345,8 @@ export default async function RunDetailPage({
       { tombstones: advancingTombstones ?? [] },
     ).filter(spec => spec.fieldDef.key === INSIDE_FEES_FIELD_KEY)
     if (missingInside.length > 0) {
-      const insideFactors = insideFactorsFromRows(factorsRaw ?? [])
       const rows = missingInside.map(spec => {
-        const show = typedShows.find(s => s.id === spec.showId)
-        const payers = Math.round((Number(show?.capacity) || 0) * 0.75)
         const entries = seedStandardInsideEntries({
-          factors: insideFactors,
-          venueOverride: {
-            bookingFeePerPayer: show?.booking_fee_per_payer ?? null,
-            ccFeePct: show?.cc_fee_pct ?? null,
-          },
-          payerCount: payers,
-          grossTicketSales: Math.round(payers * (Number(show?.ticket_price) || 0)),
           tombstonedSeedKeys: (advancingTombstones ?? [])
             .filter(t => t.field_key === INSIDE_FEES_FIELD_KEY && (t.show_id ?? null) === spec.showId)
             .map(t => t.seed_key),
@@ -383,7 +361,7 @@ export default async function RunDetailPage({
           label: spec.fieldDef.label,
           value: entriesSum(entries),
           state: 'estimated',
-          source: 'Factors / silent Estimate — Wave A2 catch-up on Advancing. Never known.',
+          source: 'Empty until contract / Harbour Draft or owner add. Not from Factors.',
           entries,
         }
       })

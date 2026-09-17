@@ -14,15 +14,10 @@ import {
 import { isAdminOrOwner } from '@/lib/role-access'
 import {
   mergeFactorRefreshEntries,
-  tombstonedSeedKeysForField,
   type CostLineTombstone,
 } from '@/lib/cost-line-tombstones'
-import {
-  INSIDE_FEES_FIELD_KEY,
-  seedStandardInsideEntries,
-} from '@/lib/inside-fee-lines'
+import { INSIDE_FEES_FIELD_KEY } from '@/lib/inside-fee-lines'
 import { entriesSum, normalizeEntries } from '@/lib/cost-fields'
-import { insideFactorsFromRows } from '@/lib/pnl-run-costing'
 
 const ALL_REFRESH_KEYS = [...new Set(Object.values(FACTOR_COSTING_FIELD_MAP).flat())]
 
@@ -61,8 +56,6 @@ export async function POST(
       if (Number.isFinite(n)) (factorMap as Record<string, number>)[f.key] = n
     }
   }
-  const insideFactors = insideFactorsFromRows(allFactors ?? [])
-
   const lightingHireDefault = (await loadPortalSettings(supabase)).lighting_hire_default
   const defaults = RUN_DEFAULTS[run.code] ?? null
   const { data: shows } = await supabase
@@ -100,23 +93,9 @@ export async function POST(
       lightingHireDefault,
       show,
     })
+    if (field.field_key === INSIDE_FEES_FIELD_KEY) continue
     const existingEntries = normalizeEntries(field.entries) ?? []
-    const generated = field.field_key === INSIDE_FEES_FIELD_KEY && show
-      ? seedStandardInsideEntries({
-          factors: insideFactors,
-          venueOverride: {
-            bookingFeePerPayer: show.booking_fee_per_payer == null ? null : Number(show.booking_fee_per_payer),
-            ccFeePct: show.cc_fee_pct == null ? null : Number(show.cc_fee_pct),
-          },
-          payerCount: Math.round((Number(show.capacity) || 0) * ((Number(show.sell_through_pct) || 75) / 100)),
-          grossTicketSales: Math.round(
-            (Number(show.capacity) || 0)
-            * ((Number(show.sell_through_pct) || 75) / 100)
-            * (Number(show.ticket_price) || 0),
-          ),
-          tombstonedSeedKeys: tombstonedSeedKeysForField(tombstones, field.field_key, field.show_id),
-        })
-      : generateEntries(field.field_key, field.state, defaults, shows ?? [], factorMap)
+    const generated = generateEntries(field.field_key, field.state, defaults, shows ?? [], factorMap)
 
     const merged = mergeFactorRefreshEntries({
       fieldKey: field.field_key,

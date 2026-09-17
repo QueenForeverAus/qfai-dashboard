@@ -9,6 +9,7 @@ import {
   FACTOR_COSTING_FIELD_MAP,
   shouldRefreshCostField,
 } from '@/lib/factors-refresh'
+import { filterVisibleFactors, isRetiredFactorKey } from '@/lib/retired-factors'
 
 export async function GET() {
   const supabase = createAdminClient()
@@ -18,13 +19,18 @@ export async function GET() {
     .order('category')
     .order('label')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  return NextResponse.json(filterVisibleFactors(data ?? []))
 }
 
 export async function PATCH(req: NextRequest) {
   const { key, value } = await req.json()
   if (!key || value === undefined) {
     return NextResponse.json({ error: 'key and value required' }, { status: 400 })
+  }
+  if (isRetiredFactorKey(key)) {
+    return NextResponse.json({
+      error: 'This Factors key is retired. Inside fees are edited on the run Revenue block (contract / Harbour Draft / owner add). Music Rights stays on Factors.',
+    }, { status: 400 })
   }
 
   const parsed = value === '' || value === null ? null : parseFloat(value)

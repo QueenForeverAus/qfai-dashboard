@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase/server-admin'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import FactorsClient from './FactorsClient'
+import { filterVisibleFactors } from '@/lib/retired-factors'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,11 +39,11 @@ export default async function FactorsPage() {
           Standing defaults that seed future runs and can refresh unbooked Costings only. Once a run is BOOKED (including Unconfirm — status stays BOOKED), Factors no longer change that run. Advancing never chases Factors.
         </p>
         <p className="text-amber-400/70 text-xs mt-2">
-          Owner-only — not visible to crew or production. Ticketing / Inside Costs standing $/% may stay unseeded until Finance sets defaults after Gareth picks them. Those keys are estimated silent defaults only — remittance/contract known wins. Never treat hist 7.3% as known.
+          Owner-only — not visible to crew or production. Inside fee rates live on each run’s Revenue block (contract / Harbour Draft / owner add) — not here. APRA Royalty Rate, booking/CC/comp/ticketing-inside standing keys are hidden; Music Rights stays.
         </p>
       </div>
 
-      <FactorsClient initialFactors={factors ?? []} />
+      <FactorsClient initialFactors={filterVisibleFactors(factors ?? [])} />
     </div>
   )
 }

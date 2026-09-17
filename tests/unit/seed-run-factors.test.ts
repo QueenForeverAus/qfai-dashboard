@@ -83,6 +83,7 @@ function showRows(rows: object[], fieldKey: string) {
     value: number | null
     state: string
     source: string | null
+    entries?: unknown[]
   }>
 }
 
@@ -281,6 +282,7 @@ describe('missing RUN_DEFAULTS uses Factors for cost lines', () => {
     const insides = showRows(rows, 'inside_fees')
     assert.equal(insides.length, 2)
     assert.ok(insides.every(r => r.state === 'estimated'))
+    assert.ok(insides.every(r => !Array.isArray(r.entries) || r.entries.length === 0), 'A2.1: empty insides until contract/Draft')
     for (const key of FOUR_VENUE_BUCKETS) {
       assert.equal(showRows(rows, key).length, 2, key)
     }

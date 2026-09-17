@@ -84,17 +84,38 @@ test('tickets sold prefers entered actual, then known, never sell-through', () =
 })
 
 test('Col2 reruns Harbour 10% and inside on actual ticket count, not capacity × sell-through', () => {
-  const wf = expectedVenueWaterfall({ show: pastShow, tickets: 400 })
-  assert.equal(wf.grossTicketSales, 32_000)
-  // Silent default: $5 bundled / payer when no CC split history
-  assert.equal(wf.inside.total, 2_000)
-  assert.equal(wf.commissionable, 30_000)
-  assert.equal(wf.harbourCommission, computeHarbourCommission(30_000))
-  assert.equal(wf.harbourCommission, 3_000)
-  assert.equal(wf.netRevenue, 27_000)
+  const empty = expectedVenueWaterfall({ show: pastShow, tickets: 400 })
+  assert.equal(empty.grossTicketSales, 32_000)
+  // A2.1: no Factors / silent $5 fallback — empty insides until Costings lines or contract/Draft
+  assert.equal(empty.inside.total, 0)
+  assert.equal(empty.commissionable, 32_000)
+  assert.equal(empty.harbourCommission, computeHarbourCommission(32_000))
+  assert.equal(empty.harbourCommission, 3_200)
+  assert.equal(empty.netRevenue, 28_800)
+
+  const withLines = expectedVenueWaterfall({
+    show: pastShow,
+    tickets: 400,
+    insideEntries: [{
+      id: 'booking',
+      description: 'Booking fee',
+      notes: '',
+      amount: 2000,
+      gst_included: true,
+      confirmed: false,
+      seed_key: 'booking_fee',
+      rate: 5,
+      rate_unit: 'per_payer',
+      inside_kind: 'booking_fee',
+    }],
+  })
+  assert.equal(withLines.inside.total, 2_000)
+  assert.equal(withLines.commissionable, 30_000)
+  assert.equal(withLines.harbourCommission, 3_000)
+  assert.equal(withLines.netRevenue, 27_000)
   // 75% of 740 cap × $80 would be a different modelled gross — must not be used
   const modelled = Math.round(740 * 0.75) * 80
-  assert.notEqual(wf.grossTicketSales, modelled)
+  assert.notEqual(empty.grossTicketSales, modelled)
 })
 
 test('social ads auto-calc is tickets × $1.10 (same as Run Costing live)', () => {

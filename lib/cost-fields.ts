@@ -1,5 +1,4 @@
 /** Shared Run Costing helpers — entries as source of truth for line totals. */
-import { seedStandardInsideEntries } from './inside-fee-lines.ts'
 
 /**
  * Confirm / PAID flags shared by cost `entries[]` and venue_staff `line_items[]`.
@@ -250,7 +249,7 @@ export const FOUR_VENUE_BUCKETS = [
 /** Canonical per-show cost lines shown in Run Costing. */
 export const DEFINED_SHOW_COST_FIELDS: CostFieldDef[] = [
   { key: 'gross_box_office', label: 'Gross Box Office', category: 'Revenue', defaultState: 'pending', scope: 'show' },
-  { key: 'inside_fees', label: 'Inside fees (come off gross before Harbour 10%)', category: 'Inside fees', defaultState: 'estimated', scope: 'show' },
+  { key: 'inside_fees', label: 'Inside Fees', category: 'Inside fees', defaultState: 'estimated', scope: 'show' },
   { key: 'venue_hire', label: 'Venue Hire', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
   { key: 'venue_staff', label: 'Venue Staff / On-costs', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
   { key: 'venue_marketing', label: 'Venue Marketing', category: 'Venue Costs', defaultState: 'guess', scope: 'show' },
@@ -1204,11 +1203,9 @@ export function buildCreateCostFieldBody(
   spec: MissingCostFieldSpec,
 ): Record<string, unknown> {
   const { fieldDef, showId } = spec
-  const entries = fieldDef.key === 'inside_fees'
-    ? seedStandardInsideEntries({ payerCount: 0, grossTicketSales: 0 })
-    : ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
-      ? []
-      : ensureMinimumEntry([], defaultCostEntryDescription(fieldDef.key, fieldDef.label), 0)
+  const entries = fieldDef.key === 'inside_fees' || ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
+    ? []
+    : ensureMinimumEntry([], defaultCostEntryDescription(fieldDef.key, fieldDef.label), 0)
 
   const body: Record<string, unknown> = {
     run_id: runId,

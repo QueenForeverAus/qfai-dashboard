@@ -236,7 +236,9 @@ export function expectedVenueWaterfall(opts: {
 }): PnlVenueWaterfall {
   const price = Number(opts.show.ticket_price) || 0
   const gross = roundMoney(opts.tickets * price)
-  const contractLines = (opts.remittanceLines ?? []).filter(l => l.source === 'contract')
+  const contractLines = (opts.remittanceLines ?? []).filter(
+    l => l.source === 'contract' || l.source === 'harbour_draft',
+  )
   const liveEntries = liveRecalcInsideEntries(opts.insideEntries ?? [], {
     payerCount: opts.tickets,
     grossTicketSales: gross,
@@ -244,11 +246,6 @@ export function expectedVenueWaterfall(opts: {
   const inside = resolveSheetInsideCosts({
     grossTicketSales: gross,
     payerCount: opts.tickets,
-    factors: opts.factors,
-    venueOverride: {
-      bookingFeePerPayer: opts.show.booking_fee_per_payer,
-      ccFeePct: opts.show.cc_fee_pct,
-    },
     entries: liveEntries,
     fieldState: opts.insideFieldState,
     contractLines,

@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { formatDateShortAU } from '@/lib/dates'
 import { TICKETS_LOCKED_NOTE } from '@/lib/settlements-advancing-sync'
 import BandedSellSlider from '@/components/BandedSellSlider'
@@ -8,13 +9,12 @@ import {
   topBandSeats,
 } from '@/lib/capacity-bands'
 import type { CostEntry } from '@/lib/cost-fields'
-import { resolveSheetInsideCosts } from '@/lib/inside-fee-lines'
+import { knownInsideSeedLines, resolveSheetInsideCosts } from '@/lib/inside-fee-lines'
 import {
   HARBOUR_COMMISSION_RATE,
   RESERVE_EX_GST_LABEL,
   computeVenueWaterfall,
   gstQuarantineLineLabel,
-  type InsideFactorValues,
   type KnownInsideLine,
   type PnlSummary,
   type PnlVenueWaterfall,
@@ -66,7 +66,6 @@ export function modelledTickets(show: Show, pct: number): number | null {
 export function venuePnl(opts: {
   show: Show
   pct: number
-  factors: InsideFactorValues
   remittanceLines: KnownInsideLine[]
   actualTickets?: number | null
   insideEntries?: CostEntry[] | null
@@ -78,15 +77,10 @@ export function venuePnl(opts: {
   const gbo = opts.actualTickets != null
     ? Math.round(tickets * (Number(opts.show.ticket_price) || 0))
     : (projectedBoxOffice(opts.show, opts.pct) ?? 0)
-  const contractLines = opts.remittanceLines.filter(l => l.source === 'contract')
+  const contractLines = knownInsideSeedLines(opts.remittanceLines, opts.show.id)
   const inside = resolveSheetInsideCosts({
     grossTicketSales: gbo,
     payerCount: tickets,
-    factors: opts.factors,
-    venueOverride: {
-      bookingFeePerPayer: opts.show.booking_fee_per_payer,
-      ccFeePct: opts.show.cc_fee_pct,
-    },
     entries: opts.insideEntries,
     fieldState: opts.insideFieldState,
     contractLines,
@@ -97,34 +91,74 @@ export function venuePnl(opts: {
   return { gbo, tickets, waterfall, insideLabel: inside.sourceLabel }
 }
 
+const AUTO_CALC_ROW = {
+  bg: 'bg-slate-800/60',
+  text: 'text-slate-400',
+  border: 'border-slate-700',
+  chip: 'AUTO CALC',
+}
+
+function AutoCalcFieldRow({
+  label,
+  value,
+  hint,
+  negative,
+  testId,
+}: {
+  label: string
+  value: number
+  hint?: string
+  negative?: boolean
+  testId?: string
+}) {
+  return (
+    <div
+      data-testid={testId}
+      data-chrome="auto_calc"
+      className={`rounded-lg border ${AUTO_CALC_ROW.bg} ${AUTO_CALC_ROW.border}`}
+    >
+      <div className="flex items-center gap-3 px-3 py-2.5">
+        <div className="flex-1 min-w-0">
+          <div className="text-slate-300 text-sm">{label}</div>
+          {hint ? <div className="text-slate-500 text-xs mt-0.5">{hint}</div> : null}
+        </div>
+        <span className={`text-sm font-medium ${negative ? 'text-red-400' : AUTO_CALC_ROW.text}`}>
+          {fmt(value)}
+        </span>
+        <span className={`text-xs px-1.5 py-0.5 rounded ${AUTO_CALC_ROW.text} opacity-70 whitespace-nowrap`}>
+          {AUTO_CALC_ROW.chip}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export function PnlRevenueBlock({
   shows,
   sellThrough,
   slidersUnlocked,
   incompleteFields,
   hasGuessFields,
-  factors,
   remittanceLines,
   onSellThrough,
   onShowUpdated: _onShowUpdated,
   chromeReadOnly: _chromeReadOnly = false,
-  onChromeSave: _onChromeSave,
   ticketLocks,
   insideByShow = {},
+  renderInsideFees,
 }: {
   shows: Show[]
   sellThrough: Record<string, number>
   slidersUnlocked: boolean
   incompleteFields: string[]
   hasGuessFields: boolean
-  factors: InsideFactorValues
   remittanceLines: KnownInsideLine[]
   onSellThrough: (showId: string, pct: number) => void
   onShowUpdated: (updated: PnlShow) => void
   chromeReadOnly?: boolean
-  onChromeSave?: (show: PnlShow, patch: { booking_fee_per_payer?: number | null; cc_fee_pct?: number | null }) => Promise<PnlShow>
   ticketLocks?: Record<string, AdvancingTicketLock>
   insideByShow?: Record<string, { entries: CostEntry[]; state?: string | null }>
+  renderInsideFees?: (ctx: { show: PnlShow; tickets: number; gbo: number }) => ReactNode
 }) {
   const perVenue = shows.map(show => {
     const lock = ticketLocks?.[show.id]
@@ -136,7 +170,6 @@ export function PnlRevenueBlock({
       ...venuePnl({
         show,
         pct,
-        factors,
         remittanceLines,
         actualTickets: lock?.locked ? lock.tickets : null,
         insideEntries: insideByShow[show.id]?.entries,
@@ -147,6 +180,7 @@ export function PnlRevenueBlock({
   const totalGross = perVenue.reduce((s, v) => s + v.waterfall.grossTicketSales, 0)
   const totalInside = perVenue.reduce((s, v) => s + v.waterfall.inside.total, 0)
   const totals = computeVenueWaterfall({ grossTicketSales: totalGross, insideTotal: totalInside })
+  const harbourPct = Math.round(HARBOUR_COMMISSION_RATE * 100)
 
   return (
     <div className="space-y-4" data-testid="pnl-owner-revenue">
@@ -156,7 +190,7 @@ export function PnlRevenueBlock({
             <span className="text-red-400 text-base shrink-0 mt-0.5">⚠</span>
             <div>
               <p className="text-red-300 font-semibold text-sm">Sliders locked — cost lines still Figures Needed</p>
-              <p className="text-red-400/80 text-xs mt-1 mb-2">Set these to Estimate, Guess, Confirmed, or PAID to unlock sell-through sliders. Gross Box Office / revenue FIGURES NEEDED is ignored — sliders supply revenue.</p>
+              <p className="text-red-400/80 text-xs mt-1 mb-2">Set these to Estimate, Guess, Confirmed, or PAID to unlock sell-through sliders. Gross Ticket Sales FIGURES NEEDED is ignored — sliders supply revenue.</p>
               <ul className="space-y-0.5">
                 {incompleteFields.map(f => (
                   <li key={f} className="text-red-400/70 text-xs flex items-center gap-1.5">
@@ -178,15 +212,15 @@ export function PnlRevenueBlock({
       )}
 
       <div>
-        <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">Revenue — per venue</h3>
-        <div className="space-y-3">
-          {perVenue.map(({ show, pct, tickets, waterfall, lock }) => {
+        <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">Revenue</h3>
+        <div className="space-y-4">
+          {perVenue.map(({ show, pct, tickets, gbo, waterfall, lock }) => {
             const cap = modelCapacity(show)
             const bands = normalizeCapacityBands(show.capacity_bands)
             const ticketsLocked = Boolean(lock?.locked)
             return (
-              <div key={show.id} className="bg-slate-800 rounded-xl border border-slate-700 p-3 sm:p-4" data-testid={`pnl-venue-${show.id}`}>
-                <div className="flex items-center justify-between gap-3 mb-3">
+              <div key={show.id} className="space-y-1.5" data-testid={`pnl-venue-${show.id}`}>
+                <div className="flex items-center justify-between gap-3 mb-1">
                   <div className="min-w-0 flex-1">
                     <div className="text-white text-sm font-semibold truncate">{show.venue_name}</div>
                     <div className="text-slate-500 text-xs mt-0.5 truncate">
@@ -207,58 +241,61 @@ export function PnlRevenueBlock({
                   capacity={cap}
                   capacityBands={show.capacity_bands}
                   disabled={!slidersUnlocked || ticketsLocked}
-                  className="mb-3"
+                  className="mb-2"
                 />
                 {ticketsLocked && (
-                  <p className="text-teal-300/90 text-xs mb-2" data-testid={`advancing-tickets-locked-${show.id}`}>
+                  <p className="text-teal-300/90 text-xs mb-1" data-testid={`advancing-tickets-locked-${show.id}`}>
                     {TICKETS_LOCKED_NOTE}
                     {lock?.sourceNote ? ` Source: ${lock.sourceNote}` : ''}
                   </p>
                 )}
                 {!slidersUnlocked && !ticketsLocked && (
-                  <p className="text-slate-600 text-xs mb-2">Slider locked until no cost lines are Figures Needed.</p>
+                  <p className="text-slate-600 text-xs mb-1">Slider locked until no cost lines are Figures Needed.</p>
                 )}
-                <p className="text-slate-500 text-xs mb-2">
-                  Inside fees are itemised on the Costings / Advancing sheet below
-                  (come off gross before Harbour 10%). Rate edits recalculate $.
-                </p>
-                <div className="space-y-1.5 text-sm mt-2">
-                  <Row label="Gross ticket sales" value={waterfall.grossTicketSales} />
-                  <Row
-                    label={`− Inside (pre-commission)`}
-                    hint={waterfall.inside.sourceLabel}
-                    value={waterfall.inside.total}
-                    negative
-                  />
-                  <Row label="Commissionable" value={waterfall.commissionable} />
-                  <Row
-                    label={`− Harbour Agency (${Math.round(HARBOUR_COMMISSION_RATE * 100)}% locked)`}
-                    value={waterfall.harbourCommission}
-                    negative
-                    testId="harbour-commission"
-                  />
-                  <div className="flex justify-between border-t border-slate-700 pt-1.5 font-medium">
-                    <span className="text-slate-300">Net revenue</span>
-                    <span className="text-white">{fmt(waterfall.netRevenue)}</span>
-                  </div>
-                </div>
+                <AutoCalcFieldRow
+                  label="Gross Ticket Sales"
+                  value={waterfall.grossTicketSales}
+                  testId={`revenue-gross-${show.id}`}
+                />
+                {renderInsideFees
+                  ? renderInsideFees({ show, tickets, gbo })
+                  : (
+                    <AutoCalcFieldRow
+                      label="Inside Fees"
+                      value={waterfall.inside.total}
+                      hint={waterfall.inside.sourceLabel}
+                      negative
+                      testId={`revenue-inside-${show.id}`}
+                    />
+                  )}
+                <AutoCalcFieldRow
+                  label="Commissionable"
+                  value={waterfall.commissionable}
+                  testId={`revenue-commissionable-${show.id}`}
+                />
+                <AutoCalcFieldRow
+                  label={`Harbour Agency ${harbourPct}%`}
+                  value={waterfall.harbourCommission}
+                  hint="Hard-locked — 10% of commissionable (gross − insides)"
+                  negative
+                  testId="harbour-commission"
+                />
+                <AutoCalcFieldRow
+                  label="Net Revenue"
+                  value={waterfall.netRevenue}
+                  testId={`revenue-net-${show.id}`}
+                />
               </div>
             )
           })}
         </div>
-        <div className="mt-3 bg-slate-800/60 rounded-lg border border-slate-700/60 p-3 space-y-1.5 text-sm">
-          <Row label="Total gross ticket sales" value={totals.grossTicketSales} />
-          <Row label="− Total inside (pre-commission)" value={totals.inside.total} negative />
-          <Row label="Commissionable" value={totals.commissionable} />
-          <Row
-            label={`− Harbour Agency (${Math.round(HARBOUR_COMMISSION_RATE * 100)}% locked)`}
-            value={totals.harbourCommission}
-            negative
-          />
-          <div className="flex justify-between border-t border-slate-700 pt-1.5 font-medium">
-            <span className="text-slate-300">Net revenue</span>
-            <span className="text-white">{fmt(totals.netRevenue)}</span>
-          </div>
+        <div className="mt-3 space-y-1.5" data-testid="pnl-revenue-totals">
+          <h4 className="text-slate-500 text-xs font-medium uppercase tracking-wider">Revenue totals</h4>
+          <AutoCalcFieldRow label="Gross Ticket Sales" value={totals.grossTicketSales} />
+          <AutoCalcFieldRow label="Inside Fees" value={totals.inside.total} negative />
+          <AutoCalcFieldRow label="Commissionable" value={totals.commissionable} />
+          <AutoCalcFieldRow label={`Harbour Agency ${harbourPct}%`} value={totals.harbourCommission} negative />
+          <AutoCalcFieldRow label="Net Revenue" value={totals.netRevenue} />
         </div>
       </div>
     </div>
@@ -316,26 +353,3 @@ export function PnlSummaryBlock({
   )
 }
 
-function Row({
-  label,
-  value,
-  negative,
-  hint,
-  testId,
-}: {
-  label: string
-  value: number
-  negative?: boolean
-  hint?: string
-  testId?: string
-}) {
-  return (
-    <div className="flex justify-between gap-2" data-testid={testId}>
-      <span className="text-slate-400">
-        {label}
-        {hint ? <span className="block text-slate-600 text-xs font-normal">{hint}</span> : null}
-      </span>
-      <span className={`flex-shrink-0 ${negative ? 'text-red-400' : 'text-white font-medium'}`}>{fmt(value)}</span>
-    </div>
-  )
-}

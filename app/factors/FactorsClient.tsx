@@ -1,6 +1,7 @@
 'use client'
 
 import { formatDateAU } from '@/lib/dates'
+import { filterVisibleFactors } from '@/lib/retired-factors'
 
 import { useState } from 'react'
 
@@ -101,7 +102,7 @@ function FactorRow({ factor, onUpdated }: { factor: Factor; onUpdated: (updated:
 }
 
 export default function FactorsClient({ initialFactors }: { initialFactors: Factor[] }) {
-  const [factors, setFactors] = useState(initialFactors)
+  const [factors, setFactors] = useState(filterVisibleFactors(initialFactors))
 
   function handleUpdated(updated: Factor) {
     setFactors(prev => prev.map(f => f.key === updated.key ? updated : f))
