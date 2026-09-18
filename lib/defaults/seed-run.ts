@@ -45,6 +45,7 @@ export type SeedShow = {
   venue_city: string
   show_date: string | null
   state_territory?: string | null
+  country?: string | null
 }
 
 import type { RunDefault } from './run-defaults.ts'
@@ -315,7 +316,7 @@ export function buildHistoricalSeedRows(
   return rows
 }
 
-/** 26R* / unknown codes — estimated Group 1/2/3 lines from run_factors. */
+/** 26R* / unknown codes — estimated Group 1/2/3/4 lines from run_factors. */
 export function buildFactorEstimateSeedRows(
   runId: string,
   shows: SeedShow[],
@@ -412,7 +413,8 @@ export function buildFactorEstimateSeedRows(
     run_id: runId, show_id: null,
     category: 'Production', field_key: 'backline_hire',
     label: 'Backline Hire (local)',
-    value: est.backlineHire.value, state: est.backlineHire.state,
+    value: (est.backlineHire.value ?? 0) + (est.keyboardHire?.value ?? 0),
+    state: est.backlineHire.state,
     source: est.backlineHire.source,
   }, 'backline_hire', defaults, shows, factorOverrides))
 

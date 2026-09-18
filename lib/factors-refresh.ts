@@ -12,6 +12,8 @@
  */
 
 import { isBookedBookingStatus } from './booked-cost-freeze.ts'
+import { allowsStandingLightingHire } from './group-type.ts'
+import type { RunRegion } from './types.ts'
 import { RUN_DEFAULTS } from './defaults/run-defaults.ts'
 import { PORTAL_SETTINGS_DEFAULTS } from './portal-settings.ts'
 import type { FactorOverrides } from './defaults/generate-entries.ts'
@@ -71,6 +73,7 @@ export function computeFactorDerivedValue(
   numShows: number,
   factors: FactorOverrides,
   lightingHireDefault = PORTAL_SETTINGS_DEFAULTS.lighting_hire_default,
+  region?: RunRegion | string | null,
 ): number | null {
   switch (fieldKey) {
     case 'accommodation': {
@@ -84,6 +87,7 @@ export function computeFactorDerivedValue(
     case 'food_basics':
       return numShows * (factors.food_basics_per_show ?? 225)
     case 'lighting_hire':
+      if (!allowsStandingLightingHire(region)) return 0
       return factors.lighting_hire_per_run ?? lightingHireDefault
     case 'backline_hire':
       return factors.backline_hire_per_run ?? 3800
@@ -109,6 +113,7 @@ export function buildFactorFieldPatch(opts: {
   factors: FactorOverrides
   lightingHireDefault?: number
   show?: AutoCalcShow | null
+  region?: RunRegion | string | null
 }): { value: number | null; state?: 'auto_calc' | 'pending' } | null {
   if (opts.fieldKey === MUSIC_RIGHTS_FIELD_KEY) {
     if (!opts.show) return null
@@ -132,6 +137,7 @@ export function buildFactorFieldPatch(opts: {
     opts.numShows,
     opts.factors,
     opts.lightingHireDefault,
+    opts.region,
   )
   if (value === null) return null
   return { value }

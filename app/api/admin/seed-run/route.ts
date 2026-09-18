@@ -15,7 +15,7 @@ import { syncRunDatesFromShows } from '@/lib/run-dates'
  * (or POST /api/admin/classify-regions) sets runs.region from locked costings
  * G1/G2/G3 rules — never leave seed defaults as the source of truth.
  *
- * Codes without `RUN_DEFAULTS` (26R*) get estimated Group 1/2/3 lines from
+ * Codes without `RUN_DEFAULTS` (26R*) get estimated Group 1/2/3/4 lines from
  * `run_factors` + region + show dates/capacity. Import Schedule does not
  * create cost_fields.
  *
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   // Defaults may be null for HELD runs not yet in run-defaults.ts — seedRunDefaults handles that gracefully
   const supabase = createAdminClient()
 
-  const { data: run } = await supabase.from('runs').select('id, code, region').eq('code', runCode).single()
+  const { data: run } = await supabase.from('runs').select('id, code, region, region_operator_set').eq('code', runCode).single()
   if (!run) return NextResponse.json({ error: `Run ${runCode} not found in DB` }, { status: 404 })
 
   // Check existing shows
@@ -75,9 +75,11 @@ export async function POST(req: NextRequest) {
     venue_city: s.venue_city,
   }))
   const { region: classifiedRegion, reason: regionReason } = explainRunRegion(locationInputs)
-  if (classifiedRegion !== run.region) {
+  const regionUpdated = !run.region_operator_set && classifiedRegion !== run.region
+  if (regionUpdated) {
     await supabase.from('runs').update({ region: classifiedRegion }).eq('id', run.id)
   }
+  const effectiveRegion = run.region_operator_set ? run.region : classifiedRegion
 
   // Keep runs.start/end aligned with shows.show_date (SoT)
   if ((fullShows ?? []).length > 0) {
@@ -95,9 +97,9 @@ export async function POST(req: NextRequest) {
       ok: true,
       message: `${runCode} already has cost_fields — skipped seeding. Shows created: OK`,
       showCount: fullShows?.length,
-      region: classifiedRegion,
+      region: effectiveRegion,
       region_reason: regionReason,
-      region_updated: classifiedRegion !== run.region,
+      region_updated: regionUpdated,
     })
   }
 
@@ -107,8 +109,8 @@ export async function POST(req: NextRequest) {
     ok: true,
     message: `${runCode} seeded`,
     showCount: fullShows?.length,
-    region: classifiedRegion,
+    region: effectiveRegion,
     region_reason: regionReason,
-    region_updated: classifiedRegion !== run.region,
+    region_updated: regionUpdated,
   })
 }

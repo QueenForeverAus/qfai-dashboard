@@ -41,6 +41,8 @@ const FACTORS = {
   flights_group2_bracket: 2000,
   flights_group3_wa: 4000,
   flights_group3_qld_nt: 3000,
+  flights_group4_nz: 6000,
+  flights_group4_asia: 10000,
   backline_hire_per_run: 3800,
   crew_travel_day_adam: 250,
   crew_travel_day_michael: 250,
@@ -207,14 +209,38 @@ describe('Group-aware ground + flights from Factors', () => {
     })
     assert.equal(qld.flights.value, 3000)
 
-    const nz = estimateGroundAndFlights({
+    const tamworth = estimateGroundAndFlights({
       region: 'group3',
+      shows: weekendShows([{ state_territory: 'NSW', capacity: 1200, venue_city: 'Tamworth' }]),
+      factors: FACTORS,
+      showCount: 1,
+    })
+    assert.equal(tamworth.flights.value, null)
+    assert.match(tamworth.flights.source, /no Group 3 flights bracket/)
+  })
+
+  it('Group 4 always flies with NZ/Asia ESTIMATE and seeds 2× Kia Carnival', () => {
+    const nz = estimateGroundAndFlights({
+      region: 'group4',
       shows: weekendShows([{ state_territory: 'NZ', capacity: 1200, venue_city: 'Auckland' }]),
       factors: FACTORS,
       showCount: 1,
     })
-    assert.equal(nz.flights.value, null)
-    assert.match(nz.flights.source, /no Group 3 flights bracket/)
+    assert.equal(nz.flights.value, 6000)
+    assert.match(nz.flights.source, /G4 NZ/)
+    assert.equal(nz.groundItems.length, 2)
+    assert.equal(nz.groundItems[0]?.description, 'Kia Carnival 1')
+    assert.equal(nz.groundItems[1]?.description, 'Kia Carnival 2')
+    assert.equal(nz.groundValue, 400)
+
+    const asia = estimateGroundAndFlights({
+      region: 'group4',
+      shows: weekendShows([{ state_territory: 'SG', venue_city: 'Singapore', country: 'SG', capacity: 2000 }]),
+      factors: FACTORS,
+      showCount: 1,
+    })
+    assert.equal(asia.flights.value, 10000)
+    assert.match(asia.flights.source, /G4 Asia/)
   })
 })
 
@@ -352,10 +378,45 @@ describe('missing RUN_DEFAULTS uses Factors for cost lines', () => {
     assert.doesNotMatch(String(lighting?.source), /\$330/)
     assert.equal(runRow(rows, 'flights')?.value, 3000)
     assert.equal(runRow(rows, 'backline_hire')?.value, 3800)
+    const g3BacklineEntries = (runRow(rows, 'backline_hire') as { entries?: Array<{ description?: string }> } | undefined)?.entries ?? []
+    assert.ok(!g3BacklineEntries.some(e => /keyboard/i.test(e.description ?? '')), 'G3 must not seed KB hire')
     assert.equal(runRow(rows, 'crew_travel_day')?.value, 500)
     assert.equal(runRow(rows, 'fb_ads'), undefined)
     assert.ok(showRows(rows, 'fb_ads').every(r => r.state === 'guess' && r.value == null))
     assert.equal(runRow(rows, 'ground_transport')?.value, 400 + 100 + 150)
+  })
+
+  it('Group 4 seeds flights + 2× Carnival, never $330 lighting, and KB/stand hire', () => {
+    const nzShows = weekendShows([
+      { state_territory: 'NZ', capacity: 1800, venue_city: 'Auckland', country: 'NZ' },
+    ])
+    const est = estimateRunFromFactors({
+      shows: nzShows, factors: FACTORS, region: 'group4', lightingHireFallback: 330,
+    })
+    assert.ok(est.lightingHire === 0 || est.lightingHire == null)
+    assert.match(est.lightingSource, /G4/)
+    assert.equal(est.flights.value, 6000)
+    assert.equal(est.groundTransportItems.length, 2)
+    assert.ok(est.keyboardHire, 'G4 seeds keyboard hire')
+    assert.match(String(est.keyboardHire?.source), /keyboard/i)
+
+    const rows = buildSeedCostFieldRows({
+      runId: 'run-26r-g4',
+      runCode: '26RG4',
+      shows: nzShows,
+      lightingHire: 330,
+      factors: FACTORS,
+      region: 'group4',
+    })
+    const lighting = runRow(rows, 'lighting_hire')
+    assert.ok(lighting?.value === 0 || lighting?.value == null)
+    assert.doesNotMatch(String(lighting?.source), /\$330/)
+    assert.equal(runRow(rows, 'flights')?.value, 6000)
+    const ground = runRow(rows, 'ground_transport') as { entries?: Array<{ description?: string }> } | undefined
+    const groundEntries = ground?.entries ?? []
+    assert.equal(groundEntries.filter(e => /Kia Carnival/i.test(e.description ?? '')).length, 2)
+    const backline = runRow(rows, 'backline_hire') as { entries?: Array<{ description?: string }> } | undefined
+    assert.ok((backline?.entries ?? []).some(e => /keyboard/i.test(e.description ?? '')), 'G4 seeds KB/stand hire')
   })
 })
 

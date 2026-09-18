@@ -23,12 +23,29 @@
  *   flights Factor. Local ground = Kia + uber + parking (no van).
  * - Group 3 lighting hire is not the standing $330 shell — gear travels;
  *   seed $0 and let Michael confirm if local hire is needed.
+ * - Group 4 (overseas): always fly; NZ $6k+GST / Asia $10k+GST flight
+ *   ESTIMATE from Factors (`flights_group4_nz` / `flights_group4_asia`,
+ *   else hardcoded fallbacks); seed 2× Kia Carnival; hire backline +
+ *   keyboard/stand; never $330 lighting.
  * - FB ads = per-venue capacity bracket (Factors are per venue), then sum.
  *   Null capacity uses the small bracket.
  */
 
 import type { RunRegion } from '../types.ts'
-import { classifyRunRegion, type ShowLocationInput } from '../region-classify.ts'
+import {
+  classifyRunRegion,
+  isNzShow,
+  type ShowLocationInput,
+} from '../region-classify.ts'
+import {
+  allowsStandingLightingHire,
+  CARNIVAL_1_LABEL,
+  CARNIVAL_2_LABEL,
+  G4_FLIGHTS_ASIA_FALLBACK,
+  G4_FLIGHTS_NZ_FALLBACK,
+  needsLocalBackline,
+  seedsKeyboardStandHire,
+} from '../group-type.ts'
 import type { RunDefault } from './run-defaults.ts'
 import {
   CREW_FEE_PER_SHOW,
@@ -42,6 +59,19 @@ export const PER_DIEM_PEOPLE = 2
 /** Group 3 Factor seed — no standing lighting hire (gear travels). */
 export const G3_LIGHTING_HIRE_SOURCE =
   'G3 — no standing lighting hire; Michael confirms if needed / gear travels'
+
+/** Group 4 Factor seed — never standing $330 (gear does not travel). */
+export const G4_LIGHTING_HIRE_SOURCE =
+  'G4 — no standing lighting hire; hire locally if needed / gear does not travel'
+
+export const G3_KEYBOARD_SOURCE =
+  'G3 — own keyboard travels (no KB hire seed). Local backline is drum kit / guitar amps only.'
+
+export const G4_KEYBOARD_SOURCE =
+  'G4 — keyboard + stand hired locally (own keys stay). ESTIMATE — get supplier quote.'
+
+export const G4_CARNIVAL_SOURCE =
+  'G4 ground — seed 2× Kia Carnival (operator deletes if unused). Factors kia_hire_per_day.'
 
 export const CREW_FEE_FACTOR_KEYS = [
   'crew_fee_adam_sound',
@@ -93,6 +123,7 @@ export type FactorRunEstimate = {
   groundSource: string
   flights: FactorLine
   backlineHire: FactorLine
+  keyboardHire: FactorLine | null
   crewTravelDay: FactorLine | null
 }
 
@@ -111,7 +142,7 @@ export function parseFactorMap(
 }
 
 export function isRunRegion(value: unknown): value is RunRegion {
-  return value === 'group1' || value === 'group2' || value === 'group3'
+  return value === 'group1' || value === 'group2' || value === 'group3' || value === 'group4'
 }
 
 /** Prefer stored `runs.region`; otherwise locked costings classify. */
@@ -263,6 +294,36 @@ export function estimateGroundAndFlights(opts: {
     }
   }
 
+  if (region === 'group4') {
+    const days = Math.max(showCount, 1)
+    const carnivalAmount = kia != null && Number.isFinite(kia) ? kia * days : 0
+    const carnivalNotes = kia != null
+      ? `Factors kia_hire_per_day $${kia} × ${days} show day${days === 1 ? '' : 's'} — G4 seed 2× Carnival (deletable)`
+      : 'Factors kia_hire_per_day missing — G4 still seeds 2× Carnival ESTIMATE (deletable). Set rate in Factors.'
+    items.push({ description: CARNIVAL_1_LABEL, notes: carnivalNotes, amount: carnivalAmount })
+    items.push({ description: CARNIVAL_2_LABEL, notes: carnivalNotes, amount: carnivalAmount })
+    const groundValue = items.reduce((s, i) => s + i.amount, 0)
+    const nz = shows.some(s => isNzShow(s))
+    const flightKey = nz ? 'flights_group4_nz' : 'flights_group4_asia'
+    const fallback = nz ? G4_FLIGHTS_NZ_FALLBACK : G4_FLIGHTS_ASIA_FALLBACK
+    const corridor = nz ? 'NZ' : 'Asia'
+    const flightVal = factors[flightKey]
+    const used = flightVal != null && Number.isFinite(flightVal) ? flightVal : fallback
+    const fromFactors = flightVal != null && Number.isFinite(flightVal)
+    return {
+      groundValue,
+      groundItems: items,
+      groundSource: G4_CARNIVAL_SOURCE + (kia != null ? ` Kia $${kia}×${days} × 2 vehicles.` : ' kia_hire_per_day missing — $0 ESTIMATE lines seeded.'),
+      flights: {
+        value: used,
+        state: 'estimated',
+        source: fromFactors
+          ? `Factors ${flightKey} $${used}+GST — G4 ${corridor} whole-party return ESTIMATE. Gareth to book actuals.`
+          : `G4 ${corridor} flights ESTIMATE $${used}+GST (${flightKey} unset — fallback). Gareth to book actuals.`,
+      },
+    }
+  }
+
   // group3
   addItem(
     items,
@@ -290,7 +351,7 @@ export function estimateGroundAndFlights(opts: {
     : {
         value: null,
         state: 'estimated',
-        source: 'Factors — no Group 3 flights bracket for this location (NZ/intl or missing key). Gareth to price.',
+        source: 'Factors — no Group 3 flights bracket for this location (inland G3 or missing key). Gareth to price.',
       }
 
   return {
@@ -321,11 +382,11 @@ export function estimateRunFromFactors(opts: {
   const foodPerShow = factors.food_basics_per_show ?? FOOD_PER_SHOW
   const foodFromFactors = factors.food_basics_per_show != null
   const lightingFromFactors = factors.lighting_hire_per_run != null
-  const lightingHire = region === 'group3'
-    ? 0
-    : factors.lighting_hire_per_run
+  const lightingHire = allowsStandingLightingHire(region)
+    ? factors.lighting_hire_per_run
       ?? opts.lightingHireFallback
       ?? LIGHTING_HIRE_PER_RUN
+    : 0
   const accomPerNight = factors.accom_per_night ?? 1400
   const accommodation = accomPerNight * nights
   const perDiemRate = factors.per_diem_per_person_per_day ?? 40
@@ -344,33 +405,49 @@ export function estimateRunFromFactors(opts: {
 
   const travel = estimateGroundAndFlights({ region, shows, factors, showCount: numShows })
 
-  const backline = region === 'group3' && factors.backline_hire_per_run != null
+  const backline = needsLocalBackline(region) && (region === 'group4' || factors.backline_hire_per_run != null)
     ? {
-        value: factors.backline_hire_per_run,
+        value: factors.backline_hire_per_run ?? 0,
         state: 'estimated' as const,
-        source: `Factors backline_hire_per_run $${factors.backline_hire_per_run} — Group 3 local hire (own gear stays in Melbourne).`,
+        source: region === 'group4'
+          ? (factors.backline_hire_per_run != null
+            ? `Factors backline_hire_per_run $${factors.backline_hire_per_run} — G4 local hire including kit (keyboard + stand is a separate seed).`
+            : 'G4 — backline always hired locally (own gear stays). ESTIMATE — Factors backline_hire_per_run missing; get supplier quote.')
+          : `Factors backline_hire_per_run $${factors.backline_hire_per_run} — Group 3 local hire (own keyboard travels; drum kit / guitar amps hired).`,
       }
     : {
         value: 0,
         state: 'estimated' as const,
-        source: 'Not required for this run region by default — Factors backline is Group 3 only. Set amount if local backline hire is needed.',
+        source: 'Not required for this run region by default — Factors backline is Group 3/G4 only. Set amount if local backline hire is needed.',
       }
 
-  const adamTravel = factors.crew_travel_day_adam
-  const michaelTravel = factors.crew_travel_day_michael
-  const crewTravelDay = region === 'group3' && (adamTravel != null || michaelTravel != null)
+  const keyboardHire = seedsKeyboardStandHire(region)
     ? {
-        value: (adamTravel ?? 0) + (michaelTravel ?? 0),
+        value: factors.keyboard_stand_hire ?? 0,
         state: 'estimated' as const,
-        source: `Factors crew travel-day (Nth QLD / NT / WA) — Adam $${adamTravel ?? 0} + Michael $${michaelTravel ?? 0}.`,
+        source: factors.keyboard_stand_hire != null
+          ? `Factors keyboard_stand_hire $${factors.keyboard_stand_hire} — ${G4_KEYBOARD_SOURCE}`
+          : G4_KEYBOARD_SOURCE,
       }
     : null
 
-  const lightingSource = region === 'group3'
-    ? G3_LIGHTING_HIRE_SOURCE
-    : lightingFromFactors
-      ? `Factors lighting_hire_per_run $${lightingHire} — standard per run.`
-      : `$${lightingHire} per run — portal_settings lighting_hire_default (Factors lighting_hire_per_run missing).`
+  const adamTravel = factors.crew_travel_day_adam
+  const michaelTravel = factors.crew_travel_day_michael
+  const crewTravelDay = needsLocalBackline(region) && (adamTravel != null || michaelTravel != null)
+    ? {
+        value: (adamTravel ?? 0) + (michaelTravel ?? 0),
+        state: 'estimated' as const,
+        source: `Factors crew travel-day — Adam $${adamTravel ?? 0} + Michael $${michaelTravel ?? 0}.`,
+      }
+    : null
+
+  const lightingSource = region === 'group4'
+    ? G4_LIGHTING_HIRE_SOURCE
+    : region === 'group3'
+      ? G3_LIGHTING_HIRE_SOURCE
+      : lightingFromFactors
+        ? `Factors lighting_hire_per_run $${lightingHire} — standard per run.`
+        : `$${lightingHire} per run — portal_settings lighting_hire_default (Factors lighting_hire_per_run missing).`
 
   return {
     region,
@@ -412,6 +489,7 @@ export function estimateRunFromFactors(opts: {
     groundSource: travel.groundSource,
     flights: travel.flights,
     backlineHire: backline,
+    keyboardHire,
     crewTravelDay,
   }
 }
@@ -437,6 +515,9 @@ export function toSyntheticRunDefault(est: FactorRunEstimate): RunDefault {
     backlineHire: est.backlineHire.value == null
       ? undefined
       : { value: est.backlineHire.value, state: est.backlineHire.state, source: est.backlineHire.source },
+    keyboardHire: est.keyboardHire == null || est.keyboardHire.value == null
+      ? undefined
+      : { value: est.keyboardHire.value, state: est.keyboardHire.state, source: est.keyboardHire.source },
     bradDriverFee: null,
     crewTravelDay: est.crewTravelDay == null || est.crewTravelDay.value == null
       ? null

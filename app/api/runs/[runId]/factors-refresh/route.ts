@@ -38,7 +38,7 @@ export async function POST(
 
   const { data: run } = await supabase
     .from('runs')
-    .select('id, code, status')
+    .select('id, code, status, region')
     .eq('id', runId)
     .maybeSingle()
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
@@ -92,6 +92,7 @@ export async function POST(
       factors: factorMap,
       lightingHireDefault,
       show,
+      region: run.region,
     })
     if (field.field_key === INSIDE_FEES_FIELD_KEY) continue
     const existingEntries = normalizeEntries(field.entries) ?? []

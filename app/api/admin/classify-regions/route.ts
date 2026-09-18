@@ -20,7 +20,7 @@ async function checkAdmin(): Promise<{ ok: false; res: NextResponse } | { ok: tr
  * Body: { runCode?: string }
  * — omit runCode → reclassify all runs from their shows
  * — set runCode → one run
- * Always auto-writes runs.region (no region_locked column yet).
+ * Writes runs.region unless region_operator_set (Costings Group Type override).
  */
 export async function POST(req: NextRequest) {
   const auth = await checkAdmin()
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({})) as { runCode?: string }
   const supabase = createAdminClient()
 
-  let runsQuery = supabase.from('runs').select('id, code, region')
+  let runsQuery = supabase.from('runs').select('id, code, region, region_operator_set')
   if (body.runCode) {
     runsQuery = runsQuery.eq('code', body.runCode)
   }
@@ -53,6 +53,11 @@ export async function POST(req: NextRequest) {
         venue_city: s.venue_city,
       }))
     )
+
+    if (run.region_operator_set) {
+      results.push({ code: run.code, old: run.region, new: run.region, reason: `operator Group Type override — skipped (${reason})` })
+      continue
+    }
 
     if (next !== run.region) {
       const { error } = await supabase.from('runs').update({ region: next }).eq('id', run.id)

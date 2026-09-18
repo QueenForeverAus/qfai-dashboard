@@ -95,6 +95,7 @@ const REGION_LABELS: Record<string, string> = {
   group1: 'Group 1 · Self-drive',
   group2: 'Group 2 · Fly + Van',
   group3: 'Group 3 · Fly + Local Backline',
+  group4: 'Group 4 · International / Overseas',
 }
 
 export const dynamic = 'force-dynamic'

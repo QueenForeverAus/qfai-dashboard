@@ -52,6 +52,7 @@ const REGION_LABELS: Record<string, string> = {
   group1: 'G1 · Self-drive',
   group2: 'G2 · Fly+Van',
   group3: 'G3 · Fly+Local',
+  group4: 'G4 · Overseas',
 }
 
 export type Run = {

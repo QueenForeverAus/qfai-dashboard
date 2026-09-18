@@ -441,8 +441,12 @@ export async function PUT(req: NextRequest) {
 
   const regionResults: { code: string; old: string; new: string; reason: string }[] = []
   for (const code of affectedCodes) {
-    const { data: runRow } = await supabase.from('runs').select('id, code, region').eq('code', code).single()
+    const { data: runRow } = await supabase.from('runs').select('id, code, region, region_operator_set').eq('code', code).single()
     if (!runRow) continue
+    if (runRow.region_operator_set) {
+      regionResults.push({ code, old: runRow.region, new: runRow.region, reason: 'operator Group Type override — skipped' })
+      continue
+    }
     const { data: runShows } = await supabase
       .from('shows')
       .select('state_territory, venue_city')

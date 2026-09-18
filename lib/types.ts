@@ -1,5 +1,5 @@
 export type RunStatus = 'proposed' | 'confirmed' | 'booking' | 'show_week' | 'post_show' | 'settled' | 'archived'
-export type RunRegion = 'group1' | 'group2' | 'group3'
+export type RunRegion = 'group1' | 'group2' | 'group3' | 'group4'
 export type FieldState = 'known' | 'estimated' | 'guess' | 'pending'
 export type UserRole = 'admin' | 'owner' | 'crew' | 'production' | 'external'
 

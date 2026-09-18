@@ -479,7 +479,7 @@ export default function AdvancementTab({
   const canEditAdvance = isOwnerOrAdmin || isProductionManager
   const regionKey = (region in REGION_LABELS ? region : 'group2') as RunRegion
   const regionLabel = REGION_LABELS[regionKey]
-  const isGroup3 = regionKey === 'group3'
+  const isGroup3 = regionKey === 'group3' || regionKey === 'group4'
 
   useEffect(() => {
     Promise.all([
