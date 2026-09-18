@@ -16,16 +16,14 @@ import {
 } from '../inside-fee-lines.ts'
 import {
   computeDanielChampagne,
-  computeMusicRights,
   DANIEL_CHAMPAGNE_FIELD_KEY,
   DANIEL_CHAMPAGNE_FACTOR_KEY,
   DANIEL_CHAMPAGNE_SOURCE,
   FB_ADS_NOT_AUTO_SOURCE,
   MUSIC_RIGHTS_FIELD_KEY,
-  MUSIC_RIGHTS_FACTOR_KEY,
-  MUSIC_RIGHTS_SOURCE,
   parseOptionalFactor,
 } from '../show-auto-calc.ts'
+import { musicRightsSeedLine } from '../music-rights-line.ts'
 import { syncRunDatesFromShows } from '../run-dates.ts'
 import type { RunRegion } from '../types.ts'
 import {
@@ -116,10 +114,7 @@ function showInsideFeeRow(runId: string, show: SeedShow, _factors?: FactorMap): 
 
 /** Show-level Music Rights (AUTO-CALC or FIGURES_NEEDED), DC, FB Ads (never auto). */
 function showWaveAAutoRows(runId: string, show: SeedShow, factors?: FactorMap): object[] {
-  const music = computeMusicRights({
-    show,
-    musicRightsPct: parseOptionalFactor(factors?.[MUSIC_RIGHTS_FACTOR_KEY]),
-  })
+  const music = musicRightsSeedLine({ show, factors })
   const dc = computeDanielChampagne({
     show,
     perTicket: parseOptionalFactor(factors?.[DANIEL_CHAMPAGNE_FACTOR_KEY]),
@@ -129,8 +124,9 @@ function showWaveAAutoRows(runId: string, show: SeedShow, factors?: FactorMap): 
       run_id: runId, show_id: show.id,
       category: 'Venue Costs', field_key: MUSIC_RIGHTS_FIELD_KEY,
       label: displayCostFieldLabel(MUSIC_RIGHTS_FIELD_KEY),
-      value: music.amount, state: music.state,
-      source: MUSIC_RIGHTS_SOURCE,
+      value: music.value, state: music.state,
+      source: music.source,
+      line_pct: music.line_pct,
     }),
     {
       run_id: runId, show_id: show.id,

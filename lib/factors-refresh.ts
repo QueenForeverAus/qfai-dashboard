@@ -17,9 +17,9 @@ import type { RunRegion } from './types.ts'
 import { RUN_DEFAULTS } from './defaults/run-defaults.ts'
 import { PORTAL_SETTINGS_DEFAULTS } from './portal-settings.ts'
 import type { FactorOverrides } from './defaults/generate-entries.ts'
+import { musicRightsRefreshLine } from './music-rights-line.ts'
 import {
   computeDanielChampagne,
-  computeMusicRights,
   DANIEL_CHAMPAGNE_FIELD_KEY,
   MUSIC_RIGHTS_FIELD_KEY,
   type AutoCalcShow,
@@ -114,14 +114,16 @@ export function buildFactorFieldPatch(opts: {
   lightingHireDefault?: number
   show?: AutoCalcShow | null
   region?: RunRegion | string | null
-}): { value: number | null; state?: 'auto_calc' | 'pending' } | null {
+  existingLinePct?: number | null
+}): { value: number | null; state?: 'auto_calc' | 'pending'; line_pct?: number | null } | null {
   if (opts.fieldKey === MUSIC_RIGHTS_FIELD_KEY) {
     if (!opts.show) return null
-    const r = computeMusicRights({
+    const r = musicRightsRefreshLine({
       show: opts.show,
-      musicRightsPct: opts.factors.music_rights_pct,
+      existingLinePct: opts.existingLinePct,
+      factors: opts.factors,
     })
-    return { value: r.amount, state: r.state }
+    return { value: r.value, state: r.state, line_pct: r.line_pct }
   }
   if (opts.fieldKey === DANIEL_CHAMPAGNE_FIELD_KEY) {
     if (!opts.show) return null

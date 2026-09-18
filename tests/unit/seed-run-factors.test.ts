@@ -300,6 +300,7 @@ describe('missing RUN_DEFAULTS uses Factors for cost lines', () => {
     const showRights = showRows(rows, 'music_rights')
     assert.equal(showRights.length, 2)
     assert.ok(showRights.every(r => r.state === 'pending' && r.value == null))
+    assert.ok(showRights.every(r => (r as { line_pct?: number | null }).line_pct == null))
     const showDc = showRows(rows, 'daniel_champagne')
     assert.equal(showDc.length, 2)
     assert.ok(showDc.every(r => r.state === 'auto_calc'))
@@ -312,6 +313,36 @@ describe('missing RUN_DEFAULTS uses Factors for cost lines', () => {
     for (const key of FOUR_VENUE_BUCKETS) {
       assert.equal(showRows(rows, key).length, 2, key)
     }
+  })
+
+  it('seeds Music Rights line % from Factors music_rights_pct and never copies apra_pct', () => {
+    const seeded = buildSeedCostFieldRows({
+      runId: 'run-26r01',
+      runCode: '26R01',
+      shows,
+      lightingHire: 999,
+      factors: { ...FACTORS, music_rights_pct: 1.5, apra_pct: 2 },
+      region: 'group2',
+    })
+    const rights = showRows(seeded, 'music_rights')
+    assert.equal(rights.length, 2)
+    assert.ok(rights.every(r => (r as { line_pct?: number | null }).line_pct === 1.5))
+    assert.ok(rights.every(r => r.state === 'auto_calc'))
+    // 75% of 500 × $75 × 1.5% = 375 × 75 × 0.015 = 421.88; 75% of 800 × $75 × 1.5% = 675
+    assert.equal(rights[0]?.value, 421.88)
+    assert.equal(rights[1]?.value, 675)
+
+    const emptyFactors = buildSeedCostFieldRows({
+      runId: 'run-26r01',
+      runCode: '26R01',
+      shows,
+      lightingHire: 999,
+      factors: { ...FACTORS, apra_pct: 2 },
+      region: 'group2',
+    })
+    const emptyRights = showRows(emptyFactors, 'music_rights')
+    assert.ok(emptyRights.every(r => r.state === 'pending' && r.value == null))
+    assert.ok(emptyRights.every(r => (r as { line_pct?: number | null }).line_pct == null))
   })
 
   it('uses lighting_hire_per_run over portal fallback; portal when Factor missing', () => {

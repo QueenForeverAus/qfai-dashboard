@@ -19,6 +19,8 @@ import {
 } from '@/lib/cost-fields'
 import { normalizeStoredCostFieldState } from '@/lib/certainty-ladder'
 import { rejectIfBookedCostFrozen } from '@/lib/booked-cost-freeze-persist'
+import { parseLinePctFromBody } from '@/lib/music-rights-line'
+import { MUSIC_RIGHTS_FIELD_KEY } from '@/lib/show-auto-calc'
 
 /**
  * POST /api/cost-fields — create a cost field row (authenticated).
@@ -106,6 +108,10 @@ export async function POST(req: NextRequest) {
       ? (roleTotal === 0 ? null : roleTotal)
       : entriesSum(entries)
 
+  const linePct = fieldKey === MUSIC_RIGHTS_FIELD_KEY
+    ? (parseLinePctFromBody(body.line_pct) ?? null)
+    : undefined
+
   const row = {
     run_id: body.run_id,
     show_id: body.show_id ?? null,
@@ -118,6 +124,7 @@ export async function POST(req: NextRequest) {
     line_items: lineItems,
     entries,
     updated_by: user.id,
+    ...(linePct !== undefined ? { line_pct: linePct } : {}),
   }
 
   const { data, error } = await supabase

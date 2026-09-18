@@ -8,11 +8,13 @@
  *   This is modelled gross admission (tickets × price), not Harbour remittance
  *   net and not capacity×price at 100% unless sell-through is 100.
  *
- *   amount = tickets × ticket_price × (music_rights_pct / 100)
+ *   amount = tickets × ticket_price × (pct / 100)
+ *   pct    = show-local cost_fields.line_pct (Wave B2). Factors
+ *            music_rights_pct seeds unbooked lines only and is never
+ *            written back from a line edit.
  *
  * AU % may be empty → FIGURES_NEEDED (pending). NZ 2% is known in the world
- * but Factors is one shared % field — always use the Factors value, never
- * invent a country split.
+ * but is never invented here — never copy retired apra_pct.
  *
  * Daniel Champagne:
  *   amount = tickets × daniel_champagne_per_ticket
@@ -32,7 +34,7 @@ export const DANIEL_CHAMPAGNE_FACTOR_KEY = 'daniel_champagne_per_ticket' as cons
 export const DANIEL_CHAMPAGNE_DEFAULT_PER_TICKET = 1.10
 
 export const MUSIC_RIGHTS_SOURCE =
-  'AUTO-CALC · Factors music_rights_pct × tickets × ticket_price (modelled gross admission). AU % may be empty (FIGURES NEEDED). NZ 2% is not applied unless stored on the shared Factors field.'
+  'AUTO-CALC · show-local Music Rights % × tickets × ticket_price (modelled gross admission). Factors music_rights_pct seeds unbooked lines only. AU % may be empty (FIGURES NEEDED). Retired apra_pct is never copied.'
 
 export const DANIEL_CHAMPAGNE_SOURCE =
   'AUTO-CALC · Factors daniel_champagne_per_ticket × tickets sold (modelled). Default $1+GST ($1.10) when Factors is silent.'

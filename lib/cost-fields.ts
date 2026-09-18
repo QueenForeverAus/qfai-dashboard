@@ -1201,6 +1201,9 @@ export function findMissingDefinedCostFields(
 export function buildCreateCostFieldBody(
   runId: string,
   spec: MissingCostFieldSpec,
+  extras?: {
+    musicRights?: { line_pct: number | null; value: number | null; state: string; source: string }
+  },
 ): Record<string, unknown> {
   const { fieldDef, showId } = spec
   const entries = fieldDef.key === 'inside_fees' || ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
@@ -1220,6 +1223,18 @@ export function buildCreateCostFieldBody(
 
   if (fieldDef.key === 'venue_staff') {
     body.line_items = []
+  }
+
+  if (fieldDef.key === 'music_rights' && extras?.musicRights) {
+    body.line_pct = extras.musicRights.line_pct
+    body.value = extras.musicRights.value
+    body.state = extras.musicRights.state
+    body.source = extras.musicRights.source
+  } else if (fieldDef.key === 'music_rights') {
+    // Empty Factors / no seed → FIGURES NEEDED. Never invent AU %.
+    body.state = 'pending'
+    body.value = null
+    body.line_pct = null
   }
 
   return body

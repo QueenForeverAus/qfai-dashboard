@@ -74,6 +74,19 @@ describe('Factors refresh gate — unbooked Costings only', () => {
     })
     assert.equal(empty?.state, 'pending')
     assert.equal(empty?.value, null)
+    assert.equal(empty?.line_pct, null)
+
+    const preserved = buildFactorFieldPatch({
+      fieldKey: 'music_rights',
+      runCode: '26R01',
+      numShows: 1,
+      factors: { music_rights_pct: 2 },
+      show,
+      existingLinePct: 1.5,
+    })
+    assert.equal(preserved?.line_pct, 1.5)
+    assert.equal(preserved?.state, 'auto_calc')
+    assert.equal(preserved?.value, 360)
 
     const lightingG3 = computeFactorDerivedValue(
       'lighting_hire', '26R05', 2, { lighting_hire_per_run: 330 }, 330, 'group3',

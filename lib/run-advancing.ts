@@ -78,6 +78,7 @@ export type AdvancingCostFieldCopy = {
   value: number | null
   state: string
   source: string | null
+  line_pct?: number | null
   line_items: StaffLineItem[] | null
   entries: CostEntry[] | null
 }
@@ -92,6 +93,7 @@ export type CostFieldCopySource = {
   value: number | null
   state: string
   source: string | null
+  line_pct?: number | null
   line_items: unknown
   entries: unknown
   updated_at?: string | null
@@ -234,6 +236,7 @@ export function buildAdvancingFieldCopies(
     value: field.value,
     state: field.state,
     source: field.source,
+    line_pct: field.line_pct ?? null,
     line_items: Array.isArray(field.line_items) ? field.line_items as StaffLineItem[] : null,
     entries: Array.isArray(field.entries) ? field.entries as CostEntry[] : null,
   }))

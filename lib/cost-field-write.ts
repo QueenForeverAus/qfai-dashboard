@@ -59,6 +59,8 @@ import {
   tombstoneSheetFromTable,
   tombstonesForRemovedEntries,
 } from './cost-line-tombstones.ts'
+import { parseLinePctFromBody } from './music-rights-line.ts'
+import { MUSIC_RIGHTS_FIELD_KEY } from './show-auto-calc.ts'
 import type { createAdminClient } from '@/lib/supabase/server-admin'
 
 type AdminClient = ReturnType<typeof createAdminClient>
@@ -354,6 +356,11 @@ export async function executeCostFieldPatch(opts: {
       fieldKey: String(existing.field_key),
     })
     if (nextState !== currentState) updates.state = nextState
+  }
+
+  if (body.line_pct !== undefined && existing.field_key === MUSIC_RIGHTS_FIELD_KEY) {
+    const parsed = parseLinePctFromBody(body.line_pct)
+    if (parsed !== undefined) updates.line_pct = parsed
   }
 
   if (body.value !== undefined && !entriesProvided && updates.line_items === undefined) {
