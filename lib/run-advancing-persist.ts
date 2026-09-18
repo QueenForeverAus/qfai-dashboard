@@ -27,6 +27,7 @@ import {
 import {
   isBandCompsFieldKey,
   mergeCostingCopiesPreservingAdvancing,
+  type AdvancingCostFieldPreserveCopy,
 } from './advancing-preserve.ts'
 import type { createAdminClient } from '@/lib/supabase/server-admin'
 
@@ -297,20 +298,21 @@ export async function recopyCostingsIntoAdvancingPreservingPaid(opts: {
     (fields ?? []) as CostFieldCopySource[],
   )
   const advancingRows = await loadAdvancingCostFields(opts.admin, existing.id)
+  const advancingPreserveCopies: AdvancingCostFieldPreserveCopy[] = advancingRows.map(row => ({
+    show_id: row.show_id,
+    field_key: row.field_key,
+    state: row.state,
+    value: row.value,
+    source: row.source,
+    label: row.label,
+    category: row.category,
+    line_pct: row.line_pct ?? null,
+    entries: Array.isArray(row.entries) ? row.entries : null,
+    line_items: Array.isArray(row.line_items) ? row.line_items : null,
+  }))
   const merged = mergeCostingCopiesPreservingAdvancing(
     costingCopies,
-    advancingRows.map(row => ({
-      show_id: row.show_id,
-      field_key: row.field_key,
-      state: row.state,
-      value: row.value,
-      source: row.source,
-      label: row.label,
-      category: row.category,
-      line_pct: row.line_pct ?? null,
-      entries: Array.isArray(row.entries) ? row.entries : null,
-      line_items: Array.isArray(row.line_items) ? row.line_items : null,
-    })),
+    advancingPreserveCopies,
     { advancingTombstones: advancingTombstones ?? [] },
   )
 

@@ -138,6 +138,62 @@ describe('Unconfirm stays BOOKED and preserves Advancing chrome', () => {
     assert.equal(compsOnly.value, 12)
   })
 
+  it('preserves Advancing Music Rights show-local line_pct on Costings recopy', () => {
+    const withAdvancingPct = mergeCostingCopiesPreservingAdvancing(
+      [{
+        show_id: 'show-1',
+        field_key: 'music_rights',
+        state: 'auto_calc',
+        value: 400,
+        line_pct: 2,
+      }],
+      [{
+        show_id: 'show-1',
+        field_key: 'music_rights',
+        state: 'auto_calc',
+        value: 300,
+        line_pct: 1.5,
+      }],
+    )
+    assert.equal(withAdvancingPct[0]?.line_pct, 1.5)
+    assert.equal(withAdvancingPct[0]?.value, 300)
+
+    const costingPctWhenAdvancingEmpty = mergeCostingCopiesPreservingAdvancing(
+      [{
+        show_id: 'show-1',
+        field_key: 'music_rights',
+        state: 'auto_calc',
+        value: 400,
+        line_pct: 2,
+      }],
+      [{
+        show_id: 'show-1',
+        field_key: 'music_rights',
+        state: 'auto_calc',
+        value: 400,
+        line_pct: null,
+      }],
+    )
+    assert.equal(costingPctWhenAdvancingEmpty[0]?.line_pct, 2)
+
+    const noInventedAuPct = mergeCostingCopiesPreservingAdvancing(
+      [{
+        show_id: 'show-1',
+        field_key: 'music_rights',
+        state: 'auto_calc',
+        value: null,
+        line_pct: null,
+      }],
+      [{
+        show_id: 'show-1',
+        field_key: 'music_rights',
+        state: 'auto_calc',
+        value: null,
+      }],
+    )
+    assert.equal(noInventedAuPct[0]?.line_pct, null)
+  })
+
   it('re-BOOK does not resurrect Advancing-tombstoned inside lines', () => {
     const merged = mergeCostingCopiesPreservingAdvancing(
       [{

@@ -37,10 +37,14 @@ export type PreserveField = {
   source?: string | null
   label?: string | null
   category?: string | null
+  /** Wave B2 show-local Music Rights %. Survives Costings→Advancing preserve/merge. */
   line_pct?: number | null
   entries?: CostEntry[] | null
   line_items?: StaffLineItem[] | null
 }
+
+/** Existing Advancing twin rows passed into re-BOOK merge. Subset of a full copy. */
+export type AdvancingCostFieldPreserveCopy = PreserveField
 
 function norm(s: string | null | undefined): string {
   return String(s ?? '').trim().toLowerCase()
@@ -204,7 +208,7 @@ export function indexFieldsByLineKey<T extends { show_id: string | null; field_k
  */
 export function mergeCostingCopiesPreservingAdvancing<T extends PreserveField>(
   costingCopies: T[],
-  existingAdvancing: T[],
+  existingAdvancing: AdvancingCostFieldPreserveCopy[],
   opts?: { advancingTombstones?: Iterable<TombstoneRef> | null },
 ): T[] {
   const existing = indexFieldsByLineKey(existingAdvancing)
@@ -230,7 +234,7 @@ export function mergeCostingCopiesPreservingAdvancing<T extends PreserveField>(
   const seen = new Set(merged.map(row => advancingCopyLineKey(row)))
   for (const row of existingAdvancing) {
     if (isBandCompsFieldKey(row.field_key) && !seen.has(advancingCopyLineKey(row))) {
-      merged.push(row)
+      merged.push(row as T)
     }
   }
   return merged
