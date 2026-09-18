@@ -78,6 +78,7 @@ export type AdvancingCostFieldCopy = {
   value: number | null
   state: string
   source: string | null
+  /** Wave B2 show-local Music Rights %. Never invent AU %. Never write Factors. */
   line_pct?: number | null
   line_items: StaffLineItem[] | null
   entries: CostEntry[] | null
@@ -93,6 +94,7 @@ export type CostFieldCopySource = {
   value: number | null
   state: string
   source: string | null
+  /** Wave B2 show-local Music Rights %. Copied into Advancing; never invent AU %. */
   line_pct?: number | null
   line_items: unknown
   entries: unknown
