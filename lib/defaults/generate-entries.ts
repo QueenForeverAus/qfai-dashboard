@@ -1,5 +1,6 @@
 import { formatDateShortAU } from '../dates.ts'
 import { LIGHTING_HIRE_LINE_LABEL } from '../cost-fields.ts'
+import { KEYBOARD_STAND_HIRE_LABEL } from '../group-type.ts'
 import { LIGHTING_HIRE_PER_RUN, type RunDefault } from './run-defaults.ts'
 
 export type SeedEntry = {
@@ -219,10 +220,13 @@ function generateEntriesUnseeded(
 
     case 'lighting_hire': {
       const rate = factors?.lighting_hire_per_run ?? LIGHTING_HIRE_PER_RUN
+      const noStanding = rate === 0
       return [{
         id: uid(),
         description: LIGHTING_HIRE_LINE_LABEL,
-        notes: withFactorsSource('Michael Richardson standard per-run rate'),
+        notes: noStanding
+          ? 'No standing lighting hire for this group — Michael confirms if local hire is needed'
+          : withFactorsSource('Michael Richardson standard per-run rate'),
         amount: rate,
         gst_included: true,
         confirmed: false,
@@ -242,16 +246,35 @@ function generateEntriesUnseeded(
     }
 
     case 'backline_hire': {
-      if (!defaults?.backlineHire) return []
-      const rate = factors?.backline_hire_per_run ?? defaults.backlineHire.value
-      return [{
-        id: uid(),
-        description: 'Backline hire (local)',
-        notes: withFactorsSource('Group 3 run — own gear cannot be freighted; drum kit, keys, guitar amps hired locally'),
-        amount: rate,
-        gst_included: true,
-        confirmed: defaults.backlineHire.state === 'known',
-      }]
+      if (!defaults?.backlineHire && !defaults?.keyboardHire) return []
+      const entries: SeedEntry[] = []
+      if (defaults?.backlineHire) {
+        const rate = factors?.backline_hire_per_run ?? defaults.backlineHire.value
+        const ownKeyboard = !defaults.keyboardHire
+        entries.push({
+          id: uid(),
+          description: 'Backline hire (local)',
+          notes: withFactorsSource(
+            ownKeyboard
+              ? 'Local hire — drum kit, guitar amps. Own keyboard travels (no KB hire seed).'
+              : 'Local hire — drum kit, guitar amps. Keyboard + stand is a separate G4 seed.',
+          ),
+          amount: rate,
+          gst_included: true,
+          confirmed: defaults.backlineHire.state === 'known',
+        })
+      }
+      if (defaults?.keyboardHire) {
+        entries.push({
+          id: uid(),
+          description: KEYBOARD_STAND_HIRE_LABEL,
+          notes: withFactorsSource(defaults.keyboardHire.source),
+          amount: defaults.keyboardHire.value,
+          gst_included: true,
+          confirmed: defaults.keyboardHire.state === 'known',
+        })
+      }
+      return entries
     }
 
     case 'fb_ads': {

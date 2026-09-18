@@ -24,6 +24,7 @@ import type { AdvancingTicketLock } from './PnlOwnerChrome'
 import AdvancementTab from './AdvancementTab'
 import ShowPackTab from './ShowPackTab'
 import TicketOutlookBlock from './TicketOutlookBlock'
+import GroupTypeField from './GroupTypeField'
 import { formatDateShortAU } from '@/lib/dates'
 import { runDateRangeFromShows } from '@/lib/run-dates'
 import {
@@ -2419,6 +2420,16 @@ export default function CostFieldsTab({
                 Costings is unconfirmed. The run stays BOOKED. Edit Costings, then Accept / Re-BOOK to freeze and recopy into Advancing (PAID / INVOICED / paid travel / Band Comps kept). Factors will not refresh this run.
               </p>
             </div>
+          )}
+          {!onAdvancingSheet && (
+            <GroupTypeField
+              runId={runId}
+              region={region}
+              bookingStatus={bookingStatus}
+              costingsUnconfirmedAt={costingsUnconfirmedAt}
+              isOwnerOrAdmin={isOwnerOrAdmin}
+              frozen={sheetFrozen}
+            />
           )}
           {!onAdvancingSheet && !sheetFrozen && canRefreshCostingsFromFactors({ status: bookingStatus }) && isOwnerOrAdmin && (
             <div data-testid="factors-refresh-offer" className="rounded-lg border border-amber-900/60 bg-amber-950/20 px-3 py-2.5 flex items-start justify-between gap-3">

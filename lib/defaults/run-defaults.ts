@@ -30,6 +30,8 @@ export type RunDefault = {
   groundTransport: { value: number; state: string; source: string }
   groundTransportItems?: { description: string; notes: string; amount: number }[]
   backlineHire?: { value: number; state: string; source: string }
+  /** G4 only — keyboard + stand hire seed. G3 brings own keyboard. */
+  keyboardHire?: { value: number; state: string; source: string }
   bradDriverFee: { value: number; state: string; source: string } | null
   crewTravelDay: { value: number; state: string; source: string } | null
   crewTravelDayItems?: { description: string; notes: string; amount: number }[]

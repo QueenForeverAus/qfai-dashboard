@@ -62,7 +62,7 @@ export function resolveFlightTravelBand(
 ): FlightTravelBand | null {
   const key = String(region ?? '').trim().toLowerCase()
   if (key === 'group2' || key === 'g2') return 'G2'
-  if (key === 'group3' || key === 'g3') return 'G3'
+  if (key === 'group3' || key === 'g3' || key === 'group4' || key === 'g4') return 'G3'
   return null
 }
 

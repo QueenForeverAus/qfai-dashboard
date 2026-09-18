@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 import {
   buildFactorFieldPatch,
   canRefreshCostingsFromFactors,
+  computeFactorDerivedValue,
   FACTORS_NEVER_REFRESH_FIELD_KEYS,
   shouldRefreshCostField,
 } from '../../lib/factors-refresh.ts'
@@ -73,6 +74,19 @@ describe('Factors refresh gate — unbooked Costings only', () => {
     })
     assert.equal(empty?.state, 'pending')
     assert.equal(empty?.value, null)
+
+    const lightingG3 = computeFactorDerivedValue(
+      'lighting_hire', '26R05', 2, { lighting_hire_per_run: 330 }, 330, 'group3',
+    )
+    const lightingG4 = computeFactorDerivedValue(
+      'lighting_hire', '26RG4', 1, { lighting_hire_per_run: 330 }, 330, 'group4',
+    )
+    const lightingG2 = computeFactorDerivedValue(
+      'lighting_hire', '26R01', 2, { lighting_hire_per_run: 330 }, 330, 'group2',
+    )
+    assert.equal(lightingG3, 0)
+    assert.equal(lightingG4, 0)
+    assert.equal(lightingG2, 330)
 
     const dc = buildFactorFieldPatch({
       fieldKey: 'daniel_champagne',

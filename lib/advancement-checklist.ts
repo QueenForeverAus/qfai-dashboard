@@ -34,6 +34,7 @@ export const REGION_LABELS: Record<RunRegion, string> = {
   group1: 'Group 1 · Self-drive',
   group2: 'Group 2 · Fly + Van',
   group3: 'Group 3 · Fly + Local Backline',
+  group4: 'Group 4 · International / Overseas',
 }
 
 export const ASSIGNABLE_OWNERS: AssignedTo[] = [
@@ -70,10 +71,10 @@ export const ADVANCEMENT_CHECKLIST: AdvancementChecklistItem[] = [
   { scope: 'show', category: '5. Promo plan', item_key: 'ongoing_promo_chase', label: 'Ongoing promo chase through to show', assigned_to: 'harbour', sort_order: 540 },
 
   // ── 6. Travel logistics plan (run) ────────────────────────────────────
-  { scope: 'run', category: '6. Travel logistics plan', item_key: 'day_before_rules', label: 'Day-before rules applied (WA, NT, far Nth QLD, intl; Tas ferry timing)', assigned_to: 'gareth', sort_order: 610, regions: ['group2', 'group3'] },
+  { scope: 'run', category: '6. Travel logistics plan', item_key: 'day_before_rules', label: 'Day-before rules applied (WA, NT, far Nth QLD, intl; Tas ferry timing)', assigned_to: 'gareth', sort_order: 610, regions: ['group2', 'group3', 'group4'] },
   { scope: 'run', category: '6. Travel logistics plan', item_key: 'brad_availability', label: 'Brad availability confirmed for interstate drive days', assigned_to: 'brad', sort_order: 620, regions: ['group1', 'group2'] },
   { scope: 'run', category: '6. Travel logistics plan', item_key: 'driver_confirmed', label: 'Designated drivers locked', assigned_to: 'gareth', sort_order: 630 },
-  { scope: 'run', category: '6. Travel logistics plan', item_key: 'open_jaw_airport_plan', label: 'Open-jaw / airport plan locked', assigned_to: 'gareth', sort_order: 640, regions: ['group2', 'group3'] },
+  { scope: 'run', category: '6. Travel logistics plan', item_key: 'open_jaw_airport_plan', label: 'Open-jaw / airport plan locked', assigned_to: 'gareth', sort_order: 640, regions: ['group2', 'group3', 'group4'] },
   { scope: 'run', category: '6. Travel logistics plan', item_key: 'ferry_plan_locked', label: 'Ferry plan locked (cabin, not recliner)', assigned_to: 'gareth', sort_order: 650, regions: ['group2'], requiresShowStates: ['TAS'] },
 
   // ── 7. Michael — Venue / tech (per show) ──────────────────────────────
@@ -87,11 +88,11 @@ export const ADVANCEMENT_CHECKLIST: AdvancementChecklistItem[] = [
   { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'risers_confirmed', label: 'Risers: keys ≥300mm, drum ≥600mm, amp ≥600mm, guitar risers pre-assembled', assigned_to: 'michael', sort_order: 780 },
   { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'vision_input', label: 'Vision input at USL of drum riser (HDMI/SDI)', assigned_to: 'michael', sort_order: 790 },
   { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'extra_lx_pa', label: 'Extra LX / PA assessed', assigned_to: 'michael', sort_order: 800 },
-  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'backline_hire_ordered', label: 'Backline hire quoted & ordered', assigned_to: 'michael', sort_order: 820, regions: ['group3'] },
+  { scope: 'show', category: '7. Michael — Venue / tech', item_key: 'backline_hire_ordered', label: 'Backline hire quoted & ordered', assigned_to: 'michael', sort_order: 820, regions: ['group3', 'group4'] },
 
   // ── 8. Book travel & stay (run) ───────────────────────────────────────
-  { scope: 'run', category: '8. Book travel & stay', item_key: 'flights_complete', label: 'Flights booked; details & baggage recorded', assigned_to: 'gareth', sort_order: 900, regions: ['group2', 'group3'] },
-  { scope: 'run', category: '8. Book travel & stay', item_key: 'car_hire_van', label: 'Car hire / van booked', assigned_to: 'gareth', sort_order: 930, regions: ['group2', 'group3'] },
+  { scope: 'run', category: '8. Book travel & stay', item_key: 'flights_complete', label: 'Flights booked; details & baggage recorded', assigned_to: 'gareth', sort_order: 900, regions: ['group2', 'group3', 'group4'] },
+  { scope: 'run', category: '8. Book travel & stay', item_key: 'car_hire_van', label: 'Car hire / van booked', assigned_to: 'gareth', sort_order: 930, regions: ['group2', 'group3', 'group4'] },
   { scope: 'run', category: '8. Book travel & stay', item_key: 'spirit_ferry_cabin', label: 'Spirit ferry booked with cabin', assigned_to: 'gareth', sort_order: 940, regions: ['group2'], requiresShowStates: ['TAS'] },
   { scope: 'run', category: '8. Book travel & stay', item_key: 'hotel_confirmed', label: 'Hotel booked with names; details sent to Michael', assigned_to: 'gareth', sort_order: 950 },
   { scope: 'run', category: '8. Book travel & stay', item_key: 'tech_rooms_noon', label: 'Tech rooms noon / early check-in / late checkout as needed', assigned_to: 'gareth', sort_order: 960 },
@@ -138,7 +139,7 @@ export function checklistForRun(
   return ADVANCEMENT_CHECKLIST
     .filter(item => itemApplies(item, region, showStates))
     .map(item => {
-      if (item.item_key === 'car_hire_van' && region === 'group3') {
+      if (item.item_key === 'car_hire_van' && (region === 'group3' || region === 'group4')) {
         return { ...item, label: 'Kia Carnival / local cars booked' }
       }
       if (item.item_key === 'car_hire_van' && region === 'group2') {
@@ -150,7 +151,7 @@ export function checklistForRun(
       if (item.item_key === 'driver_confirmed' && region === 'group2') {
         return { ...item, label: 'Designated drivers locked (Brad van / band cars)' }
       }
-      if (item.item_key === 'driver_confirmed' && region === 'group3') {
+      if (item.item_key === 'driver_confirmed' && (region === 'group3' || region === 'group4')) {
         return { ...item, label: 'Carnival / local drivers locked' }
       }
       return item

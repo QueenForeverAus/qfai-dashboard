@@ -66,6 +66,7 @@ const REGION_LABELS: Record<string, string> = {
   group1: 'Group 1 · Self-drive',
   group2: 'Group 2 · Fly + Van',
   group3: 'Group 3 · Fly + Local Backline',
+  group4: 'Group 4 · International / Overseas',
 }
 
 const emptyShowFields = {
@@ -204,7 +205,7 @@ export default function ShowPackTab({
 
   const canPublish = ['owner', 'admin', 'production'].includes(effectiveRole)
   const canEdit = canPublish
-  const isGroup3 = region === 'group3'
+  const isGroup3 = region === 'group3' || region === 'group4'
 
   function showToast(msg: string) {
     setToast(msg)
@@ -545,7 +546,7 @@ export default function ShowPackTab({
 
               {isGroup3 && (
                 <div className="border-t border-slate-700 pt-3 mb-3">
-                  <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Backline (G3)</div>
+                  <div className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Backline (G3 / G4)</div>
                   <EditableInput
                     label="Company"
                     value={show.backline_company ?? ''}

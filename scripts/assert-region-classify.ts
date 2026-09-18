@@ -23,7 +23,10 @@ assert(classifyShowRegion({ state_territory: 'TAS', venue_city: 'Hobart' }) === 
 assert(classifyShowRegion({ state_territory: 'WA', venue_city: 'Perth' }) === 'group3', 'Perth → G3')
 assert(classifyShowRegion({ state_territory: 'QLD', venue_city: 'Brisbane' }) === 'group3', 'QLD → G3')
 assert(classifyShowRegion({ state_territory: 'Victoria', venue_city: 'Geelong' }) === 'group1', 'full name Victoria → G1')
-assert(classifyShowRegion({ venue_city: 'Auckland', country: 'NZ' }) === 'group3', 'Auckland NZ → G3')
+assert(classifyShowRegion({ venue_city: 'Auckland', country: 'NZ' }) === 'group4', 'Auckland NZ → G4')
+assert(classifyShowRegion({ state_territory: 'NSW', venue_city: 'Tamworth' }) === 'group3', 'Tamworth → G3')
+assert(classifyShowRegion({ state_territory: 'NSW', venue_city: 'Port Macquarie' }) === 'group3', 'Port Macquarie → G3')
+assert(classifyShowRegion({ state_territory: 'NT', venue_city: 'Darwin' }) === 'group3', 'Darwin → G3')
 assert(classifyShowRegion({ state_territory: 'VIC', venue_city: 'Hamilton' }) === 'group1', 'Hamilton VIC not NZ → G1')
 assert(SOUTHERN_NSW_G1_CITIES.includes('Albury'), 'SOUTHERN_NSW_G1_CITIES exports Albury')
 
