@@ -307,6 +307,7 @@ export async function recopyCostingsIntoAdvancingPreservingPaid(opts: {
       source: row.source,
       label: row.label,
       category: row.category,
+      line_pct: row.line_pct ?? null,
       entries: Array.isArray(row.entries) ? row.entries : null,
       line_items: Array.isArray(row.line_items) ? row.line_items : null,
     })),
@@ -326,6 +327,7 @@ export async function recopyCostingsIntoAdvancingPreservingPaid(opts: {
       value: row.value,
       state: row.state,
       source: row.source,
+      line_pct: row.line_pct ?? null,
       line_items: row.line_items,
       entries: row.entries,
       updated_at: now,
@@ -345,6 +347,7 @@ export async function recopyCostingsIntoAdvancingPreservingPaid(opts: {
         value: row.value ?? null,
         state: row.state ?? 'guess',
         source: row.source ?? null,
+        line_pct: row.line_pct ?? null,
         line_items: row.line_items ?? null,
         entries: row.entries ?? null,
       }

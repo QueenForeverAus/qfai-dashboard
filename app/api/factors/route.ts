@@ -77,7 +77,7 @@ export async function PATCH(req: NextRequest) {
 
       const { data: fields } = await supabase
         .from('cost_fields')
-        .select('id, field_key, state, show_id')
+        .select('id, field_key, state, show_id, line_pct')
         .eq('run_id', run.id)
         .in('field_key', affectedFieldKeys)
 
@@ -99,12 +99,14 @@ export async function PATCH(req: NextRequest) {
           factors: factorMap,
           lightingHireDefault,
           show,
+          existingLinePct: field.line_pct == null ? null : Number(field.line_pct),
         })
         const newEntries = generateEntries(field.field_key, field.state, defaults, shows, factorMap)
         const patch: Record<string, unknown> = {}
         if (derived) {
           patch.value = derived.value
           if (derived.state) patch.state = derived.state
+          if (derived.line_pct !== undefined) patch.line_pct = derived.line_pct
         }
         if (newEntries?.length) patch.entries = JSON.parse(JSON.stringify(newEntries))
         if (Object.keys(patch).length) {

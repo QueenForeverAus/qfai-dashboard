@@ -65,7 +65,7 @@ export async function POST(
     .order('show_order')
   const { data: fields } = await supabase
     .from('cost_fields')
-    .select('id, field_key, state, show_id, entries, value')
+    .select('id, field_key, state, show_id, entries, value, line_pct')
     .eq('run_id', run.id)
     .in('field_key', ALL_REFRESH_KEYS)
   const { data: tombstoneRows } = await supabase
@@ -93,6 +93,7 @@ export async function POST(
       lightingHireDefault,
       show,
       region: run.region,
+      existingLinePct: field.line_pct == null ? null : Number(field.line_pct),
     })
     if (field.field_key === INSIDE_FEES_FIELD_KEY) continue
     const existingEntries = normalizeEntries(field.entries) ?? []
@@ -110,6 +111,7 @@ export async function POST(
     if (derived) {
       patch.value = derived.value
       if (derived.state) patch.state = derived.state
+      if (derived.line_pct !== undefined) patch.line_pct = derived.line_pct
     }
     if (merged.length || existingEntries.length) {
       patch.entries = JSON.parse(JSON.stringify(merged))

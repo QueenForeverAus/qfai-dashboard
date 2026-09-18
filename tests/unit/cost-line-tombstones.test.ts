@@ -89,6 +89,12 @@ describe('hard-delete tombstones', () => {
       { tombstones: [{ show_id: 'show-1', field_key: 'inside_fees', seed_key: FIELD_TOMBSTONE_SEED_KEY }] },
     )
     assert.equal(missing.some(m => m.fieldDef.key === 'inside_fees' && m.showId === 'show-1'), false)
+    const rightsMissing = findMissingDefinedCostFields(
+      [],
+      ['show-1'],
+      { tombstones: [{ show_id: 'show-1', field_key: 'music_rights', seed_key: FIELD_TOMBSTONE_SEED_KEY }] },
+    )
+    assert.equal(rightsMissing.some(m => m.fieldDef.key === 'music_rights' && m.showId === 'show-1'), false)
     assert.equal(isTombstoned(
       [{ show_id: 'show-1', field_key: 'inside_fees', seed_key: '*' }],
       { show_id: 'show-1', field_key: 'inside_fees', seed_key: 'booking_fee' },

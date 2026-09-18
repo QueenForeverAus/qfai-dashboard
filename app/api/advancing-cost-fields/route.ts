@@ -20,6 +20,8 @@ import {
 import { ADVANCING_ARCHIVED_ERROR, isAdvancingWorkspaceActive } from '@/lib/run-advancing'
 import { loadActiveAdvancingWorkspace } from '@/lib/run-advancing-persist'
 import { autoTickChecklistAfterCostFieldSave } from '@/lib/advancing-checklist-paid-ticks-persist'
+import { parseLinePctFromBody } from '@/lib/music-rights-line'
+import { MUSIC_RIGHTS_FIELD_KEY } from '@/lib/show-auto-calc'
 
 /**
  * POST /api/advancing-cost-fields — create a line on the Run Advancing twin sheet.
@@ -111,6 +113,10 @@ export async function POST(req: NextRequest) {
       ? (roleTotal === 0 ? null : roleTotal)
       : entriesSum(entries)
 
+  const linePct = fieldKey === MUSIC_RIGHTS_FIELD_KEY
+    ? (parseLinePctFromBody(body.line_pct) ?? null)
+    : undefined
+
   const row = {
     workspace_id: workspaceId,
     run_id: runId,
@@ -125,6 +131,7 @@ export async function POST(req: NextRequest) {
     line_items: lineItems,
     entries,
     updated_by: user.id,
+    ...(linePct !== undefined ? { line_pct: linePct } : {}),
   }
 
   const { data, error } = await supabase

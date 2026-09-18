@@ -31,6 +31,7 @@ import type { AdvancingShowChrome } from '@/lib/run-advancing'
 import { ticketLockFromActuals } from '@/lib/settlements-advancing-sync'
 import { isAdvancingDeskTab, parseRunDetailTab } from '@/lib/tour-desk-nav'
 import { DANIEL_CHAMPAGNE_DEFAULT_PER_TICKET, parseOptionalFactor } from '@/lib/show-auto-calc'
+import { musicRightsSeedLine } from '@/lib/music-rights-line'
 
 type Show = {
   id: string
@@ -63,6 +64,7 @@ type CostFieldRow = {
   value: number | null
   state: string
   source: string | null
+  line_pct?: number | null
   updated_by?: string | null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   line_items: any
@@ -306,6 +308,22 @@ export default async function RunDetailPage({
           body.value = entriesSum(entries)
           body.state = 'estimated'
           body.source = 'Empty until contract / Harbour Draft or owner add. Not from Factors.'
+          return body
+        }
+        if (spec.fieldDef.key === 'music_rights') {
+          const show = typedShows.find(s => s.id === spec.showId)
+          const factorMap = Object.fromEntries(
+            (factorsRaw ?? []).map(f => [f.key, f.value]),
+          )
+          const seeded = show
+            ? musicRightsSeedLine({ show, factors: factorMap })
+            : null
+          if (seeded) {
+            body.line_pct = seeded.line_pct
+            body.value = seeded.value
+            body.state = seeded.state
+            body.source = seeded.source
+          }
           return body
         }
         // Prefer generateEntries when defaults exist (e.g. Group 3 backline).

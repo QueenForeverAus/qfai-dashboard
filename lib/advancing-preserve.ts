@@ -37,6 +37,7 @@ export type PreserveField = {
   source?: string | null
   label?: string | null
   category?: string | null
+  line_pct?: number | null
   entries?: CostEntry[] | null
   line_items?: StaffLineItem[] | null
 }
@@ -173,9 +174,15 @@ export function mergeAdvancingFieldPreserve(
     return advancing
   }
   if (!advancing) return costing
+  const advancingLinePct = advancing.line_pct
+  const keepAdvancingPct = advancingLinePct != null && Number.isFinite(Number(advancingLinePct))
   return {
     ...costing,
     state: mergePreservedState(costing.state, advancing.state),
+    line_pct: keepAdvancingPct ? Number(advancingLinePct) : (costing.line_pct ?? null),
+    value: keepAdvancingPct && costing.field_key === 'music_rights'
+      ? (advancing.value ?? costing.value ?? null)
+      : costing.value,
     entries: preservePaidEntries(costing.entries, advancing.entries),
     line_items: preservePaidLineItems(costing.line_items, advancing.line_items),
   }

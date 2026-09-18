@@ -157,7 +157,21 @@ describe('Tour Desk v2 Phase 1 — Run Advancing', () => {
     assert.equal(copies[0].source_cost_field_id, 'cf-hire')
     assert.equal(copies[0].field_key, 'venue_hire')
     assert.equal(copies[0].value, 1451)
+    assert.equal(copies[0].line_pct, null)
     assert.notEqual(copies[0].source_cost_field_id, copies[0].workspace_id)
+
+    const rightsCopies = buildAdvancingFieldCopies('ws-1', 'run-r12', [{
+      ...venueHire,
+      id: 'cf-rights',
+      field_key: 'music_rights',
+      label: 'Music Rights',
+      value: 360,
+      state: 'auto_calc',
+      line_pct: 1.5,
+      entries: [],
+    }])
+    assert.equal(rightsCopies[0]?.line_pct, 1.5)
+    assert.equal(rightsCopies[0]?.value, 360)
 
     const chrome = buildAdvancingShowsChrome([{
       id: 'show-1',

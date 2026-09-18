@@ -14,6 +14,7 @@ export const COST_FIELD_AUDIT_FIELDS = [
   'value',
   'state',
   'source',
+  'line_pct',
   'entries',
   'line_items',
   'label',

@@ -109,7 +109,13 @@ import {
   DANIEL_CHAMPAGNE_DEFAULT_PER_TICKET,
   DANIEL_CHAMPAGNE_FIELD_KEY,
   MUSIC_RIGHTS_FIELD_KEY,
+  type AutoCalcShow,
 } from '@/lib/show-auto-calc'
+import {
+  musicRightsLineEditPatch,
+  musicRightsSeedLine,
+  parseMusicRightsLinePct,
+} from '@/lib/music-rights-line'
 import { canRefreshCostingsFromFactors, FACTORS_REFRESH_OFFER } from '@/lib/factors-refresh'
 
 type FieldState = CostFieldState
@@ -151,6 +157,7 @@ type CostFieldRow = {
   value: number | null
   state: string
   source: string | null
+  line_pct?: number | null
   updated_by?: string | null
   line_items: LineItem[] | null
   entries: Entry[] | null
@@ -974,6 +981,8 @@ function FieldRow({
   editorDisplayName,
   costSheetFrozen = false,
   insideCalc,
+  musicRightsShow,
+  sellThroughPct,
 }: {
   runId: string
   showId: string | null
@@ -984,24 +993,42 @@ function FieldRow({
   editorDisplayName?: string | null
   costSheetFrozen?: boolean
   insideCalc?: { payerCount: number; grossTicketSales: number }
+  musicRightsShow?: AutoCalcShow
+  sellThroughPct?: number | null
 }) {
   const { patchField, createField, workspaceId } = useCostSheetApi()
   const [isEditing, setIsEditing] = useState(false)
+  const isMusicRights = fieldDef.key === MUSIC_RIGHTS_FIELD_KEY
   const persistedState = (existing?.state as FieldState) ?? fieldDef.defaultState
   const entries = existing?.entries ?? []
   const persistedSelect = sectionEditSelectValue(entries, persistedState)
   const [draftSelect, setDraftSelect] = useState<SectionEditValue>(persistedSelect)
+  const storedLinePct = parseMusicRightsLinePct(existing?.line_pct)
+  const [editingPct, setEditingPct] = useState(false)
+  const [draftPct, setDraftPct] = useState(storedLinePct != null ? String(storedLinePct) : '')
   const [saving, setSaving] = useState(false)
   const [entriesOpen, setEntriesOpen] = useState(fieldDef.key === INSIDE_FEES_FIELD_KEY)
   const [error, setError] = useState<string | null>(null)
 
+  const liveLinePct = isMusicRights
+    ? (editingPct ? parseMusicRightsLinePct(draftPct) : storedLinePct)
+    : null
+  const musicCalc = isMusicRights && musicRightsShow
+    ? computeMusicRights({
+      show: musicRightsShow,
+      musicRightsPct: liveLinePct,
+      sellThroughPct,
+    })
+    : null
   const state = figureStateFromSelect(isEditing ? draftSelect : persistedSelect, persistedState)
   const { styles, chipLabel, chromeAttr, allPaid: sectionPaid, showPaid } = sectionChrome(state, entries)
-  const displayTotal = parentHeaderAmount({
-    lineItems: existing?.line_items,
-    entries,
-    value: existing?.value,
-  }) ?? (entries.length > 0 ? entriesSum(entries) : (existing?.value ?? null))
+  const displayTotal = musicCalc
+    ? musicCalc.amount
+    : parentHeaderAmount({
+      lineItems: existing?.line_items,
+      entries,
+      value: existing?.value,
+    }) ?? (entries.length > 0 ? entriesSum(entries) : (existing?.value ?? null))
   const invoiceVar = sectionInvoiceVariance(displayTotal, entries)
   const canBulkPaid = Boolean(existing?.id) && entries.length > 0 && !ENTRY_EXEMPT_FIELD_KEYS.has(fieldDef.key)
 
@@ -1060,12 +1087,121 @@ function FieldRow({
     }
   }
 
+  async function handleSaveLinePct() {
+    if (!isMusicRights || costSheetFrozen) return
+    if (!musicRightsShow) return
+    if (saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      const patch = musicRightsLineEditPatch({
+        show: musicRightsShow,
+        linePct: draftPct,
+        sellThroughPct,
+      })
+      if (existing?.id) {
+        const data = await patchField(existing.id, {
+          line_pct: patch.line_pct,
+          value: patch.value,
+          state: patch.state,
+          source: patch.source,
+        })
+        onSaved(data)
+      } else {
+        const data = await createField({
+          run_id: runId,
+          workspace_id: workspaceId,
+          show_id: showId,
+          category: fieldDef.category,
+          field_key: fieldDef.key,
+          label: fieldDef.label,
+          value: patch.value,
+          state: patch.state,
+          source: patch.source,
+          line_pct: patch.line_pct,
+          entries: [],
+        })
+        onSaved(data)
+      }
+      setEditingPct(false)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Save failed'
+      setError(msg)
+      console.error('Music Rights line % update failed:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div data-testid={`cost-field-${fieldDef.key}`} data-chrome={chromeAttr} className={`rounded-lg border ${styles.bg} ${styles.border}`}>
       {/* Main row */}
       <div className="flex items-center gap-3 px-3 py-2.5">
         <div className="flex-1 min-w-0">
           <div className="text-slate-300 text-sm">{fieldDef.label}</div>
+          {isMusicRights && (
+            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+              {editingPct ? (
+                <>
+                  <label className="text-slate-400 text-xs whitespace-nowrap">
+                    %
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={draftPct}
+                      onChange={e => setDraftPct(e.target.value)}
+                      aria-label="Music Rights line percent"
+                      data-testid="music-rights-line-pct-input"
+                      className="ml-1 w-20 bg-slate-900 border border-amber-400/40 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-amber-400"
+                    />
+                  </label>
+                  <button
+                    data-testid="music-rights-line-pct-save"
+                    onClick={() => { void handleSaveLinePct() }}
+                    disabled={saving}
+                    className="bg-amber-400 text-slate-900 text-xs font-semibold px-2 py-0.5 rounded hover:bg-amber-300 disabled:opacity-50"
+                  >
+                    {saving ? '…' : 'Save'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingPct(false)
+                      setDraftPct(storedLinePct != null ? String(storedLinePct) : '')
+                      setError(null)
+                    }}
+                    className="text-slate-500 hover:text-slate-300 text-xs px-1"
+                  >
+                    ✕
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span
+                    data-testid="music-rights-line-pct"
+                    className="text-slate-400 text-xs tabular-nums"
+                  >
+                    {storedLinePct != null ? `${storedLinePct}%` : '—'}
+                  </span>
+                  {!costSheetFrozen && (
+                    <button
+                      type="button"
+                      data-testid="music-rights-line-pct-edit"
+                      onClick={() => {
+                        setDraftPct(storedLinePct != null ? String(storedLinePct) : '')
+                        setEditingPct(true)
+                      }}
+                      className="text-slate-600 hover:text-amber-400 text-xs transition-colors"
+                      title="Edit Music Rights %"
+                      aria-label="Edit Music Rights percent"
+                    >
+                      ✎
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           {entries.length > 0 && (
             <div className="text-slate-500 text-xs mt-0.5">
               {entries.length} {entries.length !== 1 ? 'entries' : 'entry'} · total from sub-items
@@ -2027,7 +2163,19 @@ export default function CostFieldsTab({
       const created: CostFieldRow[] = []
       for (const spec of missing) {
         try {
-          const body = buildCreateCostFieldBody(runId, spec)
+          const extras = spec.fieldDef.key === MUSIC_RIGHTS_FIELD_KEY
+            ? (() => {
+              const show = showsState.find(s => s.id === spec.showId)
+              if (!show) return undefined
+              return {
+                musicRights: musicRightsSeedLine({
+                  show,
+                  factors: { music_rights_pct: musicRightsPct },
+                }),
+              }
+            })()
+            : undefined
+          const body = buildCreateCostFieldBody(runId, spec, extras)
           const data = await createCostField(body)
           created.push(data)
         } catch (err) {
@@ -2129,8 +2277,8 @@ export default function CostFieldsTab({
     else fieldMap.set(runFieldKey(f.field_key), f)
   }
 
-  // Daniel Champagne + Music Rights AUTO-CALC live from sliders / Factors.
-  // Ticket base = tickets_sold if set, else capacity × sell-through (tickets × price for rights).
+  // Daniel Champagne still live from sliders / Factors. Music Rights $ is
+  // show-local line % × ticket base (tickets_sold else capacity × sell-through).
   const showAutoCalc = (show: Show) => {
     const pct = sellThrough[show.id] ?? 75
     const modelled = {
@@ -2139,8 +2287,13 @@ export default function CostFieldsTab({
       tickets_sold: show.tickets_sold,
       sell_through_pct: pct,
     }
+    const rightsRow = fieldMap.get(showFieldKey(show.id, MUSIC_RIGHTS_FIELD_KEY))
     return {
-      music: computeMusicRights({ show: modelled, musicRightsPct, sellThroughPct: pct }),
+      music: computeMusicRights({
+        show: modelled,
+        musicRightsPct: parseMusicRightsLinePct(rightsRow?.line_pct),
+        sellThroughPct: pct,
+      }),
       dc: computeDanielChampagne({
         show: modelled,
         perTicket: danielChampagnePerTicket,
@@ -2537,7 +2690,14 @@ export default function CostFieldsTab({
                       {catFields.map(fieldDef => {
                         const stored = fieldMap.get(showFieldKey(show.id, fieldDef.key))
                         const existing = fieldDef.key === MUSIC_RIGHTS_FIELD_KEY
-                          ? { ...(stored ?? { id: '', run_id: runId, show_id: show.id, category: fieldDef.category, field_key: fieldDef.key, label: fieldDef.label, source: null, line_items: null, entries: [] }), value: calc.music.amount, state: calc.music.state }
+                          ? {
+                            ...(stored ?? { id: '', run_id: runId, show_id: show.id, category: fieldDef.category, field_key: fieldDef.key, label: fieldDef.label, source: null, line_items: null, entries: [], line_pct: null }),
+                            value: calc.music.amount,
+                            state: stored?.state && !['pending', 'auto_calc', 'figures_needed'].includes(stored.state)
+                              ? stored.state
+                              : calc.music.state,
+                            line_pct: stored?.line_pct ?? null,
+                          }
                           : fieldDef.key === DANIEL_CHAMPAGNE_FIELD_KEY
                             ? { ...(stored ?? { id: '', run_id: runId, show_id: show.id, category: fieldDef.category, field_key: fieldDef.key, label: fieldDef.label, source: null, line_items: null, entries: [] }), value: calc.dc.amount, state: calc.dc.state }
                             : stored
@@ -2563,6 +2723,15 @@ export default function CostFieldsTab({
                             onEntriesUpdated={handleEntriesUpdated}
                             editorDisplayName={editorNameForField(stored, editorDisplayNameByFieldId, profile)}
                             costSheetFrozen={sheetFrozen}
+                            musicRightsShow={fieldDef.key === MUSIC_RIGHTS_FIELD_KEY
+                              ? {
+                                capacity: modelCapacity(show),
+                                ticket_price: show.ticket_price,
+                                tickets_sold: show.tickets_sold,
+                                sell_through_pct: sellThrough[show.id] ?? 75,
+                              }
+                              : undefined}
+                            sellThroughPct={sellThrough[show.id] ?? 75}
                           />
                         )
                       })}
