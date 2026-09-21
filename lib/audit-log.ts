@@ -31,6 +31,9 @@ export type AuditEntryLike = {
   notes?: string | null
   amount?: number | null
   invoice_amount?: number | null
+  invoice_number?: string | null
+  anomaly?: boolean | null
+  anomaly_note?: string | null
   gst_included?: boolean | null
   confirmed?: boolean | null
   paid?: boolean | null
@@ -41,6 +44,9 @@ export type AuditEntryLike = {
 const ENTRY_AUDIT_KEYS = [
   'amount',
   'invoice_amount',
+  'invoice_number',
+  'anomaly',
+  'anomaly_note',
   'description',
   'notes',
   'gst_included',
@@ -59,9 +65,25 @@ export type AuditLineItemLike = {
   headcount?: number | null
   confirmed?: boolean | null
   paid?: boolean | null
+  invoice_amount?: number | null
+  invoice_number?: string | null
+  anomaly?: boolean | null
+  anomaly_note?: string | null
 }
 
-const LINE_ITEM_AUDIT_KEYS = ['role', 'source', 'rate', 'hours', 'headcount', 'confirmed', 'paid'] as const
+const LINE_ITEM_AUDIT_KEYS = [
+  'role',
+  'source',
+  'rate',
+  'hours',
+  'headcount',
+  'confirmed',
+  'paid',
+  'invoice_amount',
+  'invoice_number',
+  'anomaly',
+  'anomaly_note',
+] as const
 
 export const ADVANCEMENT_AUDIT_FIELDS = [
   'status',

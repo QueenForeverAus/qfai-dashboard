@@ -117,6 +117,8 @@ import {
   parseMusicRightsLinePct,
 } from '@/lib/music-rights-line'
 import { canRefreshCostingsFromFactors, FACTORS_REFRESH_OFFER } from '@/lib/factors-refresh'
+import { InvoiceAnomalyMark } from '@/components/InvoiceAnomalyMark'
+import { entryIsAnomaly, fieldHasAnomaly, fieldAnomalyNote } from '@/lib/invoice-anomaly'
 
 type FieldState = CostFieldState
 
@@ -391,6 +393,9 @@ function EntryRow({
   const [invoiceAmount, setInvoiceAmount] = useState(
     entry.invoice_amount != null ? String(entry.invoice_amount) : '',
   )
+  const [invoiceNumber, setInvoiceNumber] = useState(entry.invoice_number ?? '')
+  const [anomaly, setAnomaly] = useState(entry.anomaly === true)
+  const [anomalyNote, setAnomalyNote] = useState(entry.anomaly_note ?? '')
   const [gst, setGst] = useState(entry.gst_included)
   const [rate, setRate] = useState(entry.rate != null ? String(entry.rate) : '')
 
@@ -413,6 +418,9 @@ function EntryRow({
       notes,
       amount: recalc?.amount ?? (parseFloat(amount) || 0),
       invoice_amount: parsedInvoice != null && Number.isFinite(parsedInvoice) ? parsedInvoice : null,
+      invoice_number: invoiceNumber.trim() || null,
+      anomaly,
+      anomaly_note: anomaly ? (anomalyNote.trim() || 'invoice anomaly — review') : (anomalyNote.trim() || null),
       gst_included: gst,
       rate: nextRate,
     })
@@ -474,8 +482,22 @@ function EntryRow({
             aria-label="Invoice amount"
             data-testid="entry-invoice-amount"
             className="w-24 bg-slate-900 border border-sky-800/60 rounded px-2 py-1 text-sky-100 text-xs focus:outline-none focus:border-sky-400" />
+          <input value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)}
+            placeholder="Invoice #"
+            aria-label="Invoice number"
+            data-testid="entry-invoice-number"
+            className="w-28 bg-slate-900 border border-sky-800/60 rounded px-2 py-1 text-sky-100 text-xs focus:outline-none focus:border-sky-400" />
           <label className="flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap cursor-pointer select-none">
             <input type="checkbox" checked={gst} onChange={e => setGst(e.target.checked)} className="accent-amber-400" /> GST
+          </label>
+          <label className="flex items-center gap-1 text-xs text-amber-300 whitespace-nowrap cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={anomaly}
+              onChange={e => setAnomaly(e.target.checked)}
+              data-testid="entry-anomaly-toggle"
+              className="accent-amber-400"
+            /> ⚠ Anomaly
           </label>
           <button onClick={save}
             className="ml-auto bg-amber-400 text-slate-900 text-xs font-semibold px-2.5 py-1 rounded hover:bg-amber-300 transition-colors whitespace-nowrap">
@@ -483,6 +505,16 @@ function EntryRow({
           </button>
           <button onClick={() => setEditing(false)} className="text-slate-600 hover:text-slate-300 text-xs transition-colors px-1">✕</button>
         </div>
+        {anomaly && (
+          <input
+            value={anomalyNote}
+            onChange={e => setAnomalyNote(e.target.value)}
+            placeholder="Anomaly note (required)"
+            aria-label="Anomaly note"
+            data-testid="entry-anomaly-note"
+            className="w-full bg-slate-900 border border-red-800/60 rounded px-2 py-1 text-amber-100 text-xs focus:outline-none focus:border-amber-400"
+          />
+        )}
         <QuoteInvoiceStub
           filename={entry.attachment_filename}
           quoteNote={entry.quote_note}
@@ -542,6 +574,9 @@ function EntryRow({
           <span className="flex-shrink-0 w-[34px]" aria-hidden />
         )}
         <span className={`flex-1 min-w-0 text-xs truncate ${attested ? 'text-white' : 'text-slate-400'}`}>
+          {entryIsAnomaly(entry) && (
+            <span className="mr-1 align-middle"><InvoiceAnomalyMark note={entry.anomaly_note} testId="entry-anomaly-mark" /></span>
+          )}
           {entry.description || '—'}
           {entry.rate != null && entry.rate_unit
             ? <span className="text-slate-500"> · {entry.rate_unit === 'per_payer' ? `$${Number(entry.rate).toFixed(2)}/payer` : `${Number(entry.rate)}%`}</span>
@@ -604,6 +639,9 @@ function EntryRow({
             {attested ? '✓' : '·'}
           </button>
           <span className={`flex-1 min-w-0 text-xs truncate ${attested ? 'text-white' : 'text-slate-400'}`}>
+            {entryIsAnomaly(entry) && (
+              <span className="mr-1 align-middle"><InvoiceAnomalyMark note={entry.anomaly_note} testId="entry-anomaly-mark-mobile" /></span>
+            )}
             {entry.description || '—'}
           </span>
           <span className={`flex-shrink-0 text-xs font-medium tabular-nums ${attested ? 'text-white' : 'text-slate-400'}`}>
@@ -1253,6 +1291,9 @@ function FieldRow({
                   </span>
                 )}
               </span>
+              {fieldHasAnomaly(entries) && (
+                <InvoiceAnomalyMark note={fieldAnomalyNote(entries)} testId="cost-field-anomaly-mark" />
+              )}
               <span
                 data-testid="cost-field-state"
                 title={
@@ -1561,6 +1602,9 @@ function VenueStaffRow({
               </span>
             )}
           </span>
+          {fieldHasAnomaly(entries, items) && (
+            <InvoiceAnomalyMark note={fieldAnomalyNote(entries, items)} testId="cost-field-anomaly-mark" />
+          )}
           <span
             data-testid="cost-field-state"
             title={
@@ -1737,7 +1781,12 @@ function VenueStaffRow({
                           <div className="flex items-start gap-2 sm:hidden mb-1">
                             {tickBtn}
                             <div className="flex-1 min-w-0">
-                              <div className={`text-sm truncate ${attested ? 'text-white' : 'text-slate-400'}`}>{item.role || 'Untitled role'}</div>
+                              <div className={`text-sm truncate ${attested ? 'text-white' : 'text-slate-400'}`}>
+                                {entryIsAnomaly(item) && (
+                                  <span className="mr-1 align-middle"><InvoiceAnomalyMark note={item.anomaly_note} testId="role-anomaly-mark-mobile" /></span>
+                                )}
+                                {item.role || 'Untitled role'}
+                              </div>
                             </div>
                             {locked ? (
                               <span data-testid="role-paid-lock-mobile" title="Locked — receipt recorded. Un-pay to edit." className="text-teal-500/80 text-sm" aria-label="Role locked (paid)">🔒</span>
@@ -1779,7 +1828,12 @@ function VenueStaffRow({
                           <div className={`hidden sm:grid ${STAFF_GRID} gap-1.5 items-center`}>
                             {tickBtn}
                             {payBtn}
-                            <div className={`text-xs truncate ${attested ? 'text-white' : 'text-slate-400'}`}>{item.role || 'Untitled role'}</div>
+                            <div className={`text-xs truncate ${attested ? 'text-white' : 'text-slate-400'}`}>
+                              {entryIsAnomaly(item) && (
+                                <span className="mr-1 align-middle"><InvoiceAnomalyMark note={item.anomaly_note} testId="role-anomaly-mark" /></span>
+                              )}
+                              {item.role || 'Untitled role'}
+                            </div>
                             <div className="text-xs text-slate-500 truncate" title={sourceLabel || undefined}>{sourceLabel || '—'}</div>
                             <div className="text-xs text-slate-400 tabular-nums">{item.rate || 0}</div>
                             <div className="text-xs text-slate-400 tabular-nums">{item.hours || 0}</div>
@@ -2570,7 +2624,7 @@ export default function CostFieldsTab({
               className="rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-2.5"
             >
               <p className="text-amber-200/90 text-xs leading-snug">
-                Costings is unconfirmed. The run stays BOOKED. Edit Costings, then Accept / Re-BOOK to freeze and recopy into Advancing (PAID / INVOICED / paid travel / Band Comps kept). Factors will not refresh this run.
+                Costings is unconfirmed. The run stays BOOKED. Edit Costings, then Accept / Re-BOOK to freeze and recopy into Advancing (PAID / INVOICED / anomaly / paid travel / Band Comps kept). Factors will not refresh this run.
               </p>
             </div>
           )}

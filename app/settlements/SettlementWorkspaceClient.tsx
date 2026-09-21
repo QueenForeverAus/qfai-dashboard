@@ -6,6 +6,9 @@ import { useRouter } from 'next/navigation'
 import { formatDateAU, formatDateShortAU, formatDateTimeAU } from '@/lib/dates'
 import { displayCostFieldLabel } from '@/lib/cost-fields'
 import { NOTES_INPUT_LABEL, NOTES_SOURCE_OF_DATA_LABEL } from '@/lib/cost-entry-source'
+import { InvoiceAnomalyMark, InvoicedChip } from '@/components/InvoiceAnomalyMark'
+import { INVOICED_FIELD_STATE } from '@/lib/cost-fields'
+import { entryIsAnomaly } from '@/lib/invoice-anomaly'
 import {
   AGENT_SETTLEMENT_EMPTY_NOTE,
   BAND_COSTS_HELP,
@@ -364,6 +367,12 @@ export default function SettlementWorkspaceClient({
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-slate-200 text-sm">{displayCostFieldLabel(field.field_key, field.label)}</span>
                         <div className="flex items-center gap-1.5">
+                          {field.entries?.some(entryIsAnomaly) && (
+                            <InvoiceAnomalyMark
+                              note={field.entries.find(entryIsAnomaly)?.anomaly_note}
+                              testId={`settlement-field-anomaly-${field.id}`}
+                            />
+                          )}
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${STATE_STYLES[field.state] ?? STATE_STYLES.pending}`}>
                             {STATE_LABEL[field.state] ?? field.state}
                           </span>
@@ -373,16 +382,22 @@ export default function SettlementWorkspaceClient({
                       {(field.entries?.length ?? 0) > 0 && (
                         <ul className="mt-1.5 space-y-0.5">
                           {field.entries.map(entry => (
-                            <li key={entry.id} className="flex justify-between gap-2 text-xs text-slate-500">
-                              <span className="truncate">
-                                {entry.description || 'Line'}
+                            <li key={entry.id} className="flex justify-between gap-2 text-xs text-slate-500" data-testid={`settlement-entry-${entry.id}`}>
+                              <span className="truncate flex items-center gap-1 min-w-0">
+                                {entryIsAnomaly(entry) && (
+                                  <InvoiceAnomalyMark note={entry.anomaly_note} testId={`settlement-entry-anomaly-${entry.id}`} />
+                                )}
+                                {(field.state === INVOICED_FIELD_STATE || entry.invoice_amount != null) && (
+                                  <InvoicedChip testId={`settlement-entry-invoiced-${entry.id}`} />
+                                )}
+                                <span className="truncate">{entry.description || 'Line'}</span>
                                 {entry.attachment_filename ? (
                                   <span className="ml-1.5 text-[10px] font-semibold px-1 py-0.5 rounded border border-slate-700 text-slate-500">
                                     {entry.attachment_filename}
                                   </span>
                                 ) : null}
                               </span>
-                              <span className="tabular-nums shrink-0">{formatSettlementsMoney(entry.amount)}</span>
+                              <span className="tabular-nums shrink-0">{formatSettlementsMoney(entry.invoice_amount ?? entry.amount)}</span>
                             </li>
                           ))}
                         </ul>

@@ -23,11 +23,13 @@ import {
 import {
   DEFINED_RUN_COST_FIELDS,
   DEFINED_SHOW_COST_FIELDS,
+  INVOICED_FIELD_STATE,
   allEntriesPaid,
   entriesSum,
   lineItemsSum,
   sectionPayableLines,
 } from './cost-fields.ts'
+import { fieldAnomalyNote, fieldHasAnomaly } from './invoice-anomaly.ts'
 import {
   HARBOUR_COMMISSION_RATE,
   GST_QUARANTINE_KEY,
@@ -100,6 +102,11 @@ export type SheetLine = {
   kind: 'count' | 'money'
   /** Live Advancing PAID roll-up. Settlements must show this as locked PAID. */
   expectedPaid?: boolean
+  /** Twin chrome: field is INVOICED (invoice received ≠ PAID). */
+  expectedInvoiced?: boolean
+  /** Twin chrome: a money_entry / role on this field is flagged ⚠. */
+  anomaly?: boolean
+  anomalyNote?: string | null
 }
 
 export type SheetShowInput = {
@@ -354,6 +361,9 @@ export function buildShowSheetLines(opts: {
       note: field?.source ?? undefined,
       kind: 'money',
       expectedPaid: fieldIsPaidOnAdvancing(field),
+      expectedInvoiced: field?.state === INVOICED_FIELD_STATE,
+      anomaly: fieldHasAnomaly(field?.entries, field?.line_items),
+      anomalyNote: fieldAnomalyNote(field?.entries, field?.line_items),
     })
   }
 
@@ -373,6 +383,9 @@ export function buildShowSheetLines(opts: {
         note: def.key === 'social_ads_var' ? `AUTO CALC · $${SOCIAL_ADS_PER_TICKET.toFixed(2)}/ticket` : field?.source ?? undefined,
         kind: 'money',
         expectedPaid: fieldIsPaidOnAdvancing(field),
+        expectedInvoiced: field?.state === INVOICED_FIELD_STATE,
+        anomaly: fieldHasAnomaly(field?.entries, field?.line_items),
+        anomalyNote: fieldAnomalyNote(field?.entries, field?.line_items),
       })
     }
   } else {

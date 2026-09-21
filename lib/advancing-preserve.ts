@@ -4,8 +4,9 @@
  *
  * Preserved from the existing Advancing twin:
  *   - entries[].paid / paid_at / paid_snapshot
- *   - entries[].invoice_amount (INVOICED chrome)
- *   - line_items paid / invoice_amount
+ *   - entries[].invoice_amount / invoice_number (INVOICED chrome)
+ *   - entries[].anomaly / anomaly_note
+ *   - line_items paid / invoice_amount / anomaly
  *   - paid travel money_entries (confirmation_id / night_date / receipt_kind)
  *   - Band Comps field_keys if present (Wave D UX is out of scope — do not wipe)
  *
@@ -14,7 +15,7 @@
 
 import { ADVANCING_NULL_SHOW_SENTINEL, advancingCopyLineKey } from './run-advancing.ts'
 import type { CostEntry, StaffLineItem } from './cost-fields.ts'
-import { INVOICED_FIELD_STATE } from './cost-fields.ts'
+import { INVOICED_FIELD_STATE, parseInvoiceAmount } from './cost-fields.ts'
 import {
   filterEntriesAgainstTombstones,
   isTombstoned,
@@ -112,6 +113,9 @@ function applyPaidChrome<T extends {
   paid_at?: string | null
   paid_snapshot?: CostEntry['paid_snapshot']
   invoice_amount?: number | null
+  invoice_number?: string | null
+  anomaly?: boolean
+  anomaly_note?: string | null
   confirmation_id?: string | null
   night_date?: string | null
   receipt_kind?: CostEntry['receipt_kind']
@@ -125,12 +129,31 @@ function applyPaidChrome<T extends {
     paid_at: advancing.paid ? (advancing.paid_at ?? costing.paid_at ?? null) : (costing.paid_at ?? null),
     paid_snapshot: advancing.paid_snapshot ?? costing.paid_snapshot ?? null,
     invoice_amount: advancing.invoice_amount ?? costing.invoice_amount ?? null,
+    invoice_number: advancing.invoice_number ?? costing.invoice_number ?? null,
+    anomaly: advancing.anomaly === true || costing.anomaly === true,
+    anomaly_note: advancing.anomaly_note ?? costing.anomaly_note ?? null,
     ...(advancing.confirmation_id != null ? { confirmation_id: advancing.confirmation_id } : {}),
     ...(advancing.night_date != null ? { night_date: advancing.night_date } : {}),
     ...(advancing.receipt_kind != null ? { receipt_kind: advancing.receipt_kind } : {}),
     ...(advancing.city != null ? { city: advancing.city } : {}),
     ...(advancing.vendor != null ? { vendor: advancing.vendor } : {}),
   }
+}
+
+/** Advancing-only INVOICED / anomaly / PAID / travel lines survive Costings recopy. */
+export function shouldPreserveAdvancingEntry(entry: CostEntry): boolean {
+  return entry.paid === true
+    || travelIdentity(entry) != null
+    || entry.anomaly === true
+    || parseInvoiceAmount(entry.invoice_amount) != null
+    || Boolean(entry.invoice_number)
+}
+
+export function shouldPreserveAdvancingLineItem(item: StaffLineItem): boolean {
+  return item.paid === true
+    || item.anomaly === true
+    || parseInvoiceAmount(item.invoice_amount) != null
+    || Boolean(item.invoice_number)
 }
 
 export function preservePaidEntries(
@@ -142,7 +165,7 @@ export function preservePaidEntries(
   const used = new Set<string>()
   const merged = costing.map(row => applyPaidChrome(row, matchPreservedEntry(row, advancing, used)))
   const leftoverPaid = advancing.filter(a =>
-    !used.has(a.id) && (a.paid === true || travelIdentity(a) != null),
+    !used.has(a.id) && shouldPreserveAdvancingEntry(a),
   )
   return [...merged, ...leftoverPaid]
 }
@@ -156,7 +179,7 @@ export function preservePaidLineItems(
   const advancing = Array.isArray(advancingItems) ? advancingItems : []
   const used = new Set<string>()
   const merged = costing.map(row => applyPaidChrome(row, matchPreservedLineItem(row, advancing, used)))
-  const leftoverPaid = advancing.filter(a => !used.has(a.id) && a.paid === true)
+  const leftoverPaid = advancing.filter(a => !used.has(a.id) && shouldPreserveAdvancingLineItem(a))
   return [...merged, ...leftoverPaid]
 }
 

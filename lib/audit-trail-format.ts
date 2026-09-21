@@ -484,6 +484,17 @@ function meaningfulEntryChange(prev: Record<string, unknown>, next: Record<strin
       ? `marked ${label} as PAID (line locked)`
       : `marked ${label} unpaid (line unlocked)`)
   }
+  if (Boolean(prev.anomaly) !== Boolean(next.anomaly)) {
+    changes.push(next.anomaly
+      ? `flagged ${label} as an invoice anomaly`
+      : `cleared the invoice anomaly on ${label}`)
+  }
+  if (String(prev.anomaly_note ?? '') !== String(next.anomaly_note ?? '')) {
+    changes.push(`updated the anomaly note on ${label}`)
+  }
+  if (String(prev.invoice_number ?? '') !== String(next.invoice_number ?? '')) {
+    changes.push(`set invoice # on ${label}`)
+  }
   return changes
 }
 
@@ -851,6 +862,29 @@ export function formatAuditEvent(
         id: row.id, changed_at: row.changed_at, changed_by_name: actor,
         sentence: finish(sentence(actor, `set invoice amount on ${line} from ${formatAuditMoney(row.old_value)} to ${formatAuditMoney(row.new_value)}`)),
         kind: 'entry-invoice-amount', record_id: recordId,
+      }
+    }
+    if (entryField === 'invoice_number') {
+      return {
+        id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+        sentence: finish(sentence(actor, `set invoice # on ${line} to ${quoteLabel(row.new_value ?? '')}`)),
+        kind: 'entry-invoice-number', record_id: recordId,
+      }
+    }
+    if (entryField === 'anomaly') {
+      return {
+        id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+        sentence: finish(sentence(actor, isTrue(row.new_value)
+          ? `flagged ${line} as an invoice anomaly`
+          : `cleared the invoice anomaly on ${line}`)),
+        kind: 'entry-anomaly', record_id: recordId,
+      }
+    }
+    if (entryField === 'anomaly_note') {
+      return {
+        id: row.id, changed_at: row.changed_at, changed_by_name: actor,
+        sentence: finish(sentence(actor, `updated the anomaly note on ${line}`)),
+        kind: 'entry-anomaly-note', record_id: recordId,
       }
     }
     if (entryField === 'description') {
