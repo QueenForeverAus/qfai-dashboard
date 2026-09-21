@@ -8,7 +8,7 @@
  *   - Factors stay irrelevant (run is still BOOKED)
  *
  * On Accept / BOOK again: sure? → freeze Costings → copy Costings→Advancing
- * preserving PAID / INVOICED / paid travel money_entries / Band Comps hooks.
+ * preserving PAID / INVOICED / anomaly / paid travel money_entries / Band Comps hooks.
  */
 
 import { isBookedBookingStatus } from './booked-cost-freeze.ts'
@@ -23,7 +23,7 @@ export const BOOK_SURE_WARNING =
   'BOOK this run? Costings will freeze and copy exactly into Advancing. Live money edits after BOOK happen on Advancing only. Factors will no longer change this run.'
 
 export const REBOOK_SURE_WARNING =
-  'Re-BOOK this run? Costings will freeze again and copy into Advancing. PAID, INVOICED, paid travel money, and Band Comps already on Advancing are preserved.'
+  'Re-BOOK this run? Costings will freeze again and copy into Advancing. PAID, INVOICED, anomaly flags, paid travel money, and Band Comps already on Advancing are preserved.'
 
 export const UNCONFIRM_FORBIDDEN =
   'Only owners and admins can Unconfirm a BOOKED run.'

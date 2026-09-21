@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatDateAU, formatDateShortAU } from '@/lib/dates'
 import { NOTES_SOURCE_OF_DATA_LABEL } from '@/lib/cost-entry-source'
+import { InvoiceAnomalyMark, InvoicedChip } from '@/components/InvoiceAnomalyMark'
 import { SETTLEMENTS_MODULE_LABEL, formatSettlementsMoney, type BandCostLine } from '@/lib/settlements'
 import type { CostingSnapshotField } from '@/lib/settlements'
 import type { SettlementShow } from '@/lib/settlements-load'
@@ -457,7 +458,15 @@ function LineTable({
               data-testid={`sheet-row-${line.key}`}
             >
               <td className="py-2 pr-3 text-slate-300">
-                {line.label}
+                <span className="inline-flex items-center gap-1 flex-wrap">
+                  {line.anomaly && (
+                    <InvoiceAnomalyMark note={line.anomalyNote} testId={`sheet-anomaly-${line.key}`} />
+                  )}
+                  {line.expectedInvoiced && (
+                    <InvoicedChip testId={`sheet-invoiced-${line.key}`} />
+                  )}
+                  <span>{line.label}</span>
+                </span>
                 {line.note ? <span className="block text-[10px] text-slate-600 font-normal">{line.note}</span> : null}
               </td>
               <td className={`py-2 px-3 text-right tabular-nums ${line.key === 'pre_dist_margin' || line.key === 'net_profit' || line.key === GST_QUARANTINE_KEY ? 'text-amber-300 font-semibold' : 'text-white'}`}>

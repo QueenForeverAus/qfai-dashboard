@@ -185,6 +185,9 @@ function applyActualToEntries(opts: {
     paid,
     paid_at: paid ? (base?.paid_at ?? opts.now) : null,
     invoice_amount: base?.invoice_amount ?? null,
+    invoice_number: base?.invoice_number ?? null,
+    anomaly: base?.anomaly === true,
+    anomaly_note: base?.anomaly_note ?? null,
     attachment_path: base?.attachment_path ?? null,
     attachment_filename: base?.attachment_filename ?? null,
     attachment_mime: base?.attachment_mime ?? null,
@@ -207,6 +210,10 @@ function applyActualToLineItems(opts: {
       ? (item.paid_at ?? opts.now)
       : (item.paid ? (item.paid_at ?? null) : null),
     source: opts.sourceNote,
+    invoice_amount: item.invoice_amount ?? null,
+    invoice_number: item.invoice_number ?? null,
+    anomaly: item.anomaly === true,
+    anomaly_note: item.anomaly_note ?? null,
   }))
 }
 

@@ -32,6 +32,19 @@ export type CostEntry = PayableLine & {
    * Set when marking invoiced / applying invoice. Never overwrites Expected.
    */
   invoice_amount?: number | null
+  /**
+   * Invoice # on this money_entry. Distinct entries per invoice # —
+   * do not merge two invoices onto one line.
+   */
+  invoice_number?: string | null
+  /**
+   * Operator/Finance ⚠ — new/unknown invoice line or significant Δ.
+   * Settable via PATCH cost-fields / advancing-cost-fields entries.
+   * Never implied by INVOICED alone.
+   */
+  anomaly?: boolean
+  /** Short note for the ⚠ tooltip / inline. Required when anomaly is true. */
+  anomaly_note?: string | null
   gst_included: boolean
   /** W1.5 stub store id/path. Optional — does not lock or close-gate. */
   attachment_path?: string | null
@@ -73,6 +86,9 @@ export type StaffLineItem = PayableLine & {
   source?: string
   /** Invoice amount for this planned role. Distinct from rate×hours×headcount (Expected). */
   invoice_amount?: number | null
+  invoice_number?: string | null
+  anomaly?: boolean
+  anomaly_note?: string | null
 }
 
 /**
@@ -497,6 +513,37 @@ export function parseInvoiceAmount(raw: unknown): number | null {
   if (raw == null || raw === '') return null
   const n = typeof raw === 'number' ? raw : Number(raw)
   return Number.isFinite(n) ? n : null
+}
+
+export function parseInvoiceNumber(raw: unknown): string | null {
+  if (raw == null) return null
+  const s = String(raw).trim()
+  return s || null
+}
+
+export function parseAnomalyFlag(raw: unknown): boolean {
+  return raw === true || raw === 'true' || raw === 1 || raw === '1'
+}
+
+export function parseAnomalyNote(raw: unknown): string | null {
+  if (raw == null) return null
+  const s = String(raw).trim()
+  return s || null
+}
+
+/** Fallback when operator/Finance sets anomaly without a note. */
+export const ANOMALY_NOTE_REQUIRED_FALLBACK = 'invoice anomaly — review'
+
+export function normalizeAnomalyFields(row: { anomaly?: unknown; anomaly_note?: unknown }): {
+  anomaly: boolean
+  anomaly_note: string | null
+} {
+  const anomaly = parseAnomalyFlag(row.anomaly)
+  const note = parseAnomalyNote(row.anomaly_note)
+  return {
+    anomaly,
+    anomaly_note: anomaly ? (note ?? ANOMALY_NOTE_REQUIRED_FALLBACK) : note,
+  }
 }
 
 /**
@@ -1043,6 +1090,9 @@ export function ensureMinimumEntry(
     confirmed: false,
     paid: false,
     paid_at: null,
+    anomaly: false,
+    anomaly_note: null,
+    invoice_number: null,
     attachment_path: null,
     attachment_filename: null,
     attachment_mime: null,
@@ -1076,6 +1126,8 @@ export function normalizeLineItems(raw: unknown): StaffLineItem[] | null {
       headcount: Number(row.headcount) || 0,
       source: row.source != null ? String(row.source) : '',
       invoice_amount: parseInvoiceAmount(row.invoice_amount),
+      invoice_number: parseInvoiceNumber(row.invoice_number),
+      ...normalizeAnomalyFields(row),
     }
   })
 }
@@ -1093,6 +1145,8 @@ export function normalizeEntries(raw: unknown): CostEntry[] | null {
       notes: String(row.notes ?? ''),
       amount: Number(row.amount) || 0,
       invoice_amount: parseInvoiceAmount(row.invoice_amount),
+      invoice_number: parseInvoiceNumber(row.invoice_number),
+      ...normalizeAnomalyFields(row),
       gst_included: Boolean(row.gst_included),
       confirmed: Boolean(row.confirmed),
       paid,

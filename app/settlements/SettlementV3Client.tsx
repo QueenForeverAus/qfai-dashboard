@@ -70,6 +70,7 @@ import {
   type SettlementAssessmentMessage,
 } from '@/lib/settlements-v3-assessment'
 import SettlementsTabBar from './SettlementsTabBar'
+import { InvoiceAnomalyMark, InvoicedChip } from '@/components/InvoiceAnomalyMark'
 
 function hireActualConfirmed(row: V3RollupRow): boolean {
   return row.children.some(child => {
@@ -358,6 +359,19 @@ function RollupTable({
                     >
                       <span className="text-slate-600 w-3">{canExpand ? (open ? '▼' : '▶') : '·'}</span>
                       <span className={row.highlight ? 'text-amber-300 font-semibold' : ''}>{row.label}</span>
+                      {(row.children.some(c => c.sheetLine?.anomaly) || row.children.some(c => c.sheetLine?.expectedInvoiced)) && (
+                        <span className="ml-1.5 inline-flex items-center gap-1">
+                          {row.children.some(c => c.sheetLine?.anomaly) && (
+                            <InvoiceAnomalyMark
+                              note={row.children.find(c => c.sheetLine?.anomaly)?.sheetLine?.anomalyNote}
+                              testId={`v3-row-anomaly-${row.key}`}
+                            />
+                          )}
+                          {row.children.some(c => c.sheetLine?.expectedInvoiced) && (
+                            <InvoicedChip testId={`v3-row-invoiced-${row.key}`} />
+                          )}
+                        </span>
+                      )}
                     </button>
                     {row.note ? <span className="block text-[10px] text-slate-600 font-normal pl-5">{row.note}</span> : null}
                   </td>
@@ -390,7 +404,15 @@ function RollupTable({
                 {open && row.children.map(child => (
                   <tr key={child.key} className="border-t border-slate-800/60 bg-slate-900/30" data-testid={`sheet-rollup-child-${child.key}`}>
                     <td className="py-1.5 pr-3 pl-8 text-[12px] text-slate-400">
-                      {child.label}
+                      <span className="inline-flex items-center gap-1 flex-wrap">
+                        {child.sheetLine?.anomaly && (
+                          <InvoiceAnomalyMark note={child.sheetLine.anomalyNote} testId={`v3-child-anomaly-${child.key}`} />
+                        )}
+                        {child.sheetLine?.expectedInvoiced && (
+                          <InvoicedChip testId={`v3-child-invoiced-${child.key}`} />
+                        )}
+                        <span>{child.label}</span>
+                      </span>
                       {child.note ? <span className="block text-[10px] text-slate-600">{child.note}</span> : null}
                     </td>
                     {compareChrome ? (
