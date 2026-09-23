@@ -27,7 +27,11 @@ import {
   THORNTON_SCRAPE_PACKET,
   TRECV1_CAR_PACKET,
 } from '../../lib/travel-scrape/fixtures.ts'
-import { parseTravelScrapePacket } from '../../lib/travel-scrape/packet.ts'
+import {
+  parseTravelScrapePacket,
+  resolveTravelScrapeChecklistItemKey,
+  TRAVEL_SCRAPE_CHECKLIST_ALIASES,
+} from '../../lib/travel-scrape/packet.ts'
 import {
   draftTravelBlock,
   findExistingTravelBlock,
@@ -527,6 +531,78 @@ describe('checklist tick + source note', () => {
     })
     assert.deepEqual(plan.checklist.item_keys, ['flights_complete'])
     assert.match(plan.checklist.source_note, /Qantas/)
+  })
+
+  it('remaps Comms glance keys onto live checklist items before tick or skip', () => {
+    assert.equal(TRAVEL_SCRAPE_CHECKLIST_ALIASES.hotel_booked, 'hotel_confirmed')
+    assert.equal(TRAVEL_SCRAPE_CHECKLIST_ALIASES.car_hire_booked, 'car_hire_van')
+    assert.equal(TRAVEL_SCRAPE_CHECKLIST_ALIASES.flights_booked, 'flights_complete')
+    assert.equal(TRAVEL_SCRAPE_CHECKLIST_ALIASES.flight_details_recorded, 'flights_complete')
+    assert.equal(resolveTravelScrapeChecklistItemKey('car_hire_booked'), 'car_hire_van')
+    assert.equal(resolveTravelScrapeChecklistItemKey('flights_booked'), 'flights_complete')
+    assert.equal(resolveTravelScrapeChecklistItemKey('flight_details_recorded'), 'flights_complete')
+    assert.equal(resolveTravelScrapeChecklistItemKey('hotel_booked'), 'hotel_confirmed')
+    assert.equal(resolveTravelScrapeChecklistItemKey('car_hire_van'), 'car_hire_van')
+
+    const flightParsed = parseTravelScrapePacket({
+      ...R01_DEP_FLIGHT_PACKET,
+      checklist: {
+        items_to_tick: ['flights_booked', 'flight_details_recorded', 'flights_booked'],
+        source_note: 'from Qantas email · conf DJ7VJB',
+        partial_names: false,
+      },
+    })
+    assert.equal(flightParsed.ok, true, flightParsed.ok ? '' : flightParsed.error)
+    if (!flightParsed.ok) return
+    assert.deepEqual(flightParsed.packet.checklist.items_to_tick, ['flights_complete'])
+
+    const carParsed = parseTravelScrapePacket({
+      ...TRECV1_CAR_PACKET,
+      checklist: {
+        items_to_tick: ['car_hire_booked'],
+        source_note: 'from Hertz email · conf L682E31C138',
+        partial_names: false,
+      },
+    })
+    assert.equal(carParsed.ok, true, carParsed.ok ? '' : carParsed.error)
+    if (!carParsed.ok) return
+    assert.deepEqual(carParsed.packet.checklist.items_to_tick, ['car_hire_van'])
+
+    const carPlan = planTravelScrapeApply({
+      ...bookedGate,
+      packet: {
+        ...TRECV1_CAR_PACKET,
+        checklist: {
+          items_to_tick: ['car_hire_booked'],
+          source_note: '',
+          partial_names: false,
+        },
+      },
+      profiles,
+    })
+    assert.equal(carPlan.checklist.will_apply, true)
+    assert.deepEqual(carPlan.checklist.item_keys, ['car_hire_van'])
+    assert.deepEqual(carPlan.checklist.skipped_keys, [])
+    assert.equal(carPlan.money.will_write, false)
+    assert.equal(carPlan.money.action, 'confirm_needed')
+
+    const flightPlan = planTravelScrapeApply({
+      ...bookedGate,
+      packet: {
+        ...R01_DEP_FLIGHT_PACKET,
+        checklist: {
+          items_to_tick: ['flights_booked', 'flight_details_recorded', 'not_a_real_item'],
+          source_note: '',
+          partial_names: false,
+        },
+      },
+      profiles,
+    })
+    assert.equal(flightPlan.checklist.will_apply, true)
+    assert.deepEqual(flightPlan.checklist.item_keys, ['flights_complete'])
+    assert.deepEqual(flightPlan.checklist.skipped_keys, ['not_a_real_item'])
+    assert.equal(flightPlan.money.will_write, false)
+    assert.equal(flightPlan.money.action, 'confirm_needed')
   })
 
   it('does not tick checklist when details are held', () => {

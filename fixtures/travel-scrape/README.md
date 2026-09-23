@@ -24,6 +24,8 @@ Car merge is covered in unit tests (`trecv1-avis-car`). W2 hotel receipt-extract
 | Run Costings | **Never write** |
 | Proposed-only runs | **Never attach** — BOOKED + active advancing workspace required |
 
+Checklist aliases (Comms glance → live `item_key`): `hotel_booked` → `hotel_confirmed`; `flights_booked` and `flight_details_recorded` → `flights_complete`; `car_hire_booked` → `car_hire_van`.
+
 ## Money field (`money_field_id` is shared)
 
 `accom_night` maps to the single run-level **Accommodation** Advancing field (`field_key: accommodation`). Hotel POSTs reuse the same `money_field_id` — that is expected, not a last-write-wins collision. Stay nights live as JSON `entries[]` on that field. PAID is **per-entry**.
