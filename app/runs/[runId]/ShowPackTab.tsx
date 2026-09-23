@@ -15,7 +15,7 @@ import {
   type ProfileDirectoryRow,
   type WorksheetTravelBlocks as TravelBlocksDoc,
 } from '@/lib/worksheet-travel-blocks'
-import WorksheetTravelBlocks from './WorksheetTravelBlocks'
+import WorksheetTravelBlocks, { type TravelViewMode } from './WorksheetTravelBlocks'
 
 type PackShow = {
   id: string
@@ -197,6 +197,7 @@ export default function ShowPackTab({
   const [profiles, setProfiles] = useState<ProfileDirectoryRow[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<string | null>(null)
+  const [travelView, setTravelView] = useState<TravelViewMode>('edit')
   const [isPending, startTransition] = useTransition()
   const lookupDone = useRef<Set<string>>(new Set())
   const travelSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -335,7 +336,10 @@ export default function ShowPackTab({
     fetch(`/api/runs/${runId}/show-pack`)
       .then(r => r.json())
       .then(data => {
-        if (data?.run) setRun(data.run)
+        if (data?.run) {
+          setRun(data.run)
+          if (data.run.show_pack_status === 'published') setTravelView('handout')
+        }
         if (data?.travel_blocks) {
           const parsed = parseTravelBlocks(data.travel_blocks)
           travelRef.current = parsed
@@ -375,6 +379,7 @@ export default function ShowPackTab({
           ...data.run,
           published_by_name: profile?.full_name ?? prev.published_by_name,
         } : prev)
+        setTravelView('handout')
         showToast('Worksheet published ✓ (band email stubbed — not sent)')
       } else {
         showToast(data.error ?? 'Publish failed')
@@ -393,6 +398,7 @@ export default function ShowPackTab({
       const data = await res.json()
       if (res.ok && data.run) {
         setRun(prev => prev ? { ...prev, ...data.run, published_by_name: null } : prev)
+        setTravelView('edit')
         showToast('Returned to draft')
       } else {
         showToast(data.error ?? 'Failed')
@@ -420,7 +426,9 @@ export default function ShowPackTab({
         <div>
           <h2 className="text-white font-semibold text-lg">Worksheet</h2>
           <p className="text-slate-500 text-xs mt-0.5">
-            Staff draft view · Issued ~T-10 after Michael approve · Band portal later
+            {travelView === 'handout'
+              ? 'Band itinerary · chronological · Edit returns to sectioned cards'
+              : 'Staff draft view · Issued ~T-10 after Michael approve · Band portal later'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -461,7 +469,7 @@ export default function ShowPackTab({
       )}
 
       <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-1">
-        {multiShow && (
+        {travelView === 'edit' && multiShow && (
           <section className="bg-slate-800/40 border border-slate-700 rounded-xl p-5">
             <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-400/80 mb-3">
               Page 1 — Run overview
@@ -495,6 +503,18 @@ export default function ShowPackTab({
           profiles={profiles}
           canEdit={canEdit}
           role={effectiveRole}
+          view={travelView}
+          onViewChange={setTravelView}
+          published={status === 'published'}
+          runMeta={{
+            name: runName || run?.name || '',
+            code: runCode || run?.code || '',
+            regionLabel: REGION_LABELS[region] ?? region ?? '',
+            synopsis: synopsis || run?.synopsis || '',
+            startDate,
+            endDate,
+          }}
+          shows={sortedShows}
           legacyNotes={{
             flights_notes: run?.flights_notes ?? '',
             vehicles_notes: run?.vehicles_notes ?? '',
@@ -504,7 +524,7 @@ export default function ShowPackTab({
           onSaveLegacy={saveRunFields}
         />
 
-        {sortedShows.map((show, idx) => {
+        {travelView === 'edit' && sortedShows.map((show, idx) => {
           const cityLine = [show.venue_city, show.state_territory].filter(Boolean).join(', ')
           return (
             <section key={show.id} className="bg-slate-800/40 border border-slate-700 rounded-xl p-5">

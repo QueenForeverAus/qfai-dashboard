@@ -14,23 +14,17 @@ import type { FlightLookupResult } from '@/lib/flight-lookup/provider'
 import {
   FLIGHT_KIND_LABEL,
   canExposeHotelPin,
-  carHandoutFields,
   emptyCarBlock,
   emptyFerryBlock,
   emptyFlightBlock,
   emptyHotelBlock,
   emptyTransferBlock,
-  ferryHandoutFields,
-  flightHandoutFields,
   formatTravelPeople,
-  hotelHandoutFields,
   isCarBlockComplete,
   isFlightBlockComplete,
   isHotelBlockComplete,
-  omitBlankTravelFields,
   resolveTravelPersonName,
   sortFlightBlocks,
-  transferHandoutFields,
   type CarBlock,
   type FerryBlock,
   type FlightBlock,
@@ -41,11 +35,13 @@ import {
   type TravelPerson,
   type WorksheetTravelBlocks,
 } from '@/lib/worksheet-travel-blocks'
+import { buildWorksheetChrono, type ChronoShowInput } from '@/lib/worksheet-travel-chrono'
+import WorksheetChronoHandout from './WorksheetChronoHandout'
 
 const inputClass =
   'w-full text-sm bg-slate-900/80 border border-slate-700 rounded px-2 py-1 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-amber-400 disabled:opacity-70'
 
-type ViewMode = 'edit' | 'handout'
+export type TravelViewMode = 'edit' | 'handout'
 
 export default function WorksheetTravelBlocks({
   blocks,
@@ -58,6 +54,11 @@ export default function WorksheetTravelBlocks({
   legacyNotes,
   onSave,
   onSaveLegacy,
+  view,
+  onViewChange,
+  published,
+  runMeta,
+  shows,
 }: {
   blocks: WorksheetTravelBlocks
   workspaceId: string | null
@@ -69,10 +70,35 @@ export default function WorksheetTravelBlocks({
   legacyNotes: { flights_notes: string; vehicles_notes: string; hotels_overview_notes: string }
   onSave: (next: WorksheetTravelBlocks) => void
   onSaveLegacy: (fields: Record<string, string>) => void
+  view: TravelViewMode
+  onViewChange: (next: TravelViewMode) => void
+  published: boolean
+  runMeta: {
+    name: string
+    code: string
+    regionLabel: string
+    synopsis: string
+    startDate: string | null
+    endDate: string | null
+  }
+  shows: ChronoShowInput[]
 }) {
   const runTravelBand = resolveFlightTravelBand(region)
-  const [view, setView] = useState<ViewMode>('edit')
   const handout = view === 'handout'
+  const chrono = useMemo(() => buildWorksheetChrono({
+    blocks,
+    shows,
+    profiles,
+    run: {
+      name: runMeta.name,
+      code: runMeta.code,
+      regionLabel: runMeta.regionLabel,
+      synopsis: runMeta.synopsis,
+      startDate: runMeta.startDate,
+      endDate: runMeta.endDate,
+    },
+    legacyNotes,
+  }), [blocks, shows, profiles, runMeta, legacyNotes])
   const canSeePin = canExposeHotelPin(role)
   const locked = !canEdit || !workspaceId
   const flights = useMemo(() => sortFlightBlocks(blocks.flights), [blocks.flights])
@@ -135,7 +161,7 @@ export default function WorksheetTravelBlocks({
         <div className="flex items-center gap-1" data-testid="travel-view-toggle">
           <button
             type="button"
-            onClick={() => setView('edit')}
+            onClick={() => onViewChange('edit')}
             className={`text-xs px-2 py-1 rounded border ${
               view === 'edit'
                 ? 'border-amber-400 text-amber-400 bg-amber-900/20'
@@ -147,7 +173,7 @@ export default function WorksheetTravelBlocks({
           </button>
           <button
             type="button"
-            onClick={() => setView('handout')}
+            onClick={() => onViewChange('handout')}
             className={`text-xs px-2 py-1 rounded border ${
               view === 'handout'
                 ? 'border-amber-400 text-amber-400 bg-amber-900/20'
@@ -166,6 +192,10 @@ export default function WorksheetTravelBlocks({
         </div>
       )}
 
+      {handout ? (
+        <WorksheetChronoHandout model={chrono} published={published} />
+      ) : (
+      <>
       <TravelSection
         title="Flights"
         testId="travel-flights"
@@ -194,7 +224,6 @@ export default function WorksheetTravelBlocks({
             runId={runId}
             runTravelBand={runTravelBand}
             profiles={profiles}
-            handout={handout}
             locked={locked}
             onPatch={partial => patchFlight(block.id, partial)}
             onDelete={() => apply(prev => ({ ...prev, flights: prev.flights.filter(row => row.id !== block.id) }))}
@@ -215,7 +244,6 @@ export default function WorksheetTravelBlocks({
             key={block.id}
             block={block}
             profiles={profiles}
-            handout={handout}
             locked={locked}
             onPatch={partial => patchCar(block.id, partial)}
             onDelete={() => apply(prev => ({ ...prev, cars: prev.cars.filter(row => row.id !== block.id) }))}
@@ -236,7 +264,6 @@ export default function WorksheetTravelBlocks({
             key={block.id}
             block={block}
             profiles={profiles}
-            handout={handout}
             locked={locked}
             canSeePin={canSeePin}
             onPatch={partial => patchHotel(block.id, partial)}
@@ -258,7 +285,6 @@ export default function WorksheetTravelBlocks({
           <TransferCard
             key={block.id}
             block={block}
-            handout={handout}
             locked={locked}
             onPatch={partial => patchTransfer(block.id, partial)}
             onDelete={() => apply(prev => ({ ...prev, transfers: prev.transfers.filter(row => row.id !== block.id) }))}
@@ -280,7 +306,6 @@ export default function WorksheetTravelBlocks({
             key={block.id}
             block={block}
             profiles={profiles}
-            handout={handout}
             locked={locked}
             onPatch={partial => patchFerry(block.id, partial)}
             onDelete={() => apply(prev => ({ ...prev, ferries: prev.ferries.filter(row => row.id !== block.id) }))}
@@ -313,6 +338,8 @@ export default function WorksheetTravelBlocks({
           />
         </div>
       </details>
+      </>
+      )}
     </section>
   )
 }
@@ -371,7 +398,6 @@ function IncompleteBadge({ show }: { show: boolean }) {
 function CardShell({
   title,
   incomplete,
-  handout,
   locked,
   onDelete,
   testId,
@@ -379,7 +405,6 @@ function CardShell({
 }: {
   title: string
   incomplete: boolean
-  handout: boolean
   locked: boolean
   onDelete: () => void
   testId: string
@@ -390,8 +415,8 @@ function CardShell({
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="text-slate-200 text-sm font-semibold">{title}</div>
         <div className="flex items-center gap-2">
-          <IncompleteBadge show={!handout && incomplete} />
-          {!handout && !locked && (
+          <IncompleteBadge show={incomplete} />
+          {!locked && (
             <button
               type="button"
               onClick={onDelete}
@@ -408,34 +433,13 @@ function CardShell({
   )
 }
 
-function HandoutRows({ fields }: { fields: { label: string; value: string }[] }) {
-  if (fields.length === 0) {
-    return <p className="text-slate-600 text-xs italic">Nothing filled — omitted from handout.</p>
-  }
-  return (
-    <div className="space-y-0.5" data-testid="travel-handout-fields">
-      {fields.map(field => (
-        <div key={field.label} className="flex gap-2 text-sm py-0.5">
-          <span className="text-slate-500 w-28 flex-shrink-0">{field.label}</span>
-          <span className="text-slate-200">{field.value}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 function Slot({
   label,
-  value,
-  handout,
   children,
 }: {
   label: string
-  value: string | number | boolean | null | undefined
-  handout: boolean
   children: ReactNode
 }) {
-  if (handout) return null
   return (
     <label className="block">
       <span className="block text-[11px] text-slate-500 mb-0.5">{label}</span>
@@ -449,7 +453,6 @@ function FlightCard({
   runId,
   runTravelBand,
   profiles,
-  handout,
   locked,
   onPatch,
   onDelete,
@@ -458,7 +461,6 @@ function FlightCard({
   runId: string
   runTravelBand: FlightTravelBand | null
   profiles: ProfileDirectoryRow[]
-  handout: boolean
   locked: boolean
   onPatch: (partial: Partial<FlightBlock>) => void
   onDelete: () => void
@@ -487,14 +489,6 @@ function FlightCard({
     block.flight_number || 'Flight',
     block.from && block.to ? `${block.from}→${block.to}` : null,
   ].filter(Boolean).join(' · ')
-
-  if (handout) {
-    return (
-      <CardShell title={title} incomplete={!isFlightBlockComplete(block)} handout locked onDelete={onDelete} testId="travel-flight-card">
-        <HandoutRows fields={omitBlankTravelFields(flightHandoutFields(block, profiles))} />
-      </CardShell>
-    )
-  }
 
   function patchDep(depTime: string) {
     onPatch({
@@ -592,9 +586,9 @@ function FlightCard({
   }
 
   return (
-    <CardShell title={title} incomplete={!isFlightBlockComplete(block)} handout={false} locked={locked} onDelete={onDelete} testId="travel-flight-card">
+    <CardShell title={title} incomplete={!isFlightBlockComplete(block)} locked={locked} onDelete={onDelete} testId="travel-flight-card">
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-        <Slot label="Leg" value={block.kind} handout={handout}>
+        <Slot label="Leg">
           <select
             value={block.kind}
             disabled={locked}
@@ -649,7 +643,7 @@ function FlightCard({
         <TimeSlot label="Arr" value={block.arr_time} locked={locked} testId="flight-arr-time" onChange={v => onPatch({ arr_time: v })} />
         <TextSlot label="Dep terminal" value={block.dep_terminal} locked={locked} testId="flight-dep-terminal" onChange={v => onPatch({ dep_terminal: v })} />
         <TextSlot label="Arr terminal" value={block.arr_terminal} locked={locked} testId="flight-arr-terminal" onChange={v => onPatch({ arr_terminal: v })} />
-        <Slot label="Travel type" value={travelBand} handout={false}>
+        <Slot label="Travel type">
           <select
             data-testid="flight-travel-band"
             value={travelBand ?? ''}
@@ -687,25 +681,17 @@ function FlightCard({
 }
 
 function CarCard({
-  block, profiles, handout, locked, onPatch, onDelete,
+  block, profiles, locked, onPatch, onDelete,
 }: {
   block: CarBlock
   profiles: ProfileDirectoryRow[]
-  handout: boolean
   locked: boolean
   onPatch: (partial: Partial<CarBlock>) => void
   onDelete: () => void
 }) {
   const title = [block.provider || 'Car hire', block.confirmation].filter(Boolean).join(' · ')
-  if (handout) {
-    return (
-      <CardShell title={title} incomplete={!isCarBlockComplete(block)} handout locked onDelete={onDelete} testId="travel-car-card">
-        <HandoutRows fields={omitBlankTravelFields(carHandoutFields(block, profiles))} />
-      </CardShell>
-    )
-  }
   return (
-    <CardShell title={title} incomplete={!isCarBlockComplete(block)} handout={false} locked={locked} onDelete={onDelete} testId="travel-car-card">
+    <CardShell title={title} incomplete={!isCarBlockComplete(block)} locked={locked} onDelete={onDelete} testId="travel-car-card">
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
         <TextSlot label="Provider" value={block.provider} locked={locked} onChange={v => onPatch({ provider: v })} />
         <TextSlot label="Vehicle class" value={block.vehicle_class} locked={locked} onChange={v => onPatch({ vehicle_class: v })} />
@@ -718,7 +704,7 @@ function CarCard({
         <TextSlot label="Conf #" value={block.confirmation} locked={locked} onChange={v => onPatch({ confirmation: v })} />
         <TextSlot label="Fuel" value={block.fuel} locked={locked} onChange={v => onPatch({ fuel: v })} />
         <TextSlot label="E-tag" value={block.e_tag} locked={locked} onChange={v => onPatch({ e_tag: v })} />
-        <Slot label="Unlimited km" value={block.unlimited_km} handout={false}>
+        <Slot label="Unlimited km">
           <select
             value={block.unlimited_km == null ? '' : block.unlimited_km ? 'yes' : 'no'}
             disabled={locked}
@@ -747,26 +733,18 @@ function CarCard({
 }
 
 function HotelCard({
-  block, profiles, handout, locked, canSeePin, onPatch, onDelete,
+  block, profiles, locked, canSeePin, onPatch, onDelete,
 }: {
   block: HotelBlock
   profiles: ProfileDirectoryRow[]
-  handout: boolean
   locked: boolean
   canSeePin: boolean
   onPatch: (partial: Partial<HotelBlock>) => void
   onDelete: () => void
 }) {
   const title = [block.name || 'Hotel night', block.check_in_date].filter(Boolean).join(' · ')
-  if (handout) {
-    return (
-      <CardShell title={title} incomplete={!isHotelBlockComplete(block)} handout locked onDelete={onDelete} testId="travel-hotel-card">
-        <HandoutRows fields={omitBlankTravelFields(hotelHandoutFields(block, profiles))} />
-      </CardShell>
-    )
-  }
   return (
-    <CardShell title={title} incomplete={!isHotelBlockComplete(block)} handout={false} locked={locked} onDelete={onDelete} testId="travel-hotel-card">
+    <CardShell title={title} incomplete={!isHotelBlockComplete(block)} locked={locked} onDelete={onDelete} testId="travel-hotel-card">
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
         <TextSlot label="Name" value={block.name} locked={locked} onChange={v => onPatch({ name: v })} />
         <TextSlot label="Address" value={block.address} locked={locked} onChange={v => onPatch({ address: v })} />
@@ -775,7 +753,7 @@ function HotelCard({
         <TimeSlot label="Check-in time" value={block.check_in_time} locked={locked} onChange={v => onPatch({ check_in_time: v })} />
         <DateSlot label="Check-out date" value={block.check_out_date} locked={locked} onChange={v => onPatch({ check_out_date: v })} />
         <TimeSlot label="Check-out time" value={block.check_out_time} locked={locked} onChange={v => onPatch({ check_out_time: v })} />
-        <Slot label="# rooms" value={block.rooms} handout={false}>
+        <Slot label="# rooms">
           <input
             type="number"
             min={1}
@@ -818,32 +796,24 @@ function HotelCard({
 }
 
 function TransferCard({
-  block, handout, locked, onPatch, onDelete,
+  block, locked, onPatch, onDelete,
 }: {
   block: TransferBlock
-  handout: boolean
   locked: boolean
   onPatch: (partial: Partial<TransferBlock>) => void
   onDelete: () => void
 }) {
   const title = [block.provider || 'Transfer', block.from && block.to ? `${block.from}→${block.to}` : null]
     .filter(Boolean).join(' · ')
-  if (handout) {
-    return (
-      <CardShell title={title} incomplete={false} handout locked onDelete={onDelete} testId="travel-transfer-card">
-        <HandoutRows fields={omitBlankTravelFields(transferHandoutFields(block))} />
-      </CardShell>
-    )
-  }
   return (
-    <CardShell title={title} incomplete={false} handout={false} locked={locked} onDelete={onDelete} testId="travel-transfer-card">
+    <CardShell title={title} incomplete={false} locked={locked} onDelete={onDelete} testId="travel-transfer-card">
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
         <DateSlot label="Date" value={block.date} locked={locked} onChange={v => onPatch({ date: v })} />
         <TimeSlot label="Time" value={block.time} locked={locked} onChange={v => onPatch({ time: v })} />
         <TextSlot label="From" value={block.from} locked={locked} onChange={v => onPatch({ from: v })} />
         <TextSlot label="To" value={block.to} locked={locked} onChange={v => onPatch({ to: v })} />
         <TextSlot label="Provider" value={block.provider} locked={locked} onChange={v => onPatch({ provider: v })} />
-        <Slot label="Amount" value={block.amount} handout={false}>
+        <Slot label="Amount">
           <input
             type="number"
             step="0.01"
@@ -862,26 +832,18 @@ function TransferCard({
 }
 
 function FerryCard({
-  block, profiles, handout, locked, onPatch, onDelete,
+  block, profiles, locked, onPatch, onDelete,
 }: {
   block: FerryBlock
   profiles: ProfileDirectoryRow[]
-  handout: boolean
   locked: boolean
   onPatch: (partial: Partial<FerryBlock>) => void
   onDelete: () => void
 }) {
   const title = [block.operator || 'Ferry', block.dep_port && block.arr_port ? `${block.dep_port}→${block.arr_port}` : null]
     .filter(Boolean).join(' · ')
-  if (handout) {
-    return (
-      <CardShell title={title} incomplete={false} handout locked onDelete={onDelete} testId="travel-ferry-card">
-        <HandoutRows fields={omitBlankTravelFields(ferryHandoutFields(block, profiles))} />
-      </CardShell>
-    )
-  }
   return (
-    <CardShell title={title} incomplete={false} handout={false} locked={locked} onDelete={onDelete} testId="travel-ferry-card">
+    <CardShell title={title} incomplete={false} locked={locked} onDelete={onDelete} testId="travel-ferry-card">
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
         <TextSlot label="Operator" value={block.operator} locked={locked} onChange={v => onPatch({ operator: v })} />
         <TextSlot label="Dep port" value={block.dep_port} locked={locked} onChange={v => onPatch({ dep_port: v })} />
@@ -911,7 +873,7 @@ function TextSlot({
   testId?: string
 }) {
   return (
-    <Slot label={label} value={value} handout={false}>
+    <Slot label={label}>
       <input
         type="text"
         value={value}
@@ -935,7 +897,7 @@ function DateSlot({
   testId?: string
 }) {
   return (
-    <Slot label={label} value={value} handout={false}>
+    <Slot label={label}>
       <input
         type="date"
         value={value}
@@ -958,7 +920,7 @@ function TimeSlot({
   testId?: string
 }) {
   return (
-    <Slot label={label} value={value} handout={false}>
+    <Slot label={label}>
       <input
         type="time"
         value={value}
