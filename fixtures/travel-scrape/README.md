@@ -11,6 +11,7 @@ Canonical typed copies: `lib/travel-scrape/fixtures.ts`.
 | Thornton Executive | `thornton-executive.json` | `thornton-executive-scrape` | Hotel · one night / Thornton |
 | Tamworth Hotel | `tamworth-hotel.json` | `tamworth-hotel-scrape` | Hotel · one night / Tamworth |
 | R01 / TRECV1 dep | `r01-dep-flight.json` | `r01-dep-flight` | Flight · Dep QF441 SYD→BHQ 10 Feb 2027 |
+| Note-only worksheet ask | `note-only-worksheet-ask.json` | `note-only-worksheet-ask` | Free note on the Worksheet · no booking card · no money |
 
 Car merge is covered in unit tests (`trecv1-avis-car`). W2 hotel receipt-extract fixtures (`thornton-executive`, `tamworth-hotel`, `port-ocall`) still apply on the same route.
 
@@ -19,8 +20,9 @@ Car merge is covered in unit tests (`trecv1-avis-car`). W2 hotel receipt-extract
 | Kind | Action |
 |---|---|
 | Worksheet `travel_blocks` | Apply when `details_action: auto` **and** confidence **high** **and** no `run_ambiguous` / `run_unknown` |
-| Checklist tick + source note | Follows a successful details apply. Source note is stored on the **checklist item** (`advancement_items.notes`) — not Worksheet card chrome |
-| Money / PAID on Run Advancing | **Never auto.** `money_action: confirm` needs `confirm_money=true` or body `money_confirmed_by` |
+| Worksheet free note | Note-only (`worksheet.note_only`, flag `note_only`, or `note_kind: worksheet_free_note`, category `other_travel` or `worksheet_note`, `money_action: none`) appends `travel_blocks.notes[]`. Not a hotel/flight/car card. Idempotent on `email.message_id` |
+| Checklist tick + source note | Follows a successful details apply when `items_to_tick` names a known key. Note-only fixtures send `[]` — no tick. Source note is stored on the **checklist item** (`advancement_items.notes`) — not Worksheet card chrome. The free note keeps `worksheet.source_attribution` separately |
+| Money / PAID on Run Advancing | **Never auto.** `money_action: confirm` needs `confirm_money=true` or body `money_confirmed_by`. Note-only never writes money, even if that hook is set |
 | Run Costings | **Never write** |
 | Proposed-only runs | **Never attach** — BOOKED + active advancing workspace required |
 
@@ -110,6 +112,18 @@ curl -sS -X POST "$STAGING/api/runs/TRECV1/advancing-receipts/apply?confirm_mone
 
 7. Expect `money.action: "written"` on the Advancing twin only. Costing still frozen/untouched.
 8. POST the same packet to a **proposed** run — `409`, no workspace attach.
+9. Note-only free note (no money hook). Live tours@ watch stays off until this smoke is green:
+
+```bash
+curl -sS -X POST "$STAGING/api/runs/TRECV1/advancing-receipts/apply" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TRAVEL_SCRAPE_APPLY_SECRET" \
+  --data '{"fixture_id":"note-only-worksheet-ask"}'
+```
+
+`26R04` works the same way when that run is BOOKED with an active Advancing workspace. Packet `run_match.run_id` `TRECV1` is a Comms code hint; non-UUID codes are not a hard gate, so the URL run receives the note.
+
+Expect `applied: true`, `details.action: "applied"`, `details.merge_action: "create"`, `checklist.applied: false`, `money.action: "none"`, `money.writes_paid: false`, `writes_cost_fields: false`. Worksheet Edit → Travel → **Worksheet notes** shows the airport-pickup line and source attribution. Handout preview puts that run-level note in the itinerary header (blank anchor omitted). A note whose `anchor.conf` matches a card sits on that card's moment instead. Re-POST the same fixture: still one note (`merge_action: "update"`). Run Advancing money lines and Run Costing stay unchanged.
 
 Out of scope: live tours@ scrape, paid flight APIs, prod migrate/deploy, re-adding the Apply JSON panel.
 

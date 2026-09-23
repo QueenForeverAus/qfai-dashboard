@@ -1,6 +1,7 @@
 /**
  * Map a travel-scrape packet onto W1 Worksheet travel_blocks.
- * Source notes stay off the cards — checklist only.
+ * Checklist source notes stay off the cards.
+ * Note-only packets append travel_blocks.notes[] (a free note, not a card).
  */
 
 import { formatDdMmYy } from '../receipts/dates.ts'
@@ -10,7 +11,10 @@ import {
   emptyFlightBlock,
   emptyHotelBlock,
   emptyTransferBlock,
+  newTravelId,
   sanitizeTravelBlocks,
+  WORKSHEET_FREE_NOTE_ANCHOR_TYPES,
+  WORKSHEET_FREE_NOTE_KIND,
   type CarBlock,
   type FerryBlock,
   type FlightBlock,
@@ -19,6 +23,8 @@ import {
   type ProfileDirectoryRow,
   type TransferBlock,
   type TravelPerson,
+  type WorksheetFreeNote,
+  type WorksheetFreeNoteAnchor,
   type WorksheetTravelBlocks,
 } from '../worksheet-travel-blocks.ts'
 import {
@@ -581,6 +587,115 @@ export function mergeTravelBlocksFromPacket(opts: {
     next,
     action: found ? 'update' : 'create',
     block_id: mergedBlock.id,
+  }
+}
+
+function asWorksheetRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function worksheetNoteOnlyField(worksheet: TravelScrapePacket['worksheet']): boolean {
+  const raw = worksheet.note_only
+  return raw === true || raw === 'true'
+}
+
+/**
+ * Comms note-only signal on other_travel (or the worksheet_note alias).
+ * money_action is not part of the signal — a note-only flag still blocks money.
+ */
+export function hasNoteOnlyWorksheetSignal(packet: TravelScrapePacket): boolean {
+  if (packet.category !== 'other_travel' && packet.category !== 'worksheet_note') return false
+  if (packet.category === 'worksheet_note') return true
+  return worksheetNoteOnlyField(packet.worksheet)
+    || packet.flags.includes('note_only')
+    || readWorksheetString(packet.worksheet, 'note_kind') === WORKSHEET_FREE_NOTE_KIND
+}
+
+/** Note-only apply path: signal present and money_action is none. */
+export function isNoteOnlyWorksheetPacket(packet: TravelScrapePacket): boolean {
+  return hasNoteOnlyWorksheetSignal(packet) && packet.money_action === 'none'
+}
+
+export function readWorksheetFreeNoteAnchor(
+  worksheet: TravelScrapePacket['worksheet'],
+): WorksheetFreeNoteAnchor {
+  const row = asWorksheetRecord(worksheet.anchor) ?? {}
+  const typeRaw = typeof row.type === 'string' ? row.type.trim().toLowerCase() : ''
+  const type = (WORKSHEET_FREE_NOTE_ANCHOR_TYPES as readonly string[]).includes(typeRaw)
+    ? typeRaw as WorksheetFreeNoteAnchor['type']
+    : 'run'
+  const text = (key: string) => {
+    const raw = row[key]
+    return typeof raw === 'string' ? raw.trim() : ''
+  }
+  return {
+    type,
+    conf: text('conf') || null,
+    datetime: text('datetime') || null,
+    label: text('label') || null,
+  }
+}
+
+function sameMessageId(left: string, right: string): boolean {
+  const want = right.trim().toLowerCase()
+  return Boolean(want) && left.trim().toLowerCase() === want
+}
+
+/**
+ * Append or replace one free note. Idempotent on email.message_id
+ * (and supersedes.prior_message_id). Does not create a travel card.
+ */
+export function mergeWorksheetFreeNote(opts: {
+  existing: WorksheetTravelBlocks
+  packet: TravelScrapePacket
+}): { next: WorksheetTravelBlocks; action: 'create' | 'update' | 'none'; block_id: string | null; reason: string } {
+  const body = readWorksheetString(opts.packet.worksheet, 'notes')
+  if (!body) {
+    return {
+      next: sanitizeTravelBlocks(opts.existing),
+      action: 'none',
+      block_id: null,
+      reason: 'Note-only packet is missing worksheet.notes.',
+    }
+  }
+
+  const messageId = opts.packet.email.message_id.trim()
+  const priorId = opts.packet.supersedes.prior_message_id?.trim() ?? ''
+  const existingNotes = opts.existing.notes ?? []
+  let found: WorksheetFreeNote | null = messageId
+    ? existingNotes.find(note => sameMessageId(note.email_message_id, messageId)) ?? null
+    : null
+  if (!found && priorId) {
+    found = existingNotes.find(note => sameMessageId(note.email_message_id, priorId)) ?? null
+  }
+  if (!found && !messageId) {
+    found = existingNotes.find(note => note.notes.trim() === body) ?? null
+  }
+
+  const incoming: WorksheetFreeNote = {
+    id: found?.id ?? newTravelId(),
+    notes: body,
+    note_kind: WORKSHEET_FREE_NOTE_KIND,
+    note_only: true,
+    anchor: readWorksheetFreeNoteAnchor(opts.packet.worksheet),
+    source_attribution: readWorksheetString(opts.packet.worksheet, 'source_attribution'),
+    email_message_id: messageId || found?.email_message_id || '',
+    created_at: found?.created_at || opts.packet.email.date || opts.packet.captured_at,
+  }
+  const notes = found
+    ? existingNotes.map(note => note.id === found!.id ? incoming : note)
+    : [...existingNotes, incoming]
+  const next = sanitizeTravelBlocks({ ...opts.existing, notes })
+  const stored = next.notes.find(note => note.email_message_id === incoming.email_message_id) ?? null
+  return {
+    next,
+    action: found ? 'update' : 'create',
+    block_id: stored?.id ?? incoming.id,
+    reason: found
+      ? 'Updated the existing worksheet free note for this email.message_id.'
+      : 'Appended a worksheet free note (note_kind worksheet_free_note). No travel card.',
   }
 }
 

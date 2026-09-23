@@ -11,8 +11,12 @@ import {
   EMPTY_TRAVEL_BLOCKS,
   ferryHandoutFields,
   flightHandoutFields,
+  formatFreeNoteAnchor,
   formatTravelPeople,
   formatWorksheetTravelBlocksAuditCopy,
+  freeNoteChronoSortKey,
+  freeNoteHandoutFields,
+  freeNotesForAnchor,
   hotelHandoutFields,
   isBlankTravelValue,
   isCarBlockComplete,
@@ -187,6 +191,76 @@ describe('worksheet travel sanitize + PIN', () => {
     assert.equal(cleaned.flights[0].travellers[0].name, 'Nigel')
     assert.equal('extra' in cleaned.flights[0], false)
     assert.equal('cost_fields' in cleaned, false)
+    assert.deepEqual(cleaned.notes, [])
+  })
+
+  it('keeps worksheet free notes and drops a blank note body', () => {
+    const cleaned = sanitizeTravelBlocks({
+      notes: [
+        {
+          id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          notes: '  Airport pickup ETA TBD  ',
+          note_kind: 'worksheet_free_note',
+          note_only: true,
+          anchor: { type: 'run', conf: null, datetime: null, label: null },
+          source_attribution: 'from Michael email',
+          email_message_id: 'SYNTHETIC_MSG_NOTE_ONLY',
+          created_at: '2026-09-23T12:00:00+10:00',
+          cost_fields: 'never',
+        },
+        { notes: '   ', email_message_id: 'blank' },
+      ],
+    })
+    assert.equal(cleaned.notes.length, 1)
+    assert.equal(cleaned.notes[0].notes, 'Airport pickup ETA TBD')
+    assert.equal(cleaned.notes[0].note_kind, 'worksheet_free_note')
+    assert.equal(cleaned.notes[0].note_only, true)
+    assert.equal(cleaned.notes[0].email_message_id, 'SYNTHETIC_MSG_NOTE_ONLY')
+    assert.equal(cleaned.notes[0].anchor.type, 'run')
+    assert.equal('cost_fields' in cleaned.notes[0], false)
+  })
+
+  it('omits a blank run-level anchor and keeps the note on the handout', () => {
+    const note = sanitizeTravelBlocks({
+      notes: [{
+        id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        notes: 'Wait at arrivals',
+        source_attribution: 'from Michael email',
+        anchor: { type: 'run' },
+        email_message_id: 'm1',
+      }],
+    }).notes[0]
+    const shown = omitBlankTravelFields(freeNoteHandoutFields(note))
+    assert.deepEqual(shown.map(row => row.label), ['Worksheet note', 'Source'])
+    assert.equal(formatFreeNoteAnchor(note.anchor), '')
+    const anchored = freeNotesForAnchor([note], { type: 'hotel', conf: 'TE-1' })
+    assert.equal(anchored.length, 0)
+  })
+
+  it('sorts dated anchors before run-level notes for chrono', () => {
+    const blocks = sanitizeTravelBlocks({
+      notes: [
+        {
+          id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+          notes: 'Run level',
+          anchor: { type: 'run' },
+          created_at: '2026-09-23T12:00:00+10:00',
+          email_message_id: 'run',
+        },
+        {
+          id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+          notes: 'At the hotel',
+          anchor: { type: 'hotel', conf: 'TE-1', datetime: '2026-09-17T14:00' },
+          created_at: '2026-09-17T10:00:00+10:00',
+          email_message_id: 'hotel',
+        },
+      ],
+    })
+    const [first, second] = blocks.notes
+    assert.ok(freeNoteChronoSortKey(second).localeCompare(freeNoteChronoSortKey(first)) < 0)
+    const matched = freeNotesForAnchor(blocks.notes, { type: 'hotel', conf: 'TE-1' })
+    assert.equal(matched.length, 1)
+    assert.equal(matched[0].notes, 'At the hotel')
   })
 
   it('sorts flights Dep · Mid · Ret', () => {

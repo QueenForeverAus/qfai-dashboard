@@ -14,6 +14,7 @@ export const TRAVEL_SCRAPE_CATEGORIES = [
   'uber_eats',
   'fuel',
   'other_travel',
+  'worksheet_note',
 ] as const
 export type TravelScrapeCategory = (typeof TRAVEL_SCRAPE_CATEGORIES)[number]
 
@@ -273,7 +274,7 @@ export function parseTravelScrapePacket(input: unknown): TravelScrapeParseResult
   if (!(TRAVEL_SCRAPE_CATEGORIES as readonly string[]).includes(category)) {
     return {
       ok: false,
-      error: 'Packet category must be hotel, flight, car, uber_transfer, ferry, uber_eats, fuel, or other_travel.',
+      error: 'Packet category must be hotel, flight, car, uber_transfer, ferry, uber_eats, fuel, other_travel, or worksheet_note.',
     }
   }
 
@@ -332,6 +333,9 @@ export function worksheetCollectionForCategory(
     case 'car': return 'cars'
     case 'uber_transfer': return 'transfers'
     case 'ferry': return 'ferries'
+    case 'other_travel':
+    case 'worksheet_note':
+      return null
     default: return null
   }
 }

@@ -19,12 +19,14 @@ import {
   emptyFlightBlock,
   emptyHotelBlock,
   emptyTransferBlock,
+  formatFreeNoteAnchor,
   formatTravelPeople,
   isCarBlockComplete,
   isFlightBlockComplete,
   isHotelBlockComplete,
   resolveTravelPersonName,
   sortFlightBlocks,
+  sortWorksheetFreeNotes,
   type CarBlock,
   type FerryBlock,
   type FlightBlock,
@@ -33,10 +35,13 @@ import {
   type ProfileDirectoryRow,
   type TransferBlock,
   type TravelPerson,
+  type WorksheetFreeNote,
   type WorksheetTravelBlocks,
 } from '@/lib/worksheet-travel-blocks'
 import { buildWorksheetChrono, type ChronoShowInput } from '@/lib/worksheet-travel-chrono'
 import WorksheetChronoHandout from './WorksheetChronoHandout'
+
+const NO_FREE_NOTES: WorksheetFreeNote[] = []
 
 const inputClass =
   'w-full text-sm bg-slate-900/80 border border-slate-700 rounded px-2 py-1 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-amber-400 disabled:opacity-70'
@@ -102,6 +107,10 @@ export default function WorksheetTravelBlocks({
   const canSeePin = canExposeHotelPin(role)
   const locked = !canEdit || !workspaceId
   const flights = useMemo(() => sortFlightBlocks(blocks.flights), [blocks.flights])
+  const sectionNotes = useMemo(
+    () => sortWorksheetFreeNotes(blocks.notes ?? NO_FREE_NOTES).filter(note => note.notes.trim()),
+    [blocks.notes],
+  )
   const blocksRef = useRef(blocks)
   blocksRef.current = blocks
 
@@ -312,6 +321,34 @@ export default function WorksheetTravelBlocks({
           />
         ))}
       </TravelSection>
+
+      {sectionNotes.length > 0 ? (
+        <TravelSection
+          title="Worksheet notes"
+          testId="travel-worksheet-notes"
+          optional
+          addLabel={null}
+        >
+          {sectionNotes.map(note => {
+            const anchor = formatFreeNoteAnchor(note.anchor)
+            return (
+              <div
+                key={note.id}
+                className="rounded-lg border border-slate-700 bg-slate-900/40 p-3"
+                data-testid="worksheet-free-note"
+              >
+                <p className="text-slate-200 text-sm whitespace-pre-wrap">{note.notes}</p>
+                {note.source_attribution.trim() ? (
+                  <p className="text-slate-500 text-xs mt-1">{note.source_attribution}</p>
+                ) : null}
+                {anchor ? (
+                  <p className="text-slate-500 text-xs mt-0.5">{anchor}</p>
+                ) : null}
+              </div>
+            )
+          })}
+        </TravelSection>
+      ) : null}
 
       <details className="bg-slate-800/20 border border-slate-800 rounded-xl p-4">
         <summary className="text-slate-500 text-xs cursor-pointer hover:text-slate-300">
