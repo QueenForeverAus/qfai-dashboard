@@ -107,6 +107,38 @@ export type FerryBlock = {
   travellers: TravelPerson[]
 }
 
+/** Locked Comms note-only kind. Stored on travel_blocks, not as a travel card. */
+export const WORKSHEET_FREE_NOTE_KIND = 'worksheet_free_note' as const
+
+export const WORKSHEET_FREE_NOTE_ANCHOR_TYPES = [
+  'run',
+  'flight',
+  'hotel',
+  'car',
+  'ferry',
+  'transfer',
+] as const
+export type WorksheetFreeNoteAnchorType = (typeof WORKSHEET_FREE_NOTE_ANCHOR_TYPES)[number]
+
+/** `type: run` is a run-level note. Other types sit with that itinerary moment when chrono can match `conf`. */
+export type WorksheetFreeNoteAnchor = {
+  type: WorksheetFreeNoteAnchorType
+  conf: string | null
+  datetime: string | null
+  label: string | null
+}
+
+export type WorksheetFreeNote = {
+  id: string
+  notes: string
+  note_kind: typeof WORKSHEET_FREE_NOTE_KIND
+  note_only: true
+  anchor: WorksheetFreeNoteAnchor
+  source_attribution: string
+  email_message_id: string
+  created_at: string
+}
+
 export type WorksheetTravelBlocks = {
   version: typeof WORKSHEET_TRAVEL_BLOCKS_VERSION
   flights: FlightBlock[]
@@ -114,6 +146,7 @@ export type WorksheetTravelBlocks = {
   hotels: HotelBlock[]
   transfers: TransferBlock[]
   ferries: FerryBlock[]
+  notes: WorksheetFreeNote[]
 }
 
 export type LabeledTravelField = {
@@ -134,16 +167,21 @@ export const EMPTY_TRAVEL_BLOCKS: WorksheetTravelBlocks = {
   hotels: [],
   transfers: [],
   ferries: [],
+  notes: [],
 }
 
 export const AUDIT_FIELD_WORKSHEET_TRAVEL_BLOCKS = 'Worksheet travel blocks'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MAX_BLOCKS = 40
+const MAX_FREE_NOTES = 40
 const MAX_PEOPLE = 30
 const MAX_SHORT = 80
 const MAX_MED = 200
 const MAX_NOTES = 500
+const MAX_FREE_NOTE = 2000
+const MAX_ATTRIBUTION = 300
+const MAX_MESSAGE_ID = 320
 const MAX_PIN = 40
 
 export function newTravelId(): string {
@@ -430,6 +468,83 @@ export function ferryHandoutFields(
   ]
 }
 
+/** Band-facing free note. Blank source / anchor labels are omitted by omitBlankTravelFields. */
+export function freeNoteHandoutFields(note: WorksheetFreeNote): LabeledTravelField[] {
+  return [
+    { label: 'Worksheet note', value: note.notes },
+    { label: 'Source', value: note.source_attribution },
+    { label: 'Anchor', value: formatFreeNoteAnchor(note.anchor) },
+  ]
+}
+
+/** Short anchor line. `type: run` with no conf/datetime/label is blank so handout omits it. */
+export function formatFreeNoteAnchor(anchor: WorksheetFreeNoteAnchor): string {
+  const parts: string[] = []
+  if (anchor.type !== 'run') parts.push(anchor.type)
+  if (anchor.label?.trim()) parts.push(anchor.label.trim())
+  if (anchor.conf?.trim()) parts.push(anchor.conf.trim())
+  if (anchor.datetime?.trim()) parts.push(anchor.datetime.trim())
+  return parts.join(' · ')
+}
+
+/**
+ * Chrono publish order: dated anchor first, then a typed anchor with no datetime,
+ * then run-level notes (no moment). Stable within a bucket by created_at.
+ */
+export function freeNoteChronoSortKey(note: WorksheetFreeNote): string {
+  const datetime = note.anchor.datetime?.trim() ?? ''
+  if (datetime) return `0|${datetime}|${note.created_at}|${note.id}`
+  if (note.anchor.type !== 'run') {
+    return `1|${note.anchor.type}|${note.anchor.conf ?? ''}|${note.created_at}|${note.id}`
+  }
+  return `2|${note.created_at}|${note.id}`
+}
+
+export function sortWorksheetFreeNotes(notes: WorksheetFreeNote[]): WorksheetFreeNote[] {
+  return [...notes].sort((a, b) => freeNoteChronoSortKey(a).localeCompare(freeNoteChronoSortKey(b)))
+}
+
+/** Notes that belong on a card. Run-level notes are not attached. Typed anchors need a conf match. */
+export function freeNotesForAnchor(
+  notes: WorksheetFreeNote[] | null | undefined,
+  anchor: { type: WorksheetFreeNoteAnchorType; conf?: string | null },
+): WorksheetFreeNote[] {
+  const list = notes ?? []
+  if (anchor.type === 'run') return []
+  const conf = (anchor.conf ?? '').trim()
+  if (!conf) return []
+  return list.filter(note =>
+    note.notes.trim()
+    && note.anchor.type === anchor.type
+    && (note.anchor.conf ?? '').trim() === conf,
+  )
+}
+
+export function anchoredFreeNoteFields(
+  notes: WorksheetFreeNote[] | null | undefined,
+  anchor: { type: WorksheetFreeNoteAnchorType; conf?: string | null },
+): LabeledTravelField[] {
+  return freeNotesForAnchor(notes, anchor).flatMap(note => [
+    { label: 'Worksheet note', value: note.notes },
+    { label: 'Source', value: note.source_attribution },
+  ])
+}
+
+/** Ids already shown beside a matching card, so handout does not repeat them in the notes pile. */
+export function freeNoteIdsShownOnCards(blocks: WorksheetTravelBlocks): Set<string> {
+  const ids = new Set<string>()
+  const collect = (type: WorksheetFreeNoteAnchorType, confs: string[]) => {
+    for (const conf of confs) {
+      for (const note of freeNotesForAnchor(blocks.notes, { type, conf })) ids.add(note.id)
+    }
+  }
+  collect('flight', blocks.flights.map(row => row.confirmation))
+  collect('hotel', blocks.hotels.map(row => row.confirmation))
+  collect('car', blocks.cars.map(row => row.confirmation))
+  collect('ferry', blocks.ferries.map(row => row.confirmation))
+  return ids
+}
+
 export function canExposeHotelPin(role: string | undefined): boolean {
   return role === 'owner' || role === 'admin'
 }
@@ -481,6 +596,7 @@ export function sanitizeTravelBlocks(raw: unknown): WorksheetTravelBlocks {
     hotels: takeArray(src.hotels).slice(0, MAX_BLOCKS).map(sanitizeHotel),
     transfers: takeArray(src.transfers).slice(0, MAX_BLOCKS).map(sanitizeTransfer),
     ferries: takeArray(src.ferries).slice(0, MAX_BLOCKS).map(sanitizeFerry),
+    notes: takeArray(src.notes).slice(0, MAX_FREE_NOTES).map(sanitizeFreeNote).filter((note): note is WorksheetFreeNote => note != null),
   }
 }
 
@@ -490,6 +606,7 @@ export function travelBlocksCounts(blocks: WorksheetTravelBlocks): {
   hotels: number
   transfers: number
   ferries: number
+  notes: number
 } {
   return {
     flights: blocks.flights.length,
@@ -497,6 +614,7 @@ export function travelBlocksCounts(blocks: WorksheetTravelBlocks): {
     hotels: blocks.hotels.length,
     transfers: blocks.transfers.length,
     ferries: blocks.ferries.length,
+    notes: blocks.notes.length,
   }
 }
 
@@ -516,7 +634,8 @@ export function formatWorksheetTravelBlocksAuditCopy(opts: {
       + `${c.cars} car${c.cars === 1 ? '' : 's'}, `
       + `${c.hotels} hotel${c.hotels === 1 ? '' : 's'}, `
       + `${c.transfers} transfer${c.transfers === 1 ? '' : 's'}, `
-      + `${c.ferries} ${c.ferries === 1 ? 'ferry' : 'ferries'}).`,
+      + `${c.ferries} ${c.ferries === 1 ? 'ferry' : 'ferries'}, `
+      + `${c.notes} free note${c.notes === 1 ? '' : 's'}).`,
   }
 }
 
@@ -666,6 +785,36 @@ function sanitizeTransfer(value: unknown): TransferBlock {
     provider: clip(rec.provider, MAX_MED),
     amount: asAmount(rec.amount),
     notes: clip(rec.notes, MAX_NOTES),
+  }
+}
+
+function sanitizeFreeNote(value: unknown): WorksheetFreeNote | null {
+  const rec = asRecord(value)
+  const notes = clip(rec.notes, MAX_FREE_NOTE)
+  if (!notes) return null
+  return {
+    id: asId(rec.id),
+    notes,
+    note_kind: WORKSHEET_FREE_NOTE_KIND,
+    note_only: true,
+    anchor: sanitizeFreeNoteAnchor(rec.anchor),
+    source_attribution: clip(rec.source_attribution, MAX_ATTRIBUTION),
+    email_message_id: clip(rec.email_message_id, MAX_MESSAGE_ID),
+    created_at: clip(rec.created_at, 64),
+  }
+}
+
+function sanitizeFreeNoteAnchor(value: unknown): WorksheetFreeNoteAnchor {
+  const rec = asRecord(value)
+  const typeRaw = clip(rec.type, 32).toLowerCase()
+  const type = (WORKSHEET_FREE_NOTE_ANCHOR_TYPES as readonly string[]).includes(typeRaw)
+    ? typeRaw as WorksheetFreeNoteAnchorType
+    : 'run'
+  return {
+    type,
+    conf: clip(rec.conf, MAX_SHORT) || null,
+    datetime: clip(rec.datetime, 64) || null,
+    label: clip(rec.label, MAX_MED) || null,
   }
 }
 

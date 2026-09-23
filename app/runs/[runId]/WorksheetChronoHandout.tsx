@@ -42,8 +42,8 @@ export default function WorksheetChronoHandout({
         ) : null}
         {header.notes.length > 0 ? (
           <div className="mt-3 pt-3 border-t border-slate-700 space-y-0.5">
-            {header.notes.map(note => (
-              <Meta key={note.label} label={note.label} value={note.value} />
+            {header.notes.map((note, index) => (
+              <Meta key={`${note.label}-${index}`} label={note.label} value={note.value} />
             ))}
           </div>
         ) : null}
@@ -83,8 +83,8 @@ export default function WorksheetChronoHandout({
                   <div className="text-slate-200 text-sm font-semibold mt-0.5">{event.title}</div>
                   {event.fields.length > 0 ? (
                     <div className="mt-1 space-y-0.5" data-testid="worksheet-chrono-fields">
-                      {event.fields.map(field => (
-                        <div key={field.label} className="flex gap-2 text-sm py-0.5">
+                      {event.fields.map((field, index) => (
+                        <div key={`${field.label}-${index}`} className="flex gap-2 text-sm py-0.5">
                           <span className="text-slate-500 w-28 flex-shrink-0">{field.label}</span>
                           <span className="text-slate-200 whitespace-pre-wrap">{field.value}</span>
                         </div>

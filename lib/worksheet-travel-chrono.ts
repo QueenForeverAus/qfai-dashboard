@@ -35,7 +35,9 @@
  *    show). They are not collected into a bottom pile. Legacy run free-text
  *    (flights / cars / hotels overview) is run-level, so non-blank lines stay
  *    in the header. Show hotel notes stay on the show row — they are not
- *    matched to a hotel card.
+ *    matched to a hotel card. travel_blocks.notes[] free notes follow anchor:
+ *    a matching conf sits on that card's moment; a datetime with no card
+ *    match is its own Note row; type:run with no datetime stays in the header.
  */
 
 import { formatDateAU } from './dates.ts'
@@ -43,6 +45,7 @@ import { toIsoDateOnly } from './run-dates.ts'
 import {
   ferryHandoutFields,
   flightHandoutFields,
+  formatFreeNoteAnchor,
   formatTravelPeople,
   hasTravelText,
   hotelHandoutFields,
@@ -55,6 +58,8 @@ import {
   type ProfileDirectoryRow,
   type TransferBlock,
   type TravelPerson,
+  type WorksheetFreeNote,
+  type WorksheetFreeNoteAnchorType,
   type WorksheetTravelBlocks,
 } from './worksheet-travel-blocks.ts'
 
@@ -68,6 +73,7 @@ export const CHRONO_TIE_BREAK = {
   'hotel-stay': 55,
   'hotel-check-out': 60,
   transfer: 70,
+  note: 75,
   ferry: 80,
   show: 90,
 } as const
@@ -84,6 +90,7 @@ const KIND_LABEL: Record<WorksheetChronoKind, string> = {
   'hotel-stay': 'Hotel',
   'hotel-check-out': 'Hotel check-out',
   transfer: 'Transfer',
+  note: 'Note',
   ferry: 'Ferry',
   show: 'Show',
 }
@@ -237,10 +244,12 @@ export function buildWorksheetChrono(input: {
 }): WorksheetChronoModel {
   const profiles = input.profiles ?? []
   const shows = input.shows ?? []
-  const events = [
+  const built = [
     ...eventsFromBlocks(input.blocks, profiles),
     ...shows.map(show => eventFromShow(show)),
   ].filter((event): event is BuiltEvent => event != null)
+  const placed = placeWorksheetFreeNotes(built, input.blocks)
+  const events = placed.events
 
   events.sort((a, b) => eventSortKey(a).localeCompare(eventSortKey(b)))
 
@@ -262,13 +271,130 @@ export function buildWorksheetChrono(input: {
       dateSpan: formatChronoSpan(dateStart, dateEnd),
       venues: uniqueVenues(shows),
       synopsis: (input.run.synopsis ?? '').trim(),
-      notes: omitBlankTravelFields([
-        { label: 'Flights notes', value: input.legacyNotes?.flights_notes ?? '' },
-        { label: 'Cars notes', value: input.legacyNotes?.vehicles_notes ?? '' },
-        { label: 'Hotels notes', value: input.legacyNotes?.hotels_overview_notes ?? '' },
-      ]),
+      notes: [
+        ...omitBlankTravelFields([
+          { label: 'Flights notes', value: input.legacyNotes?.flights_notes ?? '' },
+          { label: 'Cars notes', value: input.legacyNotes?.vehicles_notes ?? '' },
+          { label: 'Hotels notes', value: input.legacyNotes?.hotels_overview_notes ?? '' },
+        ]),
+        ...placed.headerNotes,
+      ],
     },
     days,
+  }
+}
+
+const FREE_NOTE_EVENT_PRIORITY: Partial<Record<WorksheetFreeNoteAnchorType, WorksheetChronoKind[]>> = {
+  flight: ['flight-depart'],
+  car: ['car-pickup', 'car-hire', 'car-return'],
+  hotel: ['hotel-check-in', 'hotel-stay', 'hotel-check-out'],
+  ferry: ['ferry'],
+}
+
+function cardConfirmation(
+  blocks: WorksheetTravelBlocks,
+  type: WorksheetFreeNoteAnchorType,
+  sourceId: string,
+): string {
+  if (type === 'flight') return blocks.flights.find(row => row.id === sourceId)?.confirmation ?? ''
+  if (type === 'car') return blocks.cars.find(row => row.id === sourceId)?.confirmation ?? ''
+  if (type === 'hotel') return blocks.hotels.find(row => row.id === sourceId)?.confirmation ?? ''
+  if (type === 'ferry') return blocks.ferries.find(row => row.id === sourceId)?.confirmation ?? ''
+  return ''
+}
+
+function freeNoteMomentFields(note: WorksheetFreeNote, includeAnchor: boolean): LabeledTravelField[] {
+  return [
+    { label: 'Worksheet note', value: note.notes },
+    { label: 'Source', value: note.source_attribution },
+    ...(includeAnchor ? [{ label: 'Anchor', value: formatFreeNoteAnchor(note.anchor) } as LabeledTravelField] : []),
+  ]
+}
+
+function splitAnchorDateTime(value: string | null): {
+  date: string | null
+  timeLabel: string | null
+  sortTime: string | null
+} {
+  const raw = (value ?? '').trim()
+  if (!raw) return { date: null, timeLabel: null, sortTime: null }
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/)
+  const date = toIsoDateOnly(match?.[1] ?? raw)
+  const timeLabel = match?.[2] ?? null
+  return {
+    date,
+    timeLabel,
+    sortTime: timeLabel ? parseChronoTime(timeLabel) : null,
+  }
+}
+
+function attachmentTarget(
+  note: WorksheetFreeNote,
+  events: BuiltEvent[],
+  blocks: WorksheetTravelBlocks,
+): BuiltEvent | null {
+  const priorities = FREE_NOTE_EVENT_PRIORITY[note.anchor.type]
+  const conf = (note.anchor.conf ?? '').trim()
+  if (!priorities || !conf) return null
+  for (const kind of priorities) {
+    const hit = events.find(event =>
+      event.kind === kind
+      && cardConfirmation(blocks, note.anchor.type, event.sourceId).trim() === conf,
+    )
+    if (hit) return hit
+  }
+  return null
+}
+
+/** Run-level notes stay in the header. A conf match sits on that card. A datetime with no card is its own row. */
+function placeWorksheetFreeNotes(
+  events: BuiltEvent[],
+  blocks: WorksheetTravelBlocks,
+): { events: BuiltEvent[]; headerNotes: { label: string; value: string }[] } {
+  const notes = (blocks.notes ?? []).filter(note => note.notes.trim())
+  const extras = new Map<string, { label: string; value: string }[]>()
+  const used = new Set<string>()
+  for (const note of notes) {
+    const target = attachmentTarget(note, events, blocks)
+    if (!target) continue
+    extras.set(target.id, [
+      ...(extras.get(target.id) ?? []),
+      ...omitBlankTravelFields(freeNoteMomentFields(note, false)),
+    ])
+    used.add(note.id)
+  }
+
+  const headerNotes: { label: string; value: string }[] = []
+  const looseEvents: BuiltEvent[] = []
+  for (const note of notes) {
+    if (used.has(note.id)) continue
+    const when = splitAnchorDateTime(note.anchor.datetime)
+    if (when.date || when.timeLabel) {
+      looseEvents.push(makeEvent({
+        kind: 'note',
+        sourceId: note.id,
+        title: note.anchor.label?.trim() || 'Note',
+        date: when.date,
+        timeLabel: when.timeLabel,
+        sortTime: when.sortTime,
+        fields: omitBlankTravelFields(freeNoteMomentFields(note, note.anchor.type !== 'run')),
+      }))
+      continue
+    }
+    headerNotes.push(...omitBlankTravelFields(
+      freeNoteMomentFields(note, note.anchor.type !== 'run'),
+    ))
+  }
+
+  return {
+    events: [
+      ...events.map(event => {
+        const extra = extras.get(event.id)
+        return extra ? { ...event, fields: [...event.fields, ...extra] } : event
+      }),
+      ...looseEvents,
+    ],
+    headerNotes,
   }
 }
 

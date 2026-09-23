@@ -10,9 +10,12 @@ export {
 export {
   draftTravelBlock,
   mergeTravelBlocksFromPacket,
+  mergeWorksheetFreeNote,
   resolvePacketTravellers,
   formatTravelScrapeSourceNote,
   canApplyTravelDetails,
+  hasNoteOnlyWorksheetSignal,
+  isNoteOnlyWorksheetPacket,
   packetConfirmation,
   worksheetHotelFields,
 } from './worksheet.ts'
@@ -51,5 +54,6 @@ export {
   TAMWORTH_SCRAPE_PACKET,
   R01_DEP_FLIGHT_PACKET,
   TRECV1_CAR_PACKET,
+  NOTE_ONLY_WORKSHEET_ASK_PACKET,
   type TravelScrapeFixtureId,
 } from './fixtures.ts'

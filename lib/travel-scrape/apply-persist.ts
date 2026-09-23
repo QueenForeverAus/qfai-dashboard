@@ -1,7 +1,8 @@
 /**
  * Persist a travel-scrape apply onto the BOOKED Run Advancing twin.
  * Never writes cost_fields / locked Run Costings.
- * Source note lands on advancement_items.notes only — not Worksheet chrome.
+ * Checklist source notes land on advancement_items.notes — not card chrome.
+ * Note-only free notes land on travel_blocks.notes[] (not a hotel/flight/car card).
  */
 
 import { KNOWN_ITEM_KEYS } from '../advancement-checklist.ts'
@@ -17,6 +18,7 @@ import {
   TRAVEL_SCRAPE_APPLY_WRITES_COST_FIELDS,
   type TravelScrapeApplyPlan,
 } from './apply-engine.ts'
+import { isNoteOnlyWorksheetPacket } from './worksheet.ts'
 import { DEFINED_RUN_COST_FIELDS } from '../cost-fields.ts'
 
 type AdminClient = ReturnType<typeof createAdminClient>
@@ -222,6 +224,7 @@ export async function persistTravelScrapeApply(opts: {
     category: preview.packet?.category ?? 'travel',
     detailsApplied: preview.details.will_apply,
     moneyWritten: preview.money.will_write,
+    freeNote: Boolean(preview.packet && isNoteOnlyWorksheetPacket(preview.packet)),
   })
   await writeAuditLog(opts.admin, opts.actorUserId, [{
     table_name: 'run_advancing_workspaces',

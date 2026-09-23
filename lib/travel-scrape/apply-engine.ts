@@ -47,7 +47,10 @@ import {
 import {
   canApplyTravelDetails,
   formatTravelScrapeSourceNote,
+  hasNoteOnlyWorksheetSignal,
+  isNoteOnlyWorksheetPacket,
   mergeTravelBlocksFromPacket,
+  mergeWorksheetFreeNote,
   packetConfirmation,
   vendorLabel,
   worksheetFlightFields,
@@ -457,6 +460,14 @@ export function planTravelScrapeMoney(opts: {
   const def = fieldKey ? fieldDef(fieldKey) : null
   const pendingIdentity = moneyNightIdentity({ packet: opts.packet, existing })
 
+  if (hasNoteOnlyWorksheetSignal(opts.packet)) {
+    return {
+      ...emptyMoney(existing, pendingIdentity),
+      action: 'none',
+      reason: 'Note-only worksheet packet — Advancing amount/PAID is never written.',
+    }
+  }
+
   if (opts.packet.money_action === 'none') {
     return {
       ...emptyMoney(existing, pendingIdentity),
@@ -613,11 +624,33 @@ export function planTravelScrapeApply(input: TravelScrapeApplyInput): TravelScra
     packet: parsed.packet,
     targetRunId: input.targetRunId,
   })
+  const noteOnly = isNoteOnlyWorksheetPacket(parsed.packet)
 
   let nextBlocks = existingBlocks
   let mergeAction: TravelScrapeDetailsPlan['merge_action'] = 'none'
   let blockId: string | null = null
-  if (detailsGate.apply) {
+  let detailsWillApply = detailsGate.apply
+  let detailsAction: TravelScrapeDetailsPlan['action'] = detailsGate.apply
+    ? 'applied'
+    : (detailsGate.hold ?? 'ask')
+  let detailsReason = detailsGate.reason
+
+  if (detailsGate.apply && noteOnly) {
+    const merged = mergeWorksheetFreeNote({
+      existing: existingBlocks,
+      packet: parsed.packet,
+    })
+    nextBlocks = merged.next
+    mergeAction = merged.action
+    blockId = merged.block_id
+    if (merged.action === 'none') {
+      detailsWillApply = false
+      detailsAction = 'ask'
+      detailsReason = merged.reason
+    } else {
+      detailsReason = merged.reason
+    }
+  } else if (detailsGate.apply) {
     const merged = mergeTravelBlocksFromPacket({
       existing: existingBlocks,
       packet: parsed.packet,
@@ -629,9 +662,9 @@ export function planTravelScrapeApply(input: TravelScrapeApplyInput): TravelScra
   }
 
   const details: TravelScrapeDetailsPlan = {
-    will_apply: detailsGate.apply,
-    action: detailsGate.apply ? 'applied' : (detailsGate.hold ?? 'ask'),
-    reason: detailsGate.reason,
+    will_apply: detailsWillApply,
+    action: detailsAction,
+    reason: detailsReason,
     merge_action: mergeAction,
     block_id: blockId,
   }
@@ -664,15 +697,23 @@ export function formatTravelScrapeApplyAuditCopy(opts: {
   category: string
   detailsApplied: boolean
   moneyWritten: boolean
+  freeNote?: boolean
 }): { fieldName: string; oldValue: string; newValue: string } {
   const actor = opts.actorName.trim() || 'Someone'
-  const details = opts.detailsApplied ? 'Worksheet travel card' : 'no Worksheet mutate'
-  const money = opts.moneyWritten ? 'Advancing money confirmed' : 'money left pending'
+  const details = opts.detailsApplied
+    ? (opts.freeNote ? 'Worksheet free note' : 'Worksheet travel card')
+    : 'no Worksheet mutate'
+  const money = opts.freeNote
+    ? 'money not written'
+    : (opts.moneyWritten ? 'Advancing money confirmed' : 'money left pending')
+  const checklist = opts.freeNote
+    ? 'no checklist tick'
+    : 'checklist source note on the item only'
   return {
     fieldName: AUDIT_FIELD_TRAVEL_SCRAPE_APPLY,
     oldValue: 'no travel scrape applied',
     newValue:
       `${actor} applied travel-scrape-packet-v1 (${opts.category}) on ${opts.runCode} `
-      + `(${details}; ${money}; checklist source note on the item only). Costing was not written.`,
+      + `(${details}; ${money}; ${checklist}). Costing was not written.`,
   }
 }

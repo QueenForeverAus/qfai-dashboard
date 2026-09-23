@@ -10,12 +10,14 @@ export const THORNTON_SCRAPE_FIXTURE_ID = 'thornton-executive-scrape' as const
 export const TAMWORTH_SCRAPE_FIXTURE_ID = 'tamworth-hotel-scrape' as const
 export const R01_DEP_FLIGHT_FIXTURE_ID = 'r01-dep-flight' as const
 export const TRECV1_CAR_FIXTURE_ID = 'trecv1-avis-car' as const
+export const NOTE_ONLY_WORKSHEET_ASK_FIXTURE_ID = 'note-only-worksheet-ask' as const
 
 export type TravelScrapeFixtureId =
   | typeof THORNTON_SCRAPE_FIXTURE_ID
   | typeof TAMWORTH_SCRAPE_FIXTURE_ID
   | typeof R01_DEP_FLIGHT_FIXTURE_ID
   | typeof TRECV1_CAR_FIXTURE_ID
+  | typeof NOTE_ONLY_WORKSHEET_ASK_FIXTURE_ID
 
 export const THORNTON_SCRAPE_PACKET: TravelScrapePacket = {
   schema_version: 'travel-scrape-packet-v1',
@@ -251,6 +253,73 @@ export const TRECV1_CAR_PACKET: TravelScrapePacket = {
   apply_env: 'staging',
 }
 
+/**
+ * Michael/ops ask to add a Worksheet note. No booking card and no money.
+ * details_action is auto so staging smoke can apply; live Comms packets may stay ask.
+ * run_match.run_id TRECV1 is a code hint — parse keeps UUIDs only, so POST
+ * attaches to whichever BOOKED run is in the URL (26R04 or TRECV1).
+ */
+export const NOTE_ONLY_WORKSHEET_ASK_PACKET: TravelScrapePacket = {
+  schema_version: 'travel-scrape-packet-v1',
+  category: 'other_travel',
+  confidence: 'high',
+  details_action: 'auto',
+  money_action: 'none',
+  captured_at: '2026-09-23T23:54:00+10:00',
+  email: {
+    thread_id: 'SYNTHETIC_THREAD_NOTE_ONLY',
+    message_id: 'SYNTHETIC_MSG_NOTE_ONLY',
+    date: '2026-09-23T12:00:00+10:00',
+    subject: 'SYNTHETIC — Michael: please add Worksheet note (no booking)',
+    from: 'michael@example.invalid',
+    vendor_domain: '',
+  },
+  run_match: {
+    run_id: 'TRECV1',
+    show_ids: [],
+    match_score: 1,
+    match_notes: 'SYNTHETIC — Builder smoke: attach free note to BOOKED staging run TRECV1 or 26R04. Rematch on real mail.',
+    ambiguous_candidates: [],
+  },
+  money: {
+    amount: null,
+    currency: 'unknown',
+    gst: 'unknown',
+    status_if_applied: null,
+    advancing_line_hint: 'other',
+  },
+  worksheet: {
+    note_only: true,
+    notes: 'Airport pickup ETA TBD — driver wait at arrivals with Queen Forever sign. (SYNTHETIC example — do not treat as real ops.)',
+    note_kind: 'worksheet_free_note',
+    anchor: {
+      type: 'run',
+      conf: null,
+      datetime: null,
+      label: null,
+    },
+    source_attribution: 'from Michael email DD/MM/YY · note-only (no booking money)',
+  },
+  travellers: [],
+  checklist: {
+    items_to_tick: [],
+    source_note: '',
+    partial_names: false,
+  },
+  supersedes: { prior_conf_id: null, prior_message_id: null },
+  flags: [
+    'synthetic_shape_only',
+    'SYNTHETIC',
+    'note_only',
+    'no_fake_money',
+    'no_advancing_money_line',
+    'no_checklist_tick',
+    'wave3_fixture_pack_2026-09-23',
+    'awaiting_builder_free_note_path',
+  ],
+  apply_env: 'staging',
+}
+
 export type TravelScrapeFixture = {
   id: TravelScrapeFixtureId
   label: string
@@ -277,6 +346,11 @@ export const TRAVEL_SCRAPE_FIXTURES: TravelScrapeFixture[] = [
     id: TRECV1_CAR_FIXTURE_ID,
     label: 'TRECV1 / R01 Avis car hire',
     packet: TRECV1_CAR_PACKET,
+  },
+  {
+    id: NOTE_ONLY_WORKSHEET_ASK_FIXTURE_ID,
+    label: 'Note-only worksheet free note (no booking, no money)',
+    packet: NOTE_ONLY_WORKSHEET_ASK_PACKET,
   },
 ]
 

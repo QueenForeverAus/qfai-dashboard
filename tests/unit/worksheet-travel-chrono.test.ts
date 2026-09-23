@@ -7,6 +7,7 @@ import {
   emptyHotelBlock,
   emptyTransferBlock,
   EMPTY_TRAVEL_BLOCKS,
+  type WorksheetFreeNote,
 } from '../../lib/worksheet-travel-blocks.ts'
 import {
   buildWorksheetChrono,
@@ -349,6 +350,93 @@ describe('worksheet chrono itinerary', () => {
     assert.equal(model.header.notes.map(note => note.label).join(','), 'Cars notes')
     assert.equal(model.header.synopsis, 'Two cities')
     assert.equal(model.header.dateSpan.includes('2027') || model.header.dateSpan.includes('Jul'), true)
+  })
+})
+
+function freeNote(partial: Partial<WorksheetFreeNote> & Pick<WorksheetFreeNote, 'id' | 'notes'>): WorksheetFreeNote {
+  return {
+    note_kind: 'worksheet_free_note',
+    note_only: true,
+    anchor: { type: 'run', conf: null, datetime: null, label: null },
+    source_attribution: 'from Michael email',
+    email_message_id: partial.id,
+    created_at: '2026-09-23T12:00:00+10:00',
+    ...partial,
+    anchor: {
+      type: 'run',
+      conf: null,
+      datetime: null,
+      label: null,
+      ...partial.anchor,
+    },
+  }
+}
+
+describe('worksheet free notes in chrono', () => {
+  it('puts a run-level note in the header and omits a blank anchor', () => {
+    const model = buildWorksheetChrono({
+      run: { name: 'TRECV1', code: 'TRECV1', regionLabel: 'Fly' },
+      blocks: {
+        ...EMPTY_TRAVEL_BLOCKS,
+        notes: [freeNote({
+          id: 'note-run',
+          notes: 'Airport pickup ETA TBD',
+          source_attribution: 'from Michael email DD/MM/YY · note-only (no booking money)',
+        })],
+      },
+    })
+    assert.deepEqual(
+      model.header.notes.map(row => row.label),
+      ['Worksheet note', 'Source'],
+    )
+    assert.equal(model.header.notes[0].value, 'Airport pickup ETA TBD')
+    assert.equal(model.days.flatMap(day => day.events).some(event => event.kind === 'note'), false)
+  })
+
+  it('sits a conf-matched note on the hotel check-in, not in the header pile', () => {
+    const model = buildWorksheetChrono({
+      run: { name: 'TRECV1', code: 'TRECV1' },
+      blocks: {
+        ...EMPTY_TRAVEL_BLOCKS,
+        hotels: [{
+          ...emptyHotelBlock('hotel-1'),
+          name: 'Thornton Executive',
+          check_in_date: '2026-09-17',
+          check_in_time: '14:00',
+          confirmation: 'TE-91718',
+          rooms: 1,
+          guests: [{ profile_id: null, name: 'Gareth' }],
+        }],
+        notes: [freeNote({
+          id: 'note-hotel',
+          notes: 'Early check-in requested',
+          anchor: { type: 'hotel', conf: 'TE-91718', datetime: null, label: null },
+        })],
+      },
+    })
+    const checkIn = model.days.flatMap(day => day.events).find(event => event.kind === 'hotel-check-in')
+    assert.equal(checkIn?.fields.some(field => field.label === 'Worksheet note' && field.value === 'Early check-in requested'), true)
+    assert.equal(model.header.notes.some(field => field.label === 'Worksheet note'), false)
+  })
+
+  it('places a dated note with no card match on that day', () => {
+    const model = buildWorksheetChrono({
+      run: { name: 'TRECV1', code: 'TRECV1' },
+      blocks: {
+        ...EMPTY_TRAVEL_BLOCKS,
+        notes: [freeNote({
+          id: 'note-when',
+          notes: 'Driver wait at arrivals',
+          anchor: { type: 'run', conf: null, datetime: '2026-09-17T09:40', label: 'Arrivals' },
+        })],
+      },
+    })
+    assert.equal(model.header.notes.length, 0)
+    const note = model.days.flatMap(day => day.events).find(event => event.kind === 'note')
+    assert.equal(note?.title, 'Arrivals')
+    assert.equal(note?.date, '2026-09-17')
+    assert.equal(note?.timeLabel, '09:40')
+    assert.equal(note?.fields.some(field => field.value === 'Driver wait at arrivals'), true)
   })
 })
 

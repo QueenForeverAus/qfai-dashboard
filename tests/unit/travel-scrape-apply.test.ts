@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { ADVANCING_WRITES_BACK_TO_COSTING } from '../../lib/run-advancing.ts'
 import {
@@ -22,10 +23,12 @@ import {
   travelScrapeBlockedReason,
 } from '../../lib/travel-scrape/apply-engine.ts'
 import {
+  NOTE_ONLY_WORKSHEET_ASK_PACKET,
   R01_DEP_FLIGHT_PACKET,
   TAMWORTH_SCRAPE_PACKET,
   THORNTON_SCRAPE_PACKET,
   TRECV1_CAR_PACKET,
+  travelScrapeFixtureById,
 } from '../../lib/travel-scrape/fixtures.ts'
 import {
   parseTravelScrapePacket,
@@ -36,6 +39,8 @@ import {
   draftTravelBlock,
   findExistingTravelBlock,
   formatTravelScrapeSourceNote,
+  hasNoteOnlyWorksheetSignal,
+  isNoteOnlyWorksheetPacket,
   mergeTravelBlocksFromPacket,
   packetConfirmation,
   resolvePacketTravellers,
@@ -1329,5 +1334,220 @@ describe('apply gates + costing isolation', () => {
     const hotel = parseTravelBlocks(plan.next_travel_blocks).hotels[0]
     assert.equal(hotel?.name, 'Tamworth Hotel')
     assert.equal(plan.money.field_key, 'accommodation')
+  })
+})
+
+const NOTE_BODY = 'Airport pickup ETA TBD — driver wait at arrivals with Queen Forever sign. (SYNTHETIC example — do not treat as real ops.)'
+
+describe('note-only worksheet free notes', () => {
+  it('parses the smoke fixture and the Comms JSON the same way', () => {
+    const file = JSON.parse(readFileSync(
+      new URL('../../fixtures/travel-scrape/note-only-worksheet-ask.json', import.meta.url),
+      'utf8',
+    )) as unknown
+    assert.equal(file.details_action, 'auto')
+    assert.equal(file.confidence, 'high')
+    assert.equal(file.apply_env, 'staging')
+    const fromFile = parseTravelScrapePacket(file)
+    const fromFixture = parseTravelScrapePacket(NOTE_ONLY_WORKSHEET_ASK_PACKET)
+    assert.equal(fromFile.ok, true)
+    assert.equal(fromFixture.ok, true)
+    if (!fromFile.ok || !fromFixture.ok) return
+    assert.equal(fromFile.packet.worksheet.notes, NOTE_BODY)
+    assert.equal(fromFixture.packet.worksheet.notes, NOTE_BODY)
+    assert.equal(fromFile.packet.worksheet.note_kind, 'worksheet_free_note')
+    assert.equal(fromFile.packet.worksheet.note_only, true)
+    assert.equal(fromFile.packet.money_action, 'none')
+    assert.equal(fromFile.packet.money.amount, null)
+    assert.equal(fromFile.packet.run_match.run_id, null)
+    assert.equal(travelScrapeFixtureById('note-only-worksheet-ask')?.id, 'note-only-worksheet-ask')
+    assert.equal(isNoteOnlyWorksheetPacket(fromFile.packet), true)
+    assert.equal(hasNoteOnlyWorksheetSignal(fromFile.packet), true)
+  })
+
+  it('detects note_only, the note_only flag, note_kind, and the worksheet_note alias', () => {
+    const base = NOTE_ONLY_WORKSHEET_ASK_PACKET
+    assert.equal(isNoteOnlyWorksheetPacket(base), true)
+
+    const flagOnly = {
+      ...base,
+      flags: ['note_only'],
+      worksheet: { ...base.worksheet, note_only: false, note_kind: '' },
+    }
+    assert.equal(isNoteOnlyWorksheetPacket(flagOnly), true)
+
+    const kindOnly = {
+      ...base,
+      flags: [],
+      worksheet: { ...base.worksheet, note_only: false, note_kind: 'worksheet_free_note' },
+    }
+    assert.equal(isNoteOnlyWorksheetPacket(kindOnly), true)
+
+    const alias = parseTravelScrapePacket({ ...base, category: 'worksheet_note', flags: [], worksheet: { notes: NOTE_BODY } })
+    assert.equal(alias.ok, true)
+    if (alias.ok) assert.equal(isNoteOnlyWorksheetPacket(alias.packet), true)
+
+    const hotel = { ...THORNTON_SCRAPE_PACKET, flags: ['note_only'] }
+    assert.equal(isNoteOnlyWorksheetPacket(hotel), false)
+    assert.equal(hasNoteOnlyWorksheetSignal(hotel), false)
+  })
+
+  it('appends a free note on the worksheet and does not create a travel card', () => {
+    const existingHotel = planTravelScrapeApply({
+      ...bookedGate,
+      packet: THORNTON_SCRAPE_PACKET,
+      profiles,
+    }).next_travel_blocks
+
+    const plan = planTravelScrapeApply({
+      ...bookedGate,
+      packet: NOTE_ONLY_WORKSHEET_ASK_PACKET,
+      existingTravelBlocks: existingHotel,
+      profiles,
+      confirmMoney: true,
+      moneyConfirmedBy: 'Gareth',
+    })
+
+    assert.equal(plan.ok, true, plan.error ?? '')
+    assert.equal(plan.writes_cost_fields, false)
+    assert.equal(plan.details.will_apply, true)
+    assert.equal(plan.details.action, 'applied')
+    assert.equal(plan.details.merge_action, 'create')
+    assert.equal(plan.checklist.will_apply, false)
+    assert.deepEqual(plan.checklist.item_keys, [])
+    assert.equal(plan.money.will_write, false)
+    assert.equal(plan.money.action, 'none')
+    assert.equal(plan.money.writes_paid, false)
+    assert.match(plan.money.reason, /never written/i)
+    assert.equal(plan.next_travel_blocks.hotels.length, existingHotel.hotels.length)
+    assert.equal(plan.next_travel_blocks.flights.length, 0)
+    assert.equal(plan.next_travel_blocks.cars.length, 0)
+    assert.equal(plan.next_travel_blocks.transfers.length, 0)
+    assert.equal(plan.next_travel_blocks.ferries.length, 0)
+    assert.equal(plan.next_travel_blocks.notes.length, 1)
+    const note = plan.next_travel_blocks.notes[0]
+    assert.equal(note.notes, NOTE_BODY)
+    assert.equal(note.note_kind, 'worksheet_free_note')
+    assert.equal(note.note_only, true)
+    assert.equal(note.email_message_id, 'SYNTHETIC_MSG_NOTE_ONLY')
+    assert.equal(note.source_attribution, 'from Michael email DD/MM/YY · note-only (no booking money)')
+    assert.deepEqual(note.anchor, { type: 'run', conf: null, datetime: null, label: null })
+    assert.notEqual(note.source_attribution, plan.checklist.source_note)
+    assert.equal(draftTravelBlock(plan.packet!, profiles), null)
+  })
+
+  it('does not duplicate the note when the same message_id is applied again', () => {
+    const first = planTravelScrapeApply({
+      ...bookedGate,
+      packet: NOTE_ONLY_WORKSHEET_ASK_PACKET,
+      profiles,
+    })
+    const second = planTravelScrapeApply({
+      ...bookedGate,
+      packet: NOTE_ONLY_WORKSHEET_ASK_PACKET,
+      existingTravelBlocks: first.next_travel_blocks,
+      profiles,
+    })
+    assert.equal(second.details.merge_action, 'update')
+    assert.equal(second.next_travel_blocks.notes.length, 1)
+    assert.equal(second.next_travel_blocks.notes[0].id, first.next_travel_blocks.notes[0].id)
+    assert.equal(second.next_travel_blocks.notes[0].notes, NOTE_BODY)
+
+    const revised = {
+      ...NOTE_ONLY_WORKSHEET_ASK_PACKET,
+      email: { ...NOTE_ONLY_WORKSHEET_ASK_PACKET.email, message_id: 'SYNTHETIC_MSG_NOTE_ONLY_2' },
+      worksheet: {
+        ...NOTE_ONLY_WORKSHEET_ASK_PACKET.worksheet,
+        notes: 'Driver now meeting at the taxi rank.',
+      },
+      supersedes: { prior_conf_id: null, prior_message_id: 'SYNTHETIC_MSG_NOTE_ONLY' },
+    }
+    const replaced = planTravelScrapeApply({
+      ...bookedGate,
+      packet: revised,
+      existingTravelBlocks: second.next_travel_blocks,
+      profiles,
+    })
+    assert.equal(replaced.details.merge_action, 'update')
+    assert.equal(replaced.next_travel_blocks.notes.length, 1)
+    assert.equal(replaced.next_travel_blocks.notes[0].id, first.next_travel_blocks.notes[0].id)
+    assert.equal(replaced.next_travel_blocks.notes[0].notes, 'Driver now meeting at the taxi rank.')
+    assert.equal(replaced.next_travel_blocks.notes[0].email_message_id, 'SYNTHETIC_MSG_NOTE_ONLY_2')
+  })
+
+  it('holds ask and medium confidence and never writes money or costings', () => {
+    const ask = planTravelScrapeApply({
+      ...bookedGate,
+      packet: { ...NOTE_ONLY_WORKSHEET_ASK_PACKET, details_action: 'ask' },
+      profiles,
+      confirmMoney: true,
+    })
+    assert.equal(ask.details.will_apply, false)
+    assert.equal(ask.details.action, 'ask')
+    assert.equal(ask.next_travel_blocks.notes.length, 0)
+    assert.equal(ask.money.will_write, false)
+    assert.equal(ask.writes_cost_fields, false)
+    assert.equal(ask.checklist.will_apply, false)
+
+    const medium = planTravelScrapeApply({
+      ...bookedGate,
+      packet: { ...NOTE_ONLY_WORKSHEET_ASK_PACKET, confidence: 'medium' },
+      profiles,
+    })
+    assert.equal(medium.details.action, 'ask')
+    assert.equal(medium.next_travel_blocks.notes.length, 0)
+
+    const paidAttempt = {
+      ...NOTE_ONLY_WORKSHEET_ASK_PACKET,
+      money_action: 'confirm' as const,
+      money: {
+        ...NOTE_ONLY_WORKSHEET_ASK_PACKET.money,
+        amount: 80,
+        status_if_applied: 'PAID' as const,
+        advancing_line_hint: 'other' as const,
+      },
+    }
+    const blockedMoney = planTravelScrapeMoney({
+      packet: paidAttempt,
+      existingEntries: [{
+        id: '11111111-1111-4111-8111-111111111111',
+        description: 'existing',
+        notes: '',
+        amount: 10,
+        gst_included: true,
+        confirmed: false,
+        paid: false,
+        paid_at: null,
+        night_date: null,
+        city: null,
+        vendor: null,
+        confirmation_id: null,
+        receipt_kind: 'charge',
+      }],
+      confirm: { confirmMoney: true, moneyConfirmedBy: 'Gareth' },
+    })
+    assert.equal(blockedMoney.will_write, false)
+    assert.equal(blockedMoney.action, 'none')
+    assert.equal(blockedMoney.writes_paid, false)
+    assert.equal(blockedMoney.next_entries.length, 1)
+    assert.equal(blockedMoney.next_entries[0].amount, 10)
+    assert.equal(blockedMoney.next_entries[0].paid, false)
+  })
+
+  it('refuses a note-only packet with an empty notes body and leaves cards alone', () => {
+    const plan = planTravelScrapeApply({
+      ...bookedGate,
+      packet: {
+        ...NOTE_ONLY_WORKSHEET_ASK_PACKET,
+        worksheet: { ...NOTE_ONLY_WORKSHEET_ASK_PACKET.worksheet, notes: '  ' },
+      },
+      profiles,
+    })
+    assert.equal(plan.details.will_apply, false)
+    assert.match(plan.details.reason, /worksheet\.notes/)
+    assert.equal(plan.next_travel_blocks.notes.length, 0)
+    assert.equal(plan.next_travel_blocks.hotels.length, 0)
+    assert.equal(plan.money.will_write, false)
+    assert.equal(plan.writes_cost_fields, false)
   })
 })
