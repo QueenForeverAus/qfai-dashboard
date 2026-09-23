@@ -217,9 +217,12 @@ function parseTravellers(raw: unknown): TravelScrapeTraveller[] {
   }).filter(row => row.raw_name || row.profile_user_id)
 }
 
-/** Glance / Comms aliases → staging advancement_items keys. */
+/** Glance / Comms aliases → live advancement_items keys. */
 export const TRAVEL_SCRAPE_CHECKLIST_ALIASES: Record<string, string> = {
   hotel_booked: 'hotel_confirmed',
+  car_hire_booked: 'car_hire_van',
+  flights_booked: 'flights_complete',
+  flight_details_recorded: 'flights_complete',
 }
 
 export function resolveTravelScrapeChecklistItemKey(key: string): string {
