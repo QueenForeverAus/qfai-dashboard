@@ -201,7 +201,10 @@ export default function ShowPackTab({
   const lookupDone = useRef<Set<string>>(new Set())
   const travelSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const travelRef = useRef<TravelBlocksDoc>(EMPTY_TRAVEL_BLOCKS)
-  travelRef.current = travelBlocks
+  const travelSaveInFlight = useRef(false)
+  const travelSaveDirty = useRef(false)
+  // Do not assign travelRef from travelBlocks on every render — that can
+  // clobber an optimistic write before the debounced PATCH fires.
 
   const canPublish = ['owner', 'admin', 'production'].includes(effectiveRole)
   const canEdit = canPublish
@@ -244,29 +247,71 @@ export default function ShowPackTab({
     })
   }, [runId])
 
+  // Serial queue: one travel_blocks PATCH at a time. A newer edit that arrives
+  // while a save is in flight is marked dirty and flushed after, always from
+  // travelRef (latest). Stops an older empty "+ Hire" card from overwriting
+  // a filled snapshot. Smoke: fill fast then refresh; add a second hire while
+  // the first save is in flight — both cards stick.
+  const flushTravelBlocks = useCallback(async (opts?: { keepalive?: boolean }) => {
+    if (travelSaveInFlight.current) {
+      travelSaveDirty.current = true
+      return
+    }
+    travelSaveInFlight.current = true
+    travelSaveDirty.current = false
+    const snapshot = travelRef.current
+    try {
+      const res = await fetch(`/api/runs/${runId}/show-pack`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ travel_blocks: snapshot }),
+        keepalive: opts?.keepalive === true,
+      })
+      const data = await res.json().catch(() => ({})) as {
+        error?: string
+        travel_workspace_id?: unknown
+      }
+      if (opts?.keepalive) return
+      if (res.ok) {
+        if (typeof data.travel_workspace_id === 'string') {
+          setTravelWorkspaceId(data.travel_workspace_id)
+        }
+      } else {
+        showToast(data.error ?? 'Travel save failed')
+      }
+    } catch {
+      if (!opts?.keepalive) showToast('Travel save failed')
+    } finally {
+      travelSaveInFlight.current = false
+      if (!opts?.keepalive && travelSaveDirty.current) {
+        travelSaveDirty.current = false
+        void flushTravelBlocks()
+      }
+    }
+  }, [runId])
+
   const saveTravelBlocks = useCallback((next: TravelBlocksDoc) => {
     travelRef.current = next
     setTravelBlocks(next)
     if (travelSaveTimer.current) clearTimeout(travelSaveTimer.current)
     travelSaveTimer.current = setTimeout(() => {
-      const snapshot = travelRef.current
-      startTransition(async () => {
-        const res = await fetch(`/api/runs/${runId}/show-pack`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ travel_blocks: snapshot }),
-        })
-        const data = await res.json()
-        if (res.ok) {
-          if (typeof data.travel_workspace_id === 'string') {
-            setTravelWorkspaceId(data.travel_workspace_id)
-          }
-        } else {
-          showToast(data.error ?? 'Travel save failed')
-        }
-      })
+      travelSaveTimer.current = null
+      void flushTravelBlocks()
     }, 400)
-  }, [runId])
+  }, [flushTravelBlocks])
+
+  // Flush pending debounce on leave so a quick tab switch does not drop edits.
+  useEffect(() => {
+    return () => {
+      if (travelSaveTimer.current) {
+        clearTimeout(travelSaveTimer.current)
+        travelSaveTimer.current = null
+        void flushTravelBlocks({ keepalive: true })
+      } else if (travelSaveDirty.current) {
+        void flushTravelBlocks({ keepalive: true })
+      }
+    }
+  }, [flushTravelBlocks])
 
   async function lookupVenue(showId: string, silent = false) {
     if (lookupDone.current.has(showId)) return
