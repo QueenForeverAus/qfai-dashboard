@@ -11,6 +11,7 @@ import * as XLSX from 'xlsx'
 import { explainRunRegion, type ShowLocationInput } from '@/lib/region-classify'
 import { reclassifyShowVenueLines } from '@/lib/venue-line-classifier'
 import { pickHarbourShowPatch } from '@/lib/import-schedule-harbour-fields'
+import { sameVenue } from '@/lib/show-identity-match'
 
 type SheetShow = {
   show_date: string
@@ -85,24 +86,6 @@ function titleCase(str: string): string {
       return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
     })
     .join(' ')
-}
-
-function normVenue(s: string): string {
-  const STRIP = ['the', 'centre', 'center', 'arts', 'performing', 'entertainment', 'hall', 'theatre', 'theater', 'and']
-  let n = s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ')
-  for (const w of STRIP) n = n.replace(new RegExp(`\\b${w}\\b`, 'g'), ' ')
-  return n.replace(/\s+/g, ' ').trim()
-}
-
-function sameVenue(a: string, b: string): boolean {
-  const n1 = normVenue(a)
-  const n2 = normVenue(b)
-  if (n1 === n2) return true
-  const longer = Math.max(n1.length, n2.length)
-  if (longer === 0) return false
-  if (n1.includes(n2)) return n2.length / longer >= 0.60
-  if (n2.includes(n1)) return n1.length / longer >= 0.60
-  return false
 }
 
 // ── Parse nett adult ticket price from a Harbour "Ticket Price:" deal block ─
