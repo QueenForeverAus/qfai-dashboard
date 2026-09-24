@@ -15,6 +15,7 @@ import {
   formatWeekDelta,
   isTicketSalesBoardCandidate,
 } from '../../lib/ticket-sales-board.ts'
+import { withMatchedShowIds } from '../../lib/ticket-sales-persist.ts'
 
 const TODAY = '2026-09-24'
 
@@ -73,6 +74,54 @@ describe('venue match reuses Import Schedule sameVenue', () => {
     assert.equal(matchShowByVenueAndDate({ show_date: '2027-05-14', venue_name: 'Bega Valley Civic Centre', venue_city: 'Bega' }, shows)?.id, 'bega')
     assert.equal(matchShowByVenueAndDate({ show_date: '2026-12-15', venue_name: 'Nowhere Theatre', venue_city: 'Nowhere' }, shows), null)
     assert.equal(matchShowByVenueAndDate({ show_date: null, venue_name: 'Capitol Theatre', venue_city: 'Tamworth' }, shows), null)
+  })
+
+  it('links the seeded 2026 sheet names, including exact Araluen Arts', () => {
+    const seeded = [
+      portal({ id: 'bruce', show_date: '2026-09-04', venue_name: 'Bruce Mason Centre', venue_city: 'Auckland', run_code: '26R02' }),
+      portal({ id: 'bnz', show_date: '2026-09-05', venue_name: 'BNZ Theatre', venue_city: 'Hamilton', run_code: '26R02' }),
+      portal({ id: 'capitol', show_date: '2026-09-18', venue_name: 'Capitol Theatre', venue_city: 'Tamworth', run_code: '26R03' }),
+      portal({ id: 'retired-civic', show_date: '2026-09-18', venue_name: 'RETIRED — DEMO TRECV1 · Newcastle Civic', venue_city: 'Newcastle', harbour_status: 'RETIRED', run_code: 'TRECV1' }),
+      portal({ id: 'glasshouse', show_date: '2026-09-19', venue_name: 'Glasshouse Theatre', venue_city: 'Port Macquarie', run_code: '26R03' }),
+      portal({ id: 'retired-town-hall', show_date: '2026-09-19', venue_name: 'RETIRED — DEMO TRECV1 · Tamworth Town Hall', venue_city: 'Tamworth', harbour_status: 'RETIRED', run_code: 'TRECV1' }),
+      portal({ id: 'araluen', show_date: '2026-10-02', venue_name: 'Araluen Arts', venue_city: 'Araluen', run_code: '26R04' }),
+      portal({ id: 'darwin', show_date: '2026-10-03', venue_name: 'Darwin Ent Centre', venue_city: 'Darwin', run_code: '26R04' }),
+      portal({ id: 'hota', show_date: '2026-10-16', venue_name: 'HOTA - Theatre 1', venue_city: 'Gold Coast', run_code: '26R05' }),
+      portal({ id: 'empire', show_date: '2026-10-17', venue_name: 'Empire Theatre', venue_city: 'Toowoomba', run_code: '26R05' }),
+      portal({ id: 'frankston', show_date: '2026-11-06', venue_name: 'Frankston Arts Centre', venue_city: 'Frankston', run_code: '26R07' }),
+      portal({ id: 'ulumbarra', show_date: '2026-11-07', venue_name: 'Ulumbarra Theatre', venue_city: 'Bendigo', run_code: '26R07' }),
+      portal({ id: 'shoppingtown', show_date: '2026-11-20', venue_name: 'Shoppingtown Hotel', venue_city: 'Doncaster', run_code: '26R08' }),
+      portal({ id: 'chelsea', show_date: '2026-11-21', venue_name: 'Chelsea Heights', venue_city: 'Aspendale Gardens', run_code: '26R08' }),
+      portal({ id: 'york', show_date: '2026-11-27', venue_name: 'York on Lilydale', venue_city: 'Mt Evelyn', run_code: '26R09' }),
+      portal({ id: 'commercial', show_date: '2026-11-28', venue_name: 'Commercial Hotel', venue_city: 'South Morang', run_code: '26R09' }),
+    ]
+    const sheet: Array<[string, string, string, string]> = [
+      ['2026-09-04', 'Bruce Mason Centre', 'Auckland', 'bruce'],
+      ['2026-09-05', 'BNZ Theatre', 'Hamilton', 'bnz'],
+      ['2026-09-18', 'Capitol Theatre', 'Tamworth', 'capitol'],
+      ['2026-09-19', 'Glasshouse Theatre', 'Port Macquarie', 'glasshouse'],
+      ['2026-10-02', 'Araluen Arts', 'Araluen', 'araluen'],
+      ['2026-10-03', 'Darwin Entertainment Centre', 'Darwin', 'darwin'],
+      ['2026-10-16', 'HOTA', 'Gold Coast', 'hota'],
+      ['2026-10-17', 'Empire Theatre', 'Toowoomba', 'empire'],
+      ['2026-11-06', 'Frankston Arts Centre', 'Frankston', 'frankston'],
+      ['2026-11-07', 'Ulumbarra Theatre', 'Bendigo', 'ulumbarra'],
+      ['2026-11-20', 'Shoppingtown Hotel', 'Doncaster', 'shoppingtown'],
+      ['2026-11-21', 'Chelsea Heights', 'Aspendale Gardens', 'chelsea'],
+      ['2026-11-27', 'York On Lilydale', 'Mt Evelyn', 'york'],
+      ['2026-11-28', 'Commercial Hotel', 'South Morang', 'commercial'],
+    ]
+    for (const [show_date, venue_name, venue_city, id] of sheet) {
+      assert.equal(matchShowByVenueAndDate({ show_date, venue_name, venue_city }, seeded)?.id, id)
+    }
+
+    const linked = withMatchedShowIds(
+      sheet.map(([showDate, venueName, venueCity]) => ({ showDate, venueName, venueCity })),
+      seeded,
+    )
+    assert.equal(linked.matched, sheet.length)
+    assert.equal(linked.rows.find(row => row.venueName === 'Araluen Arts')?.showId, 'araluen')
+    assert.equal(linked.rows.every(row => row.showId), true)
   })
 })
 

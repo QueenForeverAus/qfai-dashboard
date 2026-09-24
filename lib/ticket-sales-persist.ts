@@ -17,6 +17,32 @@ export type IngestedSnapshot = {
   matched: number
 }
 
+type MatchableRow = {
+  showDate: string | null
+  venueName: string
+  venueCity: string | null
+}
+
+/**
+ * Attach Portal `show_id` before a snapshot insert.
+ * A raw insert that omits this column stores NULL even when venue + date match.
+ */
+export function withMatchedShowIds<T extends MatchableRow>(
+  rows: T[],
+  portalShows: IdentityShow[],
+): { rows: Array<T & { showId: string | null }>; matched: number } {
+  let matched = 0
+  const linked = rows.map(row => {
+    const showId = matchShowByVenueAndDate(
+      { show_date: row.showDate, venue_name: row.venueName, venue_city: row.venueCity },
+      portalShows,
+    )?.id ?? null
+    if (showId) matched += 1
+    return { ...row, showId }
+  })
+  return { rows: linked, matched }
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = []
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
@@ -81,16 +107,12 @@ export async function replaceTicketSalesSnapshots(
       snapshotId = inserted.id as string
     }
 
-    let matched = 0
-    const payload = drafts.map(row => {
-      const show = matchShowByVenueAndDate(
-        { show_date: row.showDate, venue_name: row.venueName, venue_city: row.venueCity },
-        opts.portalShows,
-      )
-      if (show) matched++
+    const linked = withMatchedShowIds(drafts, opts.portalShows)
+    const matched = linked.matched
+    const payload = linked.rows.map(row => {
       return {
         snapshot_id: snapshotId,
-        show_id: show?.id ?? null,
+        show_id: row.showId,
         sheet_row_key: row.sheetRowKey,
         venue_name: row.venueName,
         venue_city: row.venueCity,
