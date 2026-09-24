@@ -25,6 +25,7 @@ const navItems: NavItem[] = [
     icon: '🎸',
     children: TOUR_DESK_NAV_CHILDREN,
   },
+  { href: '/ticket-sales', label: 'Ticket Sales & Ads', icon: '🎫' },
   { href: '/factors',    label: 'Factors',          icon: '⚙' },
   { href: '/feedback',   label: 'Feedback',         icon: '💬' },
   { href: '/admin',              label: 'Admin',                   icon: '🛠' },
