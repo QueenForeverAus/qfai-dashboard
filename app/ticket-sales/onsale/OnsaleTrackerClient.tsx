@@ -89,7 +89,7 @@ function SourceLine({ source, syncedAt }: { source: string | null | undefined; s
 
 function ShortLink({ href, label, title }: { href: string; label: string; title: string }) {
   return (
-    <a href={href} title={title} target="_blank" rel="noreferrer" className="text-amber-400 hover:text-amber-300 whitespace-nowrap">
+    <a href={href} title={title} target="_blank" rel="noreferrer" className="inline-block max-w-full truncate text-amber-400 hover:text-amber-300">
       {label}
     </a>
   )
@@ -124,7 +124,7 @@ function Cell({
       title={reason ?? undefined}
       className={`px-1.5 py-1.5 align-top overflow-hidden border-b border-slate-700/80 ${TONE_CLASS[tone]}`}
     >
-      <div className="text-[11px] leading-snug text-slate-200 space-y-0.5">{children}</div>
+      <div className="flex flex-col gap-0.5 text-[11px] leading-snug text-slate-200">{children}</div>
     </td>
   )
 }
@@ -339,6 +339,7 @@ function ShowRows({
   const runHref = show.runCode ? `/runs/${show.runCode.toLowerCase()}` : null
   const overdue = status.worst === 'red'
   const nextText = nextLine(status)
+  const cohost = fbCohost(tracker)
   return (
     <>
       <tr
@@ -387,14 +388,12 @@ function ShowRows({
           <DateLine label="On-sale" full="General on-sale" iso={tracker?.general_onsale_at ?? null} localTz={tracker?.show_local_tz ?? null} />
         </Cell>
         <Cell cellKey="ticketLink" tone={status.cells.ticketLink.tone} reason={status.cells.ticketLink.reason}>
-          <StateText value={ticketLabel(tracker?.ticket_link_state ?? null)} />
-          {tracker?.ticket_link_url && (
-            <UrlLine
-              url={tracker.ticket_link_url}
-              label={ticketLinkLabel(tracker.ticket_link_platform, tracker.ticket_link_url)}
-              detail={tracker.ticket_link_platform}
-            />
-          )}
+          <StateAndLink
+            state={ticketLabel(tracker?.ticket_link_state ?? null)}
+            url={tracker?.ticket_link_url ?? null}
+            label={tracker?.ticket_link_url ? ticketLinkLabel(tracker.ticket_link_platform, tracker.ticket_link_url) : ''}
+            detail={tracker?.ticket_link_platform}
+          />
         </Cell>
         <Cell cellKey="edm" tone={status.cells.edm.tone} reason={status.cells.edm.reason}>
           <StateText value={edmLabel(tracker?.edm_state ?? null)} />
@@ -415,15 +414,12 @@ function ShowRows({
         <Cell cellKey="fbEvent" tone={status.cells.fbEvent.tone} reason={status.cells.fbEvent.reason}>
           <div className="truncate">
             <StateText value={fbLabel(tracker?.fb_event_state ?? null)} />
-            {(tracker?.fb_event_state === 'live' || tracker?.fb_event_venue_cohost != null) && (
-              <span className="text-slate-400">
-                {' · '}
-                {tracker?.fb_event_venue_cohost == null ? 'co-host unknown' : tracker.fb_event_venue_cohost ? 'co-host yes' : 'co-host no'}
-              </span>
-            )}
+            {cohost && <span className="text-slate-400"> · {cohost}</span>}
           </div>
           {tracker?.fb_event_url && (
-            <UrlLine url={tracker.fb_event_url} label="FB Event ↗" detail={tracker.fb_event_id} />
+            <div className="truncate">
+              <UrlLine url={tracker.fb_event_url} label="FB Event ↗" detail={tracker.fb_event_id} />
+            </div>
           )}
           <SourceLine source={tracker?.fb_event_source} syncedAt={tracker?.fb_event_synced_at} />
         </Cell>
@@ -527,6 +523,40 @@ function StateText({ value }: { value: string | null }) {
   return <span>{value}</span>
 }
 
+/** State text and a link label stay separated when they share one line. */
+function StateAndLink({
+  state,
+  url,
+  label,
+  detail,
+}: {
+  state: string | null
+  url: string | null
+  label: string
+  detail?: string | null
+}) {
+  return (
+    <div className="flex items-baseline gap-1 min-w-0">
+      <span className="shrink-0"><StateText value={state} /></span>
+      {url && (
+        <>
+          <span className="shrink-0 text-slate-500" aria-hidden>·</span>
+          <span className="min-w-0 truncate">
+            <UrlLine url={url} label={label} detail={detail} />
+          </span>
+        </>
+      )}
+    </div>
+  )
+}
+
+function fbCohost(tracker: OnsaleTrackerRecord | null): string | null {
+  if (!tracker) return null
+  if (tracker.fb_event_state !== 'live' && tracker.fb_event_venue_cohost == null) return null
+  if (tracker.fb_event_venue_cohost == null) return 'co-host unknown'
+  return tracker.fb_event_venue_cohost ? 'co-host yes' : 'co-host no'
+}
+
 function UrlLine({ url, label, detail }: { url: string | null; label: string; detail?: string | null }) {
   const href = safeHttpUrl(url)
   if (!url) return null
@@ -550,16 +580,17 @@ function WebsiteBody({ tracker }: { tracker: OnsaleTrackerRecord | null }) {
   if (state === 'scheduled') {
     const when = fmtCompactSafe(tracker?.website_go_live_at ?? null) ?? 'go-live unknown'
     return (
-      <div>
+      <div className="flex flex-col gap-0.5 min-w-0">
         <div className="truncate" title={`scheduled · ${when}`}>scheduled · {when}</div>
         <div className="truncate">{link}</div>
       </div>
     )
   }
   return (
-    <div>
-      <div>live</div>
-      <div className="truncate">{link}</div>
+    <div className="flex items-baseline gap-1 min-w-0">
+      <span className="shrink-0">live</span>
+      <span className="shrink-0 text-slate-500" aria-hidden>·</span>
+      <span className="min-w-0 truncate">{link}</span>
     </div>
   )
 }
