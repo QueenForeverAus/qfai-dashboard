@@ -27,10 +27,12 @@ describe('ticket sales access', () => {
   it('is owner/admin only, same gate as costings and ticket outlook', () => {
     for (const role of ['admin', 'owner'] as const) {
       assert.equal(canAccessPage(role, '/ticket-sales'), true)
+      assert.equal(canAccessPage(role, '/ticket-sales/onsale'), true)
       assert.equal(canAccessPage(role, '/factors'), true)
     }
     for (const role of ['production', 'crew', 'external'] as const) {
       assert.equal(canAccessPage(role, '/ticket-sales'), false)
+      assert.equal(canAccessPage(role, '/ticket-sales/onsale'), false)
     }
   })
 })

@@ -25,7 +25,14 @@ const navItems: NavItem[] = [
     icon: '🎸',
     children: TOUR_DESK_NAV_CHILDREN,
   },
-  { href: '/ticket-sales', label: 'Ticket Sales & Ads', icon: '🎫' },
+  {
+    label: 'Ticket Sales & Ads',
+    icon: '🎫',
+    children: [
+      { href: '/ticket-sales', label: 'Board' },
+      { href: '/ticket-sales/onsale', label: 'On-sale tracker' },
+    ],
+  },
   { href: '/factors',    label: 'Factors',          icon: '⚙' },
   { href: '/feedback',   label: 'Feedback',         icon: '💬' },
   { href: '/admin',              label: 'Admin',                   icon: '🛠' },
@@ -127,7 +134,11 @@ export default function Sidebar() {
             </div>
             <div className={mobile ? 'flex flex-col gap-1' : 'space-y-0.5'}>
               {visibleChildren.map(child => {
-                const active = isTourDeskChildActive({ href: child.href, pathname, tab })
+                const active = item.label === TOUR_DESK_NAV_HEADING
+                  ? isTourDeskChildActive({ href: child.href, pathname, tab })
+                  : child.href === '/ticket-sales'
+                    ? pathname === child.href
+                    : pathname === child.href || pathname.startsWith(`${child.href}/`)
                 return (
                   <Link
                     key={child.href}

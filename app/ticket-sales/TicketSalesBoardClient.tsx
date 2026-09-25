@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatDateAU } from '@/lib/dates'
 import type { TicketSalesBoard, TicketSalesBoardRow, TicketSalesPace } from '@/lib/ticket-sales-board'
+import TicketSalesTabs from './TicketSalesTabs'
 
 const PACE_OPTIONS: { value: '' | TicketSalesPace; label: string }[] = [
   { value: '', label: '—' },
@@ -107,7 +108,8 @@ export default function TicketSalesBoardClient({
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Ticket Sales & Ads</h1>
-          <p className="text-slate-400 text-sm mt-1">Ads in a later slice</p>
+          <TicketSalesTabs active="board" />
+          <p className="text-slate-400 text-sm mt-3">Ads in a later slice</p>
           <p className="text-amber-400/70 text-xs mt-2">
             Owner-only — same gate as Run Costings and Ticket Outlook. Not visible to crew, production, or promoters.
           </p>
