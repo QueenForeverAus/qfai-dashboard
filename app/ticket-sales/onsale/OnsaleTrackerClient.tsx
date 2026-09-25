@@ -89,7 +89,7 @@ function SourceLine({ source, syncedAt }: { source: string | null | undefined; s
 
 function ShortLink({ href, label, title }: { href: string; label: string; title: string }) {
   return (
-    <a href={href} title={title} target="_blank" rel="noreferrer" className="inline-block max-w-full truncate text-amber-400 hover:text-amber-300">
+    <a href={href} title={title} target="_blank" rel="noreferrer" className="whitespace-nowrap text-amber-400 hover:text-amber-300">
       {label}
     </a>
   )
@@ -388,12 +388,18 @@ function ShowRows({
           <DateLine label="On-sale" full="General on-sale" iso={tracker?.general_onsale_at ?? null} localTz={tracker?.show_local_tz ?? null} />
         </Cell>
         <Cell cellKey="ticketLink" tone={status.cells.ticketLink.tone} reason={status.cells.ticketLink.reason}>
-          <StateAndLink
-            state={ticketLabel(tracker?.ticket_link_state ?? null)}
-            url={tracker?.ticket_link_url ?? null}
-            label={tracker?.ticket_link_url ? ticketLinkLabel(tracker.ticket_link_platform, tracker.ticket_link_url) : ''}
-            detail={tracker?.ticket_link_platform}
-          />
+          <div className="whitespace-nowrap">
+            <StateText value={ticketLabel(tracker?.ticket_link_state ?? null)} />
+          </div>
+          {tracker?.ticket_link_url && (
+            <div className="whitespace-nowrap">
+              <UrlLine
+                url={tracker.ticket_link_url}
+                label={ticketLinkLabel(tracker.ticket_link_platform, tracker.ticket_link_url)}
+                detail={tracker.ticket_link_platform}
+              />
+            </div>
+          )}
         </Cell>
         <Cell cellKey="edm" tone={status.cells.edm.tone} reason={status.cells.edm.reason}>
           <StateText value={edmLabel(tracker?.edm_state ?? null)} />
@@ -417,7 +423,7 @@ function ShowRows({
             {cohost && <span className="text-slate-400"> · {cohost}</span>}
           </div>
           {tracker?.fb_event_url && (
-            <div className="truncate">
+            <div className="whitespace-nowrap">
               <UrlLine url={tracker.fb_event_url} label="FB Event ↗" detail={tracker.fb_event_id} />
             </div>
           )}
@@ -523,33 +529,6 @@ function StateText({ value }: { value: string | null }) {
   return <span>{value}</span>
 }
 
-/** State text and a link label stay separated when they share one line. */
-function StateAndLink({
-  state,
-  url,
-  label,
-  detail,
-}: {
-  state: string | null
-  url: string | null
-  label: string
-  detail?: string | null
-}) {
-  return (
-    <div className="flex items-baseline gap-1 min-w-0">
-      <span className="shrink-0"><StateText value={state} /></span>
-      {url && (
-        <>
-          <span className="shrink-0 text-slate-500" aria-hidden>·</span>
-          <span className="min-w-0 truncate">
-            <UrlLine url={url} label={label} detail={detail} />
-          </span>
-        </>
-      )}
-    </div>
-  )
-}
-
 function fbCohost(tracker: OnsaleTrackerRecord | null): string | null {
   if (!tracker) return null
   if (tracker.fb_event_state !== 'live' && tracker.fb_event_venue_cohost == null) return null
@@ -561,7 +540,7 @@ function UrlLine({ url, label, detail }: { url: string | null; label: string; de
   const href = safeHttpUrl(url)
   if (!url) return null
   const title = detail ? `${detail} · ${url}` : url
-  if (!href) return <div className="truncate" title={title}>{label}</div>
+  if (!href) return <div className="whitespace-nowrap" title={title}>{label}</div>
   return <ShortLink href={href} label={label} title={title} />
 }
 
@@ -582,15 +561,15 @@ function WebsiteBody({ tracker }: { tracker: OnsaleTrackerRecord | null }) {
     return (
       <div className="flex flex-col gap-0.5 min-w-0">
         <div className="truncate" title={`scheduled · ${when}`}>scheduled · {when}</div>
-        <div className="truncate">{link}</div>
+        <div className="whitespace-nowrap">{link}</div>
       </div>
     )
   }
   return (
-    <div className="flex items-baseline gap-1 min-w-0">
-      <span className="shrink-0">live</span>
-      <span className="shrink-0 text-slate-500" aria-hidden>·</span>
-      <span className="min-w-0 truncate">{link}</span>
+    <div className="whitespace-nowrap">
+      <span>live</span>
+      <span className="text-slate-500"> · </span>
+      {link}
     </div>
   )
 }
