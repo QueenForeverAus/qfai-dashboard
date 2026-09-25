@@ -6,9 +6,14 @@ import { useRouter } from 'next/navigation'
 import { formatDateAU } from '@/lib/dates'
 import {
   ONSALE_FIELD_LABELS,
+  fmtCompactSafe,
   fmtSafe,
+  plainMilestoneLabel,
   safeHttpUrl,
+  shortPlaceName,
+  ticketLinkLabel,
   toStatusRow,
+  websiteLinkLabel,
   type OnsaleFilter,
   type OnsaleTrackerRecord,
 } from '@/lib/onsale-tracker'
@@ -73,18 +78,19 @@ function money(value: number | string | null | undefined): string {
 
 function SourceLine({ source, syncedAt }: { source: string | null | undefined; syncedAt: string | null | undefined }) {
   if (!source || source === 'manual') return null
-  const when = fmtSafe(syncedAt ?? null)
+  const when = fmtCompactSafe(syncedAt ?? null)
+  const text = `Source: ${source} · synced ${when ?? 'unknown'}`
   return (
-    <p className="text-[11px] text-slate-500 mt-1">
-      Source: {source} · synced {when ?? 'unknown'}
+    <p className="text-[10px] text-slate-500 truncate" title={text}>
+      {text}
     </p>
   )
 }
 
-function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
+function ShortLink({ href, label, title }: { href: string; label: string; title: string }) {
   return (
-    <a href={href} target="_blank" rel="noreferrer" className="text-amber-400 hover:text-amber-300 break-all">
-      {children}
+    <a href={href} title={title} target="_blank" rel="noreferrer" className="text-amber-400 hover:text-amber-300 whitespace-nowrap">
+      {label}
     </a>
   )
 }
@@ -116,12 +122,9 @@ function Cell({
       data-testid={`cell-${cellKey}`}
       data-tone={tone}
       title={reason ?? undefined}
-      className={`px-3 py-3 align-top min-w-[10rem] ${TONE_CLASS[tone]}`}
+      className={`px-1.5 py-1.5 align-top overflow-hidden border-b border-slate-700/80 ${TONE_CLASS[tone]}`}
     >
-      <div className="text-sm text-slate-200 space-y-1">{children}</div>
-      {reason && tone !== 'none' && tone !== 'green' && (
-        <p className="text-[11px] text-slate-400 mt-1">{reason}</p>
-      )}
+      <div className="text-[11px] leading-snug text-slate-200 space-y-0.5">{children}</div>
     </td>
   )
 }
@@ -212,19 +215,31 @@ export default function OnsaleTrackerClient({
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-700 bg-slate-800/60">
-        <table className="w-full text-sm min-w-[1500px]">
+        <table className="w-full table-fixed border-separate border-spacing-0 text-[11px] leading-snug min-w-[1080px] xl:min-w-0">
+          <colgroup>
+            <col className="w-[168px] xl:w-[16%]" />
+            <col className="w-[132px] xl:w-[12%]" />
+            <col className="w-[96px] xl:w-[9%]" />
+            <col className="w-[88px] xl:w-[8%]" />
+            <col className="w-[104px] xl:w-[10%]" />
+            <col className="w-[96px] xl:w-[9%]" />
+            <col className="w-[88px] xl:w-[8%]" />
+            <col className="w-[88px] xl:w-[8%]" />
+            <col className="w-[88px] xl:w-[8%]" />
+            <col className="w-[132px] xl:w-[12%]" />
+          </colgroup>
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500 border-b border-slate-700">
-              <th className="px-3 py-3 font-semibold">Show</th>
-              <th className="px-3 py-3 font-semibold">Key dates</th>
-              <th className="px-3 py-3 font-semibold">Ticket link</th>
-              <th className="px-3 py-3 font-semibold">EDM</th>
-              <th className="px-3 py-3 font-semibold">Website</th>
-              <th className="px-3 py-3 font-semibold">FB Event</th>
-              <th className="px-3 py-3 font-semibold">ER ad</th>
-              <th className="px-3 py-3 font-semibold">Ticket ad</th>
-              <th className="px-3 py-3 font-semibold">Pixel</th>
-              <th className="px-3 py-3 font-semibold">Next action</th>
+            <tr className="text-left text-[10px] uppercase tracking-wide text-slate-500">
+              <th className="sticky left-0 z-20 bg-slate-800 px-1.5 py-2 font-semibold border-b border-slate-700">Show</th>
+              <th className="px-1.5 py-2 font-semibold border-b border-slate-700">Key dates</th>
+              <th className="px-1.5 py-2 font-semibold border-b border-slate-700">Ticket link</th>
+              <th className="px-1.5 py-2 font-semibold border-b border-slate-700">EDM</th>
+              <th className="px-1.5 py-2 font-semibold border-b border-slate-700">Website</th>
+              <th className="px-1.5 py-2 font-semibold border-b border-slate-700">FB Event</th>
+              <th className="px-1.5 py-2 font-semibold border-b border-slate-700">ER ad</th>
+              <th className="px-1.5 py-2 font-semibold border-b border-slate-700">Ticket ad</th>
+              <th className="px-1.5 py-2 font-semibold border-b border-slate-700">Pixel</th>
+              <th className="px-1.5 py-2 font-semibold border-b border-slate-700">Next action</th>
             </tr>
           </thead>
           <tbody>
@@ -322,65 +337,73 @@ function ShowRows({
   onToggleHistory: () => void
 }) {
   const runHref = show.runCode ? `/runs/${show.runCode.toLowerCase()}` : null
+  const overdue = status.worst === 'red'
+  const nextText = nextLine(status)
   return (
     <>
       <tr
         data-testid={`onsale-row-${show.id}`}
         data-worst={status.worst}
-        className={`border-b border-slate-700/80 align-top ${status.worst === 'red' ? 'bg-red-950/35 shadow-[inset_4px_0_0_0_rgb(239,68,68)]' : ''}`}
+        className={`align-top ${overdue ? 'bg-red-950/40' : ''}`}
       >
-        <td className="px-3 py-3 min-w-[14rem]">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <div className="text-slate-200">{show.showDate ? formatDateAU(show.showDate, { weekday: 'short' }) : <Unknown />}</div>
+        <td className={`sticky left-0 z-10 px-1.5 py-1.5 align-top border-b border-slate-700/80 ${overdue ? 'bg-red-950 shadow-[inset_3px_0_0_0_rgb(239,68,68)]' : 'bg-slate-800'}`}>
+          <div className="flex items-start gap-1">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1 min-w-0">
+                <span className="truncate text-slate-200">{show.showDate ? formatDateAU(show.showDate, { weekday: 'short' }) : 'unknown'}</span>
+                <span className={`shrink-0 px-1 py-px rounded text-[9px] font-semibold uppercase border ${BADGE_CLASS[status.badge] ?? BADGE_CLASS['No data']}`}>
+                  {status.badge}
+                </span>
+              </div>
               {runHref ? (
-                <Link href={runHref} className="text-amber-400 hover:text-amber-300 font-medium">{show.venueName}</Link>
+                <Link href={runHref} title={show.venueName} className="block truncate text-amber-400 hover:text-amber-300 font-medium">{show.venueName}</Link>
               ) : (
-                <div className="text-white">{show.venueName}</div>
+                <div className="truncate text-white" title={show.venueName}>{show.venueName}</div>
               )}
-              <div className="text-slate-400 text-xs">{place || <Unknown />}</div>
-              {runHref && show.runCode ? (
-                <Link href={runHref} className="text-amber-400/80 hover:text-amber-300 text-xs">{show.runCode}</Link>
-              ) : (
-                <div className="text-slate-500 text-xs">unknown</div>
-              )}
+              <div className="truncate text-slate-400">
+                {place || 'unknown'}
+                {runHref && show.runCode ? (
+                  <>
+                    {' · '}
+                    <Link href={runHref} className="text-amber-400/80 hover:text-amber-300">{show.runCode}</Link>
+                  </>
+                ) : ' · unknown'}
+              </div>
+              <div className="truncate text-slate-500" title={nextText}>{nextText}</div>
             </div>
-            <div className="flex flex-col items-end gap-1">
-              <button type="button" data-testid={`edit-${show.id}`} title="Edit" onClick={onEdit} className="text-slate-500 hover:text-amber-400 text-sm leading-none">
+            <div className="flex flex-col items-end shrink-0">
+              <button type="button" data-testid={`edit-${show.id}`} title="Edit" onClick={onEdit} className="text-slate-500 hover:text-amber-400 text-xs leading-none">
                 ✎
               </button>
-              <button type="button" data-testid={`history-${show.id}`} aria-expanded={historyOpen} onClick={onToggleHistory} className="text-[11px] text-slate-400 hover:text-white">
+              <button type="button" data-testid={`history-${show.id}`} aria-expanded={historyOpen} onClick={onToggleHistory} className="text-[10px] text-slate-400 hover:text-white">
                 History
               </button>
             </div>
           </div>
-          <div className={`inline-block mt-2 px-2 py-0.5 rounded text-[10px] font-semibold uppercase border ${BADGE_CLASS[status.badge] ?? BADGE_CLASS['No data']}`}>
-            {status.badge}
-          </div>
-          <div className="text-[11px] text-slate-500 mt-1">
-            {status.nextMilestone
-              ? `Next: ${status.nextMilestone.label} · ${fmtMelbourne(status.nextMilestone.at)}`
-              : 'Next: unknown'}
-          </div>
         </td>
         <Cell cellKey="dates" tone={status.cells.dates.tone} reason={status.cells.dates.reason}>
-          <DateLine label="Announce" iso={tracker?.announce_at ?? null} localTz={tracker?.show_local_tz ?? null} />
-          <DateLine label="Presale" iso={tracker?.presale_at ?? null} localTz={tracker?.show_local_tz ?? null} />
-          <DateLine label="General on-sale" iso={tracker?.general_onsale_at ?? null} localTz={tracker?.show_local_tz ?? null} />
+          <DateLine label="Ann" full="Announce" iso={tracker?.announce_at ?? null} localTz={tracker?.show_local_tz ?? null} />
+          <DateLine label="Pre" full="Presale" iso={tracker?.presale_at ?? null} localTz={tracker?.show_local_tz ?? null} />
+          <DateLine label="On-sale" full="General on-sale" iso={tracker?.general_onsale_at ?? null} localTz={tracker?.show_local_tz ?? null} />
         </Cell>
         <Cell cellKey="ticketLink" tone={status.cells.ticketLink.tone} reason={status.cells.ticketLink.reason}>
           <StateText value={ticketLabel(tracker?.ticket_link_state ?? null)} />
-          <UrlLine url={tracker?.ticket_link_url ?? null} />
-          {tracker?.ticket_link_platform && <div className="text-xs text-slate-400">{tracker.ticket_link_platform}</div>}
+          {tracker?.ticket_link_url && (
+            <UrlLine
+              url={tracker.ticket_link_url}
+              label={ticketLinkLabel(tracker.ticket_link_platform, tracker.ticket_link_url)}
+              detail={tracker.ticket_link_platform}
+            />
+          )}
         </Cell>
         <Cell cellKey="edm" tone={status.cells.edm.tone} reason={status.cells.edm.reason}>
           <StateText value={edmLabel(tracker?.edm_state ?? null)} />
           {tracker?.edm_state === 'sent_scheduled' && (
-            <div className="text-xs text-slate-300">
+            <div className="truncate text-slate-300" title={tracker.edm_send_at ?? tracker.edm_send_date ?? undefined}>
               {tracker.edm_send_at
-                ? (fmtSafe(tracker.edm_send_at) ?? 'unknown')
+                ? (fmtCompactSafe(tracker.edm_send_at) ?? 'unknown')
                 : tracker.edm_send_date
-                  ? formatDateAU(tracker.edm_send_date)
+                  ? formatDateAU(tracker.edm_send_date, { year: false })
                   : 'unknown'}
             </div>
           )}
@@ -390,12 +413,17 @@ function ShowRows({
           <SourceLine source={tracker?.website_source} syncedAt={tracker?.website_synced_at} />
         </Cell>
         <Cell cellKey="fbEvent" tone={status.cells.fbEvent.tone} reason={status.cells.fbEvent.reason}>
-          <StateText value={fbLabel(tracker?.fb_event_state ?? null)} />
-          {(tracker?.fb_event_state === 'live' || tracker?.fb_event_url) && <UrlLine url={tracker?.fb_event_url ?? null} />}
-          {(tracker?.fb_event_state === 'live' || tracker?.fb_event_venue_cohost != null) && (
-            <div className="text-xs text-slate-400">
-              Venue co-host: {tracker?.fb_event_venue_cohost == null ? 'unknown' : tracker.fb_event_venue_cohost ? 'yes' : 'no'}
-            </div>
+          <div className="truncate">
+            <StateText value={fbLabel(tracker?.fb_event_state ?? null)} />
+            {(tracker?.fb_event_state === 'live' || tracker?.fb_event_venue_cohost != null) && (
+              <span className="text-slate-400">
+                {' · '}
+                {tracker?.fb_event_venue_cohost == null ? 'co-host unknown' : tracker.fb_event_venue_cohost ? 'co-host yes' : 'co-host no'}
+              </span>
+            )}
+          </div>
+          {tracker?.fb_event_url && (
+            <UrlLine url={tracker.fb_event_url} label="FB Event ↗" detail={tracker.fb_event_id} />
           )}
           <SourceLine source={tracker?.fb_event_source} syncedAt={tracker?.fb_event_synced_at} />
         </Cell>
@@ -418,15 +446,23 @@ function ShowRows({
           <SourceLine source={tracker?.ticket_ad_source} syncedAt={tracker?.ticket_ad_synced_at} />
         </Cell>
         <Cell cellKey="pixel" tone={status.cells.pixel.tone} reason={status.cells.pixel.reason}>
-          <StateText value={pixelLabel(tracker?.pixel_state ?? null, tracker?.pixel_platform ?? null)} />
+          <div className="truncate" title={tracker?.pixel_platform ?? undefined}>
+            <StateText value={pixelLabel(tracker?.pixel_state ?? null, tracker?.pixel_platform ?? null)} />
+          </div>
           <SourceLine source={tracker?.pixel_source} syncedAt={tracker?.pixel_synced_at} />
         </Cell>
         <Cell cellKey="flag" tone={status.cells.flag.tone} reason={status.cells.flag.reason}>
-          <div>{tracker?.next_action?.trim() ? tracker.next_action : <Unknown />}</div>
-          <div className="text-xs text-slate-400">Owner: {tracker?.next_action_owner ?? 'unknown'}</div>
-          {tracker?.notes?.trim() && <div className="text-xs text-slate-400 whitespace-pre-wrap">{tracker.notes}</div>}
+          <div className="line-clamp-2" title={tracker?.next_action?.trim() || undefined}>
+            {tracker?.next_action?.trim() ? tracker.next_action : <Unknown />}
+          </div>
+          <div className="truncate text-slate-400" title={tracker?.notes?.trim() || undefined}>
+            {tracker?.next_action_owner ?? 'unknown'}
+            {tracker?.notes?.trim() ? ` · ${tracker.notes.trim()}` : ''}
+          </div>
           {tracker?.manual_red_flag && (
-            <div className="text-xs text-red-300">Flag: {tracker.manual_red_reason?.trim() || 'Manual red flag'}</div>
+            <div className="truncate text-red-300" title={tracker.manual_red_reason?.trim() || 'Manual red flag'}>
+              Flag: {tracker.manual_red_reason?.trim() || 'Manual red flag'}
+            </div>
           )}
         </Cell>
       </tr>
@@ -462,15 +498,26 @@ function ShowRows({
   )
 }
 
-function DateLine({ label, iso, localTz }: { label: string; iso: string | null; localTz: string | null }) {
-  const primary = fmtSafe(iso)
-  const local = iso && localTz ? fmtSafe(iso, localTz) : null
+function nextLine(status: ReturnType<typeof computeRowStatus>): string {
+  if (!status.nextMilestone) return 'Next: unknown'
+  const label = plainMilestoneLabel(status.nextMilestone.label, status.cells.erAd.reason)
+  return `Next: ${label} · ${fmtCompactMelbourne(status.nextMilestone.at)}`
+}
+
+function fmtCompactMelbourne(date: Date): string {
+  return fmtCompactSafe(date.toISOString()) ?? 'unknown'
+}
+
+function DateLine({ label, full, iso, localTz }: { label: string; full: string; iso: string | null; localTz: string | null }) {
+  const primary = fmtCompactSafe(iso)
+  const local = iso && localTz ? fmtCompactSafe(iso, localTz) : null
   const showLocal = local && primary && local !== primary
+  const text = primary ? `${full}: ${primary}${showLocal ? ` · ${local}` : ''}` : `${full}: unknown`
   return (
-    <div>
-      <span className="text-slate-500">{label}: </span>
+    <div className="truncate" title={text}>
+      <span className="text-slate-500">{label} </span>
       {primary ?? <Unknown />}
-      {showLocal && <div className="text-[11px] text-slate-400">{local}</div>}
+      {showLocal && <span className="text-slate-400"> · {local}</span>}
     </div>
   )
 }
@@ -480,31 +527,39 @@ function StateText({ value }: { value: string | null }) {
   return <span>{value}</span>
 }
 
-function UrlLine({ url }: { url: string | null }) {
+function UrlLine({ url, label, detail }: { url: string | null; label: string; detail?: string | null }) {
   const href = safeHttpUrl(url)
   if (!url) return null
-  if (!href) return <div className="text-xs break-all">{url}</div>
-  return <div className="text-xs"><ExternalLink href={href}>{url}</ExternalLink></div>
+  const title = detail ? `${detail} · ${url}` : url
+  if (!href) return <div className="truncate" title={title}>{label}</div>
+  return <ShortLink href={href} label={label} title={title} />
 }
 
 function WebsiteBody({ tracker }: { tracker: OnsaleTrackerRecord | null }) {
   const state = tracker?.website_state ?? null
   if (!state) return <Unknown />
   if (state === 'not_built') return <span>not built</span>
+  const href = safeHttpUrl(tracker?.website_url ?? null)
+  const postId = tracker?.website_wp_post_id
+  const label = websiteLinkLabel(postId)
+  const link = href
+    ? <ShortLink href={href} label={label} title={tracker?.website_url ?? href} />
+    : postId != null
+      ? <span title={`WP post ${postId}`}>{label}</span>
+      : <span className="text-slate-500">WP unknown</span>
   if (state === 'scheduled') {
+    const when = fmtCompactSafe(tracker?.website_go_live_at ?? null) ?? 'go-live unknown'
     return (
       <div>
-        <div>scheduled</div>
-        <div className="text-xs text-slate-300">Go-live: {fmtSafe(tracker?.website_go_live_at ?? null) ?? 'unknown'}</div>
-        <div className="text-xs text-slate-300">WP post: {tracker?.website_wp_post_id ?? 'unknown'}</div>
+        <div className="truncate" title={`scheduled · ${when}`}>scheduled · {when}</div>
+        <div className="truncate">{link}</div>
       </div>
     )
   }
-  const href = safeHttpUrl(tracker?.website_url ?? null)
   return (
     <div>
       <div>live</div>
-      {href ? <div className="text-xs"><ExternalLink href={href}>{tracker?.website_url}</ExternalLink></div> : <div className="text-xs"><Unknown /></div>}
+      <div className="truncate">{link}</div>
     </div>
   )
 }
@@ -522,9 +577,12 @@ function AdBody({
 }) {
   if (!state) return <Unknown />
   if (state === 'none') return <span>none</span>
-  if (state === 'paused') return <span>paused (waiting on GO)</span>
-  if (state === 'running') return <span>running ({money(spend)} / {money(budget)})</span>
-  return <span className="break-all">ended ({campaignId || 'unknown'})</span>
+  if (state === 'paused') return <span title="paused (waiting on GO)">paused · GO</span>
+  if (state === 'running') {
+    const text = `${money(spend)} / ${money(budget)}`
+    return <span className="block truncate" title={`running ${text}`}>running · {text}</span>
+  }
+  return <span className="block truncate" title={campaignId ?? undefined}>ended{campaignId ? ` · ${campaignId}` : ''}</span>
 }
 
 function ticketLabel(state: string | null): string | null {
@@ -547,7 +605,8 @@ function fbLabel(state: string | null): string | null {
 }
 
 function pixelLabel(state: string | null, platform: string | null): string | null {
-  const platformBit = platform ? ` (${platform})` : ''
+  const short = shortPlaceName(platform)
+  const platformBit = short ? ` · ${short}` : ''
   if (state === 'ours_added') return `ours added${platformBit}`
   if (state === 'chasing') return `chasing${platformBit}`
   if (state === 'cant_add') return `can't add${platformBit}`

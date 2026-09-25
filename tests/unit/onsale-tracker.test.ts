@@ -5,11 +5,35 @@ import {
   includeInOnsaleTracker,
   isTrackerOnSale,
   isoToWallInput,
+  plainMilestoneLabel,
   resolveOnsaleNow,
+  ticketLinkLabel,
   wallTimeToUtcIso,
+  websiteLinkLabel,
   MELBOURNE_TZ,
 } from '../../lib/onsale-tracker.ts'
 import { formValuesToPatch, parseOnsalePatch, trackerToForm, emptyOnsaleForm } from '../../lib/onsale-tracker-patch.ts'
+
+describe('compact tracker labels', () => {
+  it('maps internal milestone keys to plain labels', () => {
+    assert.equal(plainMilestoneLabel('ticketLink deadline'), 'Ticket link approval due')
+    assert.equal(plainMilestoneLabel('website deadline'), 'Website live by')
+    assert.equal(plainMilestoneLabel('Website go-live'), 'Website live by')
+    assert.equal(plainMilestoneLabel('fbEvent deadline'), 'FB Event live by')
+    assert.equal(plainMilestoneLabel('pixel deadline'), 'Pixel check due')
+    assert.equal(plainMilestoneLabel('erAd deadline', 'ER ad not created within 24h of FB Event live'), 'ER ad due')
+    assert.equal(plainMilestoneLabel('erAd deadline', 'ER ad paused waiting on GO'), 'Ad GO due')
+    assert.equal(plainMilestoneLabel('ticketAd deadline'), 'Ad GO due')
+    assert.equal(plainMilestoneLabel('Announce'), 'Announce')
+  })
+
+  it('shortens ticket and website links', () => {
+    assert.equal(ticketLinkLabel('Ticketek', 'https://premier.ticketek.com.au/shows/show.aspx?sh=QUEENEVE27'), 'Ticketek ↗')
+    assert.equal(ticketLinkLabel(null, 'https://www.ticketmaster.com.au/event/123'), 'Ticketmaster ↗')
+    assert.equal(websiteLinkLabel(11069), 'WP 11069')
+    assert.equal(websiteLinkLabel(null), 'Website ↗')
+  })
+})
 
 describe('Melbourne wall clock', () => {
   it('stores 10:00 AEST as 00:00 UTC and 10:00 AEDT as 23:00 UTC the day before', () => {

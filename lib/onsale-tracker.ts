@@ -245,6 +245,94 @@ export function fmtSafe(iso: string | null | undefined, timeZone?: string): stri
   }
 }
 
+/** Cell date without the weekday, so a key-date line stays on one row. */
+export function fmtCompactMelbourne(date: Date, timeZone = MELBOURNE_TZ): string {
+  const parts = new Intl.DateTimeFormat('en-AU', {
+    timeZone,
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).formatToParts(date)
+  const get = (type: string) => parts.find(part => part.type === type)?.value ?? ''
+  return `${get('day')} ${get('month')}, ${get('hour')}:${get('minute')} ${get('dayPeriod').toLowerCase()} ${get('timeZoneName')}`.replace(/\s+/g, ' ').trim()
+}
+
+export function fmtCompactSafe(iso: string | null | undefined, timeZone?: string): string | null {
+  if (!iso) return null
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return null
+  try {
+    return fmtCompactMelbourne(date, timeZone)
+  } catch {
+    return null
+  }
+}
+
+const LINK_NAMES: ReadonlyArray<readonly [string, string]> = [
+  ['ticketek', 'Ticketek'],
+  ['ticketmaster', 'Ticketmaster'],
+  ['ticketsearch', 'TicketSearch'],
+  ['spektrix', 'Spektrix'],
+  ['facebook', 'Facebook'],
+  ['brec', 'BREC'],
+]
+
+/** Short venue/platform name for a link label. Full URL stays on the anchor. */
+export function shortPlaceName(platform: string | null | undefined, url?: string | null): string | null {
+  const hay = `${platform ?? ''} ${url ?? ''}`.toLowerCase()
+  for (const [needle, label] of LINK_NAMES) {
+    if (hay.includes(needle)) return label
+  }
+  if (platform) {
+    const word = platform.split(/[\s(/,–—-]/)[0]?.trim()
+    if (word && word.length <= 18) return word
+  }
+  if (url) {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, '')
+      const stem = host.split('.')[0]
+      if (stem) return stem
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+export function ticketLinkLabel(platform: string | null | undefined, url: string): string {
+  return `${shortPlaceName(platform, url) ?? 'Tickets'} ↗`
+}
+
+export function websiteLinkLabel(wpPostId: number | string | null | undefined): string {
+  if (wpPostId != null && String(wpPostId).trim() !== '') return `WP ${wpPostId}`
+  return 'Website ↗'
+}
+
+/**
+ * Plain next-milestone text. Status logic still stores internal keys
+ * (`ticketLink deadline`); this only changes what the row shows.
+ */
+export function plainMilestoneLabel(label: string, erAdReason?: string | null): string {
+  switch (label) {
+    case 'ticketLink deadline': return 'Ticket link approval due'
+    case 'edm deadline': return 'EDM approval due'
+    case 'website deadline':
+    case 'Website go-live': return 'Website live by'
+    case 'fbEvent deadline': return 'FB Event live by'
+    case 'pixel deadline': return 'Pixel check due'
+    case 'ticketAd deadline': return 'Ad GO due'
+    case 'erAd deadline': {
+      const reason = (erAdReason ?? '').toLowerCase()
+      if (reason.includes('paused') || reason.includes('waiting on go')) return 'Ad GO due'
+      return 'ER ad due'
+    }
+    case 'dates deadline': return 'Key date due'
+    default: return label
+  }
+}
+
 export function safeHttpUrl(value: string | null | undefined): string | null {
   if (!value) return null
   try {
