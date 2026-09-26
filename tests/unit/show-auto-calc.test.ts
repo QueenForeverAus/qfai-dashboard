@@ -33,6 +33,33 @@ describe('Music Rights + Daniel Champagne AUTO-CALC', () => {
     assert.equal(calc.base, 24000)
   })
 
+  it('missing ticket price is FIGURES NEEDED and not a $0 figure', () => {
+    const missing = computeMusicRights({
+      show: { capacity: 575, ticket_price: null, sell_through_pct: 75 },
+      musicRightsPct: 2,
+    })
+    assert.equal(missing.state, 'pending')
+    assert.equal(missing.amount, null)
+    assert.ok(missing.tickets > 0)
+
+    const blank = computeMusicRights({
+      show: { capacity: 400, ticket_price: undefined, sell_through_pct: 75 },
+      musicRightsPct: 2,
+    })
+    assert.equal(blank.state, 'pending')
+    assert.equal(blank.amount, null)
+  })
+
+  it('26R06 Goulburn: 403 cap × 75% = 302 tickets × $71.70 × 2%', () => {
+    const goulburn = computeMusicRights({
+      show: { capacity: 403, ticket_price: 71.7, sell_through_pct: 75 },
+      musicRightsPct: 2,
+    })
+    assert.equal(goulburn.tickets, 302)
+    assert.equal(goulburn.state, 'auto_calc')
+    assert.equal(goulburn.amount, 433.07)
+  })
+
   it('Daniel Champagne = tickets × Factors $/ticket, default $1+GST', () => {
     const def = computeDanielChampagne({ show })
     assert.equal(def.perTicket, DANIEL_CHAMPAGNE_DEFAULT_PER_TICKET)

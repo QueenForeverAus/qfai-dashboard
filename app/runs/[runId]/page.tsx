@@ -32,6 +32,7 @@ import { ticketLockFromActuals } from '@/lib/settlements-advancing-sync'
 import { isAdvancingDeskTab, parseRunDetailTab } from '@/lib/tour-desk-nav'
 import { DANIEL_CHAMPAGNE_DEFAULT_PER_TICKET, parseOptionalFactor } from '@/lib/show-auto-calc'
 import { musicRightsSeedLine } from '@/lib/music-rights-line'
+import { insertCostFieldsSkipDuplicates } from '@/lib/cost-field-insert'
 
 type Show = {
   id: string
@@ -283,6 +284,8 @@ export default async function RunDetailPage({
           }
           const hasLineItems = f.field_key === 'venue_staff' && Array.isArray(f.line_items) && f.line_items.length > 0
           const patch: { entries: unknown; value?: number } = { entries }
+          // Header value tracks sum(entries). Factors refresh writes both
+          // together, so a refreshed figure is still here after reload.
           if (!hasLineItems) patch.value = entriesSum(entries as Parameters<typeof entriesSum>[0])
           return supabase.from('cost_fields').update(patch).eq('id', f.id)
         })
@@ -344,7 +347,7 @@ export default async function RunDetailPage({
         }
         return body
       })
-      await supabase.from('cost_fields').insert(rows)
+      await insertCostFieldsSkipDuplicates(supabase, rows)
       dirty = true
     }
 

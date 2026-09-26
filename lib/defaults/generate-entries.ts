@@ -1,7 +1,10 @@
 import { formatDateShortAU } from '../dates.ts'
 import { LIGHTING_HIRE_LINE_LABEL } from '../cost-fields.ts'
+import { factorLineSeedKey, generatedEntrySeedKey } from '../factor-entry-match.ts'
 import { KEYBOARD_STAND_HIRE_LABEL } from '../group-type.ts'
 import { LIGHTING_HIRE_PER_RUN, type RunDefault } from './run-defaults.ts'
+
+export { generatedEntrySeedKey }
 
 export type SeedEntry = {
   id: string
@@ -15,12 +18,6 @@ export type SeedEntry = {
   rate?: number | null
   rate_unit?: 'per_payer' | 'pct_gross' | null
   inside_kind?: 'booking_fee' | 'cc_fee' | 'ticketing_inside' | 'comp_tickets' | 'custom' | null
-}
-
-/** Deterministic seed identity so a deleted line is not recreated on refresh. */
-export function generatedEntrySeedKey(fieldKey: string, description: string): string {
-  const desc = String(description ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
-  return `${fieldKey}:${desc}`
 }
 
 function withSeedKeys(fieldKey: string, entries: SeedEntry[]): SeedEntry[] {
@@ -131,16 +128,19 @@ function generateEntriesUnseeded(
           amount: perNight,
           gst_included: true,
           confirmed,
+          seed_key: factorLineSeedKey('accommodation', `pre:${i + 1}`),
         })
       }
       shows.forEach((show, i) => {
+        const night = travelNights + i + 1
         entries.push({
           id: uid(),
-          description: `${show.venue_city} — Night ${travelNights + i + 1}`,
+          description: `${show.venue_city} — Night ${night}`,
           notes: withFactorsSource(`${fmtDate(show.show_date)} — 7 rooms`),
           amount: perNight,
           gst_included: true,
           confirmed,
+          seed_key: factorLineSeedKey('accommodation', `night:${night}`),
         })
       })
       return entries
@@ -153,8 +153,8 @@ function generateEntriesUnseeded(
       const perPerson = dailyRate * days
       const confirmed = defaults.perDiems.state === 'known'
       return [
-        { id: uid(), description: 'Darryn McLaughlin', notes: withFactorsSource(`$${dailyRate}/day × ${days} day${days !== 1 ? 's' : ''}`), amount: perPerson, gst_included: false, confirmed },
-        { id: uid(), description: 'Danny Oakhill',     notes: withFactorsSource(`$${dailyRate}/day × ${days} day${days !== 1 ? 's' : ''}`), amount: perPerson, gst_included: false, confirmed },
+        { id: uid(), description: 'Darryn McLaughlin', notes: withFactorsSource(`$${dailyRate}/day × ${days} day${days !== 1 ? 's' : ''}`), amount: perPerson, gst_included: false, confirmed, seed_key: factorLineSeedKey('per_diems', 'darryn') },
+        { id: uid(), description: 'Danny Oakhill',     notes: withFactorsSource(`$${dailyRate}/day × ${days} day${days !== 1 ? 's' : ''}`), amount: perPerson, gst_included: false, confirmed, seed_key: factorLineSeedKey('per_diems', 'danny') },
       ]
     }
 
@@ -171,19 +171,27 @@ function generateEntriesUnseeded(
     }
 
     case 'crew_travel_day': {
-      if (!defaults?.crewTravelDay) return []
-      const confirmed = defaults.crewTravelDay.state === 'known'
-      if (defaults.crewTravelDayItems?.length && !factors?.crew_travel_day_adam && !factors?.crew_travel_day_michael) {
+      const adamFactor = factors?.crew_travel_day_adam
+      const michaelFactor = factors?.crew_travel_day_michael
+      const hasFactor = (adamFactor != null && Number.isFinite(Number(adamFactor)))
+        || (michaelFactor != null && Number.isFinite(Number(michaelFactor)))
+      if (!defaults?.crewTravelDay && !hasFactor) return []
+      const confirmed = defaults?.crewTravelDay?.state === 'known'
+      if (defaults?.crewTravelDayItems?.length && !hasFactor) {
         return defaults.crewTravelDayItems.map(item => ({
           id: uid(), description: item.description, notes: withFactorsSource(item.notes),
           amount: item.amount, gst_included: true, confirmed,
         }))
       }
-      const adamRate = factors?.crew_travel_day_adam ?? Math.round(defaults.crewTravelDay.value / 2)
-      const michaelRate = factors?.crew_travel_day_michael ?? Math.round(defaults.crewTravelDay.value / 2)
+      const adamRate = adamFactor != null && Number.isFinite(Number(adamFactor))
+        ? Number(adamFactor)
+        : Math.round((defaults?.crewTravelDay?.value ?? 500) / 2)
+      const michaelRate = michaelFactor != null && Number.isFinite(Number(michaelFactor))
+        ? Number(michaelFactor)
+        : Math.round((defaults?.crewTravelDay?.value ?? 500) / 2)
       return [
-        { id: uid(), description: 'Adam Dahl',          notes: withFactorsSource('Non-performance travel day'), amount: adamRate, gst_included: true, confirmed },
-        { id: uid(), description: 'Michael Richardson', notes: withFactorsSource('Non-performance travel day'), amount: michaelRate, gst_included: true, confirmed },
+        { id: uid(), description: 'Adam Dahl', notes: withFactorsSource('Non-performance travel day'), amount: adamRate, gst_included: true, confirmed, seed_key: factorLineSeedKey('crew_travel_day', 'adam') },
+        { id: uid(), description: 'Michael Richardson', notes: withFactorsSource('Non-performance travel day'), amount: michaelRate, gst_included: true, confirmed, seed_key: factorLineSeedKey('crew_travel_day', 'michael') },
       ]
     }
 
@@ -230,6 +238,7 @@ function generateEntriesUnseeded(
         amount: rate,
         gst_included: true,
         confirmed: false,
+        seed_key: factorLineSeedKey('lighting_hire', 'per_run'),
       }]
     }
 
@@ -242,15 +251,18 @@ function generateEntriesUnseeded(
         amount: rate,
         gst_included: true,
         confirmed: false,
+        seed_key: factorLineSeedKey('food_basics', `show:${i + 1}`),
       }))
     }
 
     case 'backline_hire': {
-      if (!defaults?.backlineHire && !defaults?.keyboardHire) return []
+      const factorRate = factors?.backline_hire_per_run
+      const hasFactor = factorRate != null && Number.isFinite(Number(factorRate))
+      if (!defaults?.backlineHire && !defaults?.keyboardHire && !hasFactor) return []
       const entries: SeedEntry[] = []
-      if (defaults?.backlineHire) {
-        const rate = factors?.backline_hire_per_run ?? defaults.backlineHire.value
-        const ownKeyboard = !defaults.keyboardHire
+      if (defaults?.backlineHire || hasFactor) {
+        const rate = hasFactor ? Number(factorRate) : Number(defaults?.backlineHire?.value ?? 0)
+        const ownKeyboard = !defaults?.keyboardHire
         entries.push({
           id: uid(),
           description: 'Backline hire (local)',
@@ -261,7 +273,8 @@ function generateEntriesUnseeded(
           ),
           amount: rate,
           gst_included: true,
-          confirmed: defaults.backlineHire.state === 'known',
+          confirmed: defaults?.backlineHire?.state === 'known',
+          seed_key: factorLineSeedKey('backline_hire', 'per_run'),
         })
       }
       if (defaults?.keyboardHire) {
@@ -272,6 +285,7 @@ function generateEntriesUnseeded(
           amount: defaults.keyboardHire.value,
           gst_included: true,
           confirmed: defaults.keyboardHire.state === 'known',
+          seed_key: factorLineSeedKey('backline_hire', 'keyboard'),
         })
       }
       return entries

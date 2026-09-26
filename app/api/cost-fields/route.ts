@@ -21,6 +21,7 @@ import { normalizeStoredCostFieldState } from '@/lib/certainty-ladder'
 import { rejectIfBookedCostFrozen } from '@/lib/booked-cost-freeze-persist'
 import { parseLinePctFromBody } from '@/lib/music-rights-line'
 import { MUSIC_RIGHTS_FIELD_KEY } from '@/lib/show-auto-calc'
+import { findCostFieldByIdentity, isUniqueViolation } from '@/lib/cost-field-insert'
 
 /**
  * POST /api/cost-fields — create a cost field row (authenticated).
@@ -127,12 +128,22 @@ export async function POST(req: NextRequest) {
     ...(linePct !== undefined ? { line_pct: linePct } : {}),
   }
 
+  const showId = row.show_id == null || row.show_id === '' ? null : String(row.show_id)
+  const existing = await findCostFieldByIdentity(supabase, String(row.run_id), fieldKey, showId)
+  if (existing.error) return NextResponse.json({ error: existing.error.message }, { status: 500 })
+  if (existing.row) return NextResponse.json(existing.row, { status: 200 })
+
   const { data, error } = await supabase
     .from('cost_fields')
     .insert(row)
     .select()
     .single()
 
+  if (error && isUniqueViolation(error)) {
+    const again = await findCostFieldByIdentity(supabase, String(row.run_id), fieldKey, showId)
+    if (again.row) return NextResponse.json(again.row, { status: 200 })
+    return NextResponse.json({ error: error.message }, { status: 409 })
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(data, { status: 201 })
 }

@@ -7,6 +7,7 @@
 
 import type { CostEntry } from './cost-fields.ts'
 import { generatedEntrySeedKey, type SeedEntry } from './defaults/generate-entries.ts'
+import { factorSlotId, matchFactorGeneratedEntries } from './factor-entry-match.ts'
 
 export const COST_LINE_TOMBSTONE_SHEETS = ['costings', 'advancing'] as const
 export type CostLineTombstoneSheet = (typeof COST_LINE_TOMBSTONE_SHEETS)[number]
@@ -142,20 +143,22 @@ export function tombstonesForRemovedEntries(opts: {
   return rows
 }
 
-function paidChrome<T extends CostEntry>(keep: T, incoming: SeedEntry | CostEntry): T {
-  return {
-    ...keep,
-    description: incoming.description || keep.description,
-    notes: incoming.notes ?? keep.notes,
-    amount: Number(incoming.amount) || 0,
-    gst_included: incoming.gst_included ?? keep.gst_included,
-    seed_key: keep.seed_key ?? ('seed_key' in incoming ? incoming.seed_key : null) ?? keep.inside_kind ?? null,
-  }
+function tombstoneLooksLikeSlot(
+  fieldKey: string,
+  seedKey: string,
+  slot: string,
+): boolean {
+  const prefix = `${fieldKey}:`
+  const description = seedKey.startsWith(prefix) ? seedKey.slice(prefix.length) : seedKey
+  const tombSlot = factorSlotId(fieldKey, { seed_key: seedKey, description })
+  if (!tombSlot) return false
+  return tombSlot === slot || slot.startsWith(`${tombSlot}:`)
 }
 
 /**
- * Factors refresh merge: update remaining seeded lines, never resurrect
- * tombstoned seed keys, keep user-added / custom entries.
+ * Factors refresh merge: update the line for the same factor slot
+ * (stable key, legacy label, or venue rename), never resurrect a
+ * tombstoned slot, keep manual entries. See factor-entry-match.ts.
  */
 export function mergeFactorRefreshEntries(opts: {
   fieldKey: string
@@ -164,69 +167,36 @@ export function mergeFactorRefreshEntries(opts: {
   tombstones?: Iterable<TombstoneRef> | null
   showId?: string | null
 }): CostEntry[] {
-  const existing = opts.existing ?? []
-  const used = new Set<string>()
-  const out: CostEntry[] = []
-
-  for (const gen of opts.generated) {
-    const seed = String(gen.seed_key ?? generatedEntrySeedKey(opts.fieldKey, gen.description)).trim()
-    if (!seed) continue
-    if (isTombstoned(opts.tombstones, {
-      show_id: opts.showId ?? null,
-      field_key: opts.fieldKey,
-      seed_key: seed,
-    })) continue
-
-    const match = existing.find(row => {
-      if (used.has(row.id)) return false
-      const key = entrySeedKey(opts.fieldKey, row)
-      if (key === seed) {
-        used.add(row.id)
-        return true
-      }
-      return false
-    })
-
-    if (match) {
-      out.push(paidChrome(match, { ...gen, seed_key: seed }))
-    } else {
-      out.push({
-        id: gen.id,
-        description: gen.description,
-        notes: gen.notes,
-        amount: Number(gen.amount) || 0,
-        gst_included: gen.gst_included,
-        confirmed: Boolean('confirmed' in gen ? gen.confirmed : false),
-        paid: false,
-        paid_at: null,
+  const tombs = [...(opts.tombstones ?? [])]
+  const showId = opts.showId ?? null
+  return matchFactorGeneratedEntries({
+    fieldKey: opts.fieldKey,
+    existing: opts.existing,
+    generated: opts.generated,
+    blocked: (aliases, slot) => {
+      if (aliases.some(seed => isTombstoned(tombs, {
+        show_id: showId,
+        field_key: opts.fieldKey,
         seed_key: seed,
-        rate: 'rate' in gen ? gen.rate ?? null : null,
-        rate_unit: 'rate_unit' in gen ? gen.rate_unit ?? null : null,
-        inside_kind: 'inside_kind' in gen && (
-          gen.inside_kind === 'booking_fee'
-          || gen.inside_kind === 'cc_fee'
-          || gen.inside_kind === 'ticketing_inside'
-          || gen.inside_kind === 'comp_tickets'
-          || gen.inside_kind === 'custom'
-        )
-          ? gen.inside_kind
-          : null,
+      }))) return true
+      if (!slot) return false
+      return tombs.some(t =>
+        t.field_key === opts.fieldKey
+        && (t.show_id ?? null) === showId
+        && !isFieldTombstone(t.seed_key)
+        && tombstoneLooksLikeSlot(opts.fieldKey, t.seed_key, slot),
+      )
+    },
+    tombstoned: entry => {
+      const seed = entrySeedKey(opts.fieldKey, entry)
+      if (!seed) return false
+      return isTombstoned(tombs, {
+        show_id: showId,
+        field_key: opts.fieldKey,
+        seed_key: seed,
       })
-    }
-  }
-
-  for (const row of existing) {
-    if (used.has(row.id)) continue
-    const seed = entrySeedKey(opts.fieldKey, row)
-    if (seed && isTombstoned(opts.tombstones, {
-      show_id: opts.showId ?? null,
-      field_key: opts.fieldKey,
-      seed_key: seed,
-    })) continue
-    out.push(row)
-  }
-
-  return out
+    },
+  })
 }
 
 export function filterEntriesAgainstTombstones<T extends CostEntry>(

@@ -36,3 +36,6 @@ credentials/
 # Playwright test artifacts
 test-results/
 tests/*-auth-state.json
+
+# Staging dedupe snapshots (rollback JSON). Not source.
+scripts/dedupe-backups/
