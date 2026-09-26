@@ -12,6 +12,7 @@
  */
 
 import { isBookedBookingStatus } from './booked-cost-freeze.ts'
+import { ENTRY_EXEMPT_FIELD_KEYS, entriesSum, type CostEntry } from './cost-fields.ts'
 import { allowsStandingLightingHire } from './group-type.ts'
 import type { RunRegion } from './types.ts'
 import { RUN_DEFAULTS } from './defaults/run-defaults.ts'
@@ -67,6 +68,58 @@ export function fieldKeysAffectedByFactor(factorKey: string): string[] {
   return FACTOR_COSTING_FIELD_MAP[factorKey] ?? []
 }
 
+/** Same fallbacks computeFactorDerivedValue uses when Factors is silent. */
+export const BACKLINE_HIRE_FALLBACK = 3800
+export const CREW_TRAVEL_DAY_PERSON_FALLBACK = 250
+
+/**
+ * Rates passed into generateEntries during refresh.
+ * Runs with no RUN_DEFAULTS (R19 and later) still get backline / crew
+ * lines, so the line items sum to the same total the header stores.
+ * Runs that already have their own backline or crew-travel defaults are
+ * left on that path unless Factors actually has a rate.
+ */
+export function factorsForRefreshGeneration(
+  factors: FactorOverrides,
+  defaults: { backlineHire?: unknown; crewTravelDay?: unknown } | null,
+): FactorOverrides {
+  const next: FactorOverrides = { ...factors }
+  if (!defaults?.backlineHire && next.backline_hire_per_run == null) {
+    next.backline_hire_per_run = BACKLINE_HIRE_FALLBACK
+  }
+  if (!defaults?.crewTravelDay) {
+    if (next.crew_travel_day_adam == null) next.crew_travel_day_adam = CREW_TRAVEL_DAY_PERSON_FALLBACK
+    if (next.crew_travel_day_michael == null) next.crew_travel_day_michael = CREW_TRAVEL_DAY_PERSON_FALLBACK
+  }
+  return next
+}
+
+/**
+ * What refresh writes. Entry-backed fields store value = sum(entries),
+ * which is what the page-load reconcile will write again. Exempt fields
+ * (Music Rights, Daniel Champagne) have no entries; value is the calc.
+ */
+export function buildFactorRefreshUpdate(opts: {
+  fieldKey: string
+  derived: { value: number | null; state?: 'auto_calc' | 'pending'; line_pct?: number | null } | null
+  mergedEntries: CostEntry[]
+}): Record<string, unknown> | null {
+  if (ENTRY_EXEMPT_FIELD_KEYS.has(opts.fieldKey)) {
+    if (!opts.derived) return null
+    const patch: Record<string, unknown> = { value: opts.derived.value }
+    if (opts.derived.state) patch.state = opts.derived.state
+    if (opts.derived.line_pct !== undefined) patch.line_pct = opts.derived.line_pct
+    return patch
+  }
+  const patch: Record<string, unknown> = {
+    entries: opts.mergedEntries,
+    value: entriesSum(opts.mergedEntries),
+  }
+  if (opts.derived?.state) patch.state = opts.derived.state
+  if (opts.derived?.line_pct !== undefined) patch.line_pct = opts.derived.line_pct
+  return patch
+}
+
 export function computeFactorDerivedValue(
   fieldKey: string,
   runCode: string,
@@ -90,10 +143,10 @@ export function computeFactorDerivedValue(
       if (!allowsStandingLightingHire(region)) return 0
       return factors.lighting_hire_per_run ?? lightingHireDefault
     case 'backline_hire':
-      return factors.backline_hire_per_run ?? 3800
+      return factors.backline_hire_per_run ?? BACKLINE_HIRE_FALLBACK
     case 'crew_travel_day': {
-      const adam = factors.crew_travel_day_adam ?? 250
-      const michael = factors.crew_travel_day_michael ?? 250
+      const adam = factors.crew_travel_day_adam ?? CREW_TRAVEL_DAY_PERSON_FALLBACK
+      const michael = factors.crew_travel_day_michael ?? CREW_TRAVEL_DAY_PERSON_FALLBACK
       return adam + michael
     }
     default:

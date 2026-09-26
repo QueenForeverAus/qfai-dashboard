@@ -50,8 +50,6 @@ import {
   DEFINED_RUN_COST_FIELDS,
   DEFINED_SHOW_COST_FIELDS,
   defaultCostEntryDescription,
-  findMissingDefinedCostFields,
-  buildCreateCostFieldBody,
   hasBulkPaidSnapshot,
   INVOICED_FIELD_STATE,
   lineItemsSum,
@@ -113,7 +111,6 @@ import {
 } from '@/lib/show-auto-calc'
 import {
   musicRightsLineEditPatch,
-  musicRightsSeedLine,
   parseMusicRightsLinePct,
 } from '@/lib/music-rights-line'
 import { canRefreshCostingsFromFactors, FACTORS_REFRESH_OFFER } from '@/lib/factors-refresh'
@@ -1058,7 +1055,15 @@ function FieldRow({
       sellThroughPct,
     })
     : null
-  const state = figureStateFromSelect(isEditing ? draftSelect : persistedSelect, persistedState)
+  const musicFiguresNeeded = Boolean(
+    musicCalc
+    && musicCalc.state === 'pending'
+    && musicCalc.amount == null
+    && (persistedState === 'auto_calc' || persistedState === 'pending' || persistedState === 'figures_needed'),
+  )
+  const state = musicFiguresNeeded && !isEditing
+    ? 'pending'
+    : figureStateFromSelect(isEditing ? draftSelect : persistedSelect, persistedState)
   const { styles, chipLabel, chromeAttr, allPaid: sectionPaid, showPaid } = sectionChrome(state, entries)
   const displayTotal = musicCalc
     ? musicCalc.amount
@@ -2099,7 +2104,6 @@ export default function CostFieldsTab({
   editorDisplayNameByFieldId = {},
   insideFactors: _insideFactors = {},
   remittanceLines = [],
-  costingTombstones = [],
   advancingTombstones = [],
   costSheetFrozen = false,
   bookingStatus = null,
@@ -2108,7 +2112,6 @@ export default function CostFieldsTab({
   initialAdvancingFields = [],
   initialAdvancingChrome = [],
   ticketLocks = {},
-  musicRightsPct = null,
   danielChampagnePerTicket = DANIEL_CHAMPAGNE_DEFAULT_PER_TICKET,
 }: {
   runId: string
@@ -2138,7 +2141,7 @@ export default function CostFieldsTab({
   musicRightsPct?: number | null
   danielChampagnePerTicket?: number
 }) {
-  const { effectiveRole, profile } = useProfile()
+  const { effectiveRole, profile, isLoading: profileLoading } = useProfile()
   const hasTabAccess = canAccessTab(effectiveRole, 'costs')
   const hasRunAdvancing = canAccessTab(effectiveRole, 'run_advancing')
   const hasAdvancement = canAccessTab(effectiveRole, 'advancement')
@@ -2195,9 +2198,13 @@ export default function CostFieldsTab({
   }
   const ensureOnceRef = useRef(false)
 
-  // On open: create missing defined rows + seed ≥1 entry via /api/cost-fields
-  // (production can write; covers backline_hire when seed skipped the row).
+  // Page SSR inserts missing defined rows before this tree hydrates.
+  // Do not POST /api/cost-fields from here: a stale client copy races that
+  // insert (unique violation → 500) and run-level NULL show_id rows are not
+  // covered by the show-level unique key, so the same race duplicated them.
+  // The API itself is idempotent for any later explicit create.
   useEffect(() => {
+    if (profileLoading) return
     if (ensureOnceRef.current) return
     if (!hasTabAccess) return
     if (costSheetFrozen) return
@@ -2208,35 +2215,7 @@ export default function CostFieldsTab({
 
     async function ensureDefinedFields() {
       const role = effectiveRole ?? undefined
-      const missing = findMissingDefinedCostFields(
-        fields.map(f => ({ show_id: f.show_id, field_key: f.field_key })),
-        showsState.map(s => s.id),
-        { role, onlyVisibleToRole: true, tombstones: costingTombstones },
-      )
-
       const created: CostFieldRow[] = []
-      for (const spec of missing) {
-        try {
-          const extras = spec.fieldDef.key === MUSIC_RIGHTS_FIELD_KEY
-            ? (() => {
-              const show = showsState.find(s => s.id === spec.showId)
-              if (!show) return undefined
-              return {
-                musicRights: musicRightsSeedLine({
-                  show,
-                  factors: { music_rights_pct: musicRightsPct },
-                }),
-              }
-            })()
-            : undefined
-          const body = buildCreateCostFieldBody(runId, spec, extras)
-          const data = await createCostField(body)
-          created.push(data)
-        } catch (err) {
-          // Race / already exists — ignore; page SSR or refresh will reconcile.
-          console.warn('ensure cost field create skipped:', spec.fieldDef.key, err)
-        }
-      }
 
       // Existing rows with empty entries → PATCH seed (non-exempt).
       const emptyRows = fields.filter(f => {
@@ -2283,7 +2262,7 @@ export default function CostFieldsTab({
     void ensureDefinedFields()
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on open for this run
-  }, [runId, hasTabAccess, effectiveRole])
+  }, [runId, hasTabAccess, effectiveRole, profileLoading])
 
   function handleShowUpdated(updated: Show) {
     setShowsState(prev => prev.map(s => s.id === updated.id ? { ...s, ...updated } : s))

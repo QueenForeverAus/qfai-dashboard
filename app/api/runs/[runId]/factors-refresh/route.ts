@@ -6,8 +6,10 @@ import { generateEntries, type FactorOverrides } from '@/lib/defaults/generate-e
 import { loadPortalSettings } from '@/lib/portal-settings'
 import {
   buildFactorFieldPatch,
+  buildFactorRefreshUpdate,
   canRefreshCostingsFromFactors,
   FACTOR_COSTING_FIELD_MAP,
+  factorsForRefreshGeneration,
   factorsRefreshBlockedReason,
   shouldRefreshCostField,
 } from '@/lib/factors-refresh'
@@ -17,7 +19,7 @@ import {
   type CostLineTombstone,
 } from '@/lib/cost-line-tombstones'
 import { INSIDE_FEES_FIELD_KEY } from '@/lib/inside-fee-lines'
-import { entriesSum, normalizeEntries } from '@/lib/cost-fields'
+import { normalizeEntries } from '@/lib/cost-fields'
 
 const ALL_REFRESH_KEYS = [...new Set(Object.values(FACTOR_COSTING_FIELD_MAP).flat())]
 
@@ -97,7 +99,13 @@ export async function POST(
     })
     if (field.field_key === INSIDE_FEES_FIELD_KEY) continue
     const existingEntries = normalizeEntries(field.entries) ?? []
-    const generated = generateEntries(field.field_key, field.state, defaults, shows ?? [], factorMap)
+    const generated = generateEntries(
+      field.field_key,
+      field.state,
+      defaults,
+      shows ?? [],
+      factorsForRefreshGeneration(factorMap, defaults),
+    )
 
     const merged = mergeFactorRefreshEntries({
       fieldKey: field.field_key,
@@ -107,19 +115,15 @@ export async function POST(
       showId: field.show_id ?? null,
     })
 
-    const patch: Record<string, unknown> = {}
-    if (derived) {
-      patch.value = derived.value
-      if (derived.state) patch.state = derived.state
-      if (derived.line_pct !== undefined) patch.line_pct = derived.line_pct
-    }
-    if (merged.length || existingEntries.length) {
-      patch.entries = JSON.parse(JSON.stringify(merged))
-      if (field.field_key === INSIDE_FEES_FIELD_KEY || !derived) {
-        patch.value = entriesSum(merged)
+    const patch = buildFactorRefreshUpdate({
+      fieldKey: field.field_key,
+      derived,
+      mergedEntries: merged,
+    })
+    if (patch && Object.keys(patch).length) {
+      if (Array.isArray(patch.entries)) {
+        patch.entries = JSON.parse(JSON.stringify(patch.entries))
       }
-    }
-    if (Object.keys(patch).length) {
       await supabase.from('cost_fields').update(patch).eq('id', field.id)
       refreshed++
     }

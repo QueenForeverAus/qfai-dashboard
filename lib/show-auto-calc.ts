@@ -13,8 +13,10 @@
  *            music_rights_pct seeds unbooked lines only and is never
  *            written back from a line edit.
  *
- * AU % may be empty → FIGURES_NEEDED (pending). NZ 2% is known in the world
- * but is never invented here — never copy retired apra_pct.
+ * AU % may be empty → FIGURES_NEEDED (pending). A missing ticket price is
+ * the same state: amount is null (not $0) and it adds nothing to totals.
+ * NZ 2% is known in the world but is never invented here — never copy
+ * retired apra_pct.
  *
  * Daniel Champagne:
  *   amount = tickets × daniel_champagne_per_ticket
@@ -66,9 +68,18 @@ export function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
 }
 
+/** Null when the show has no usable ticket price. 0 is a real price. */
+export function musicRightsTicketPrice(show: AutoCalcShow): number | null {
+  const raw = show.ticket_price as unknown
+  if (raw == null || raw === '') return null
+  const n = typeof raw === 'number' ? raw : Number(raw)
+  return Number.isFinite(n) ? n : null
+}
+
 /**
  * Music Rights AUTO-CALC.
- * Null pct → no amount (FIGURES_NEEDED). Never invent AU/NZ splits.
+ * Null pct or a missing ticket price → no amount (FIGURES_NEEDED).
+ * Never invent AU/NZ splits. Never report $0 as if the price were known.
  */
 export function computeMusicRights(opts: {
   show: AutoCalcShow
@@ -76,7 +87,10 @@ export function computeMusicRights(opts: {
   sellThroughPct?: number | null
 }): { amount: number | null; tickets: number; base: number; state: 'auto_calc' | 'pending' } {
   const tickets = modelledTickets(opts.show, opts.sellThroughPct)
-  const price = Number(opts.show.ticket_price) || 0
+  const price = musicRightsTicketPrice(opts.show)
+  if (price == null) {
+    return { amount: null, tickets, base: 0, state: 'pending' }
+  }
   const base = roundMoney(tickets * price)
   const pct = opts.musicRightsPct
   if (pct == null || !Number.isFinite(Number(pct))) {
